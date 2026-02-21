@@ -1,0 +1,365 @@
+# =============================================================================
+# Python
+# =============================================================================
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+.pytest_cache/
+cover/
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Pyre type checker
+.pyre/
+
+# pytype static type analyzer
+.pytype/
+
+# Cython debug symbols
+cython_debug/
+
+# =============================================================================
+# Virtual Environments
+# =============================================================================
+
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# =============================================================================
+# Package Managers
+# =============================================================================
+
+# pipenv
+Pipfile.lock
+
+# poetry
+poetry.lock
+
+# pdm
+.pdm.toml
+
+# PEP 582
+__pypackages__/
+
+# pyenv
+.python-version
+
+# =============================================================================
+# IDEs and Editors
+# =============================================================================
+
+# VSCode
+.vscode/
+*.code-workspace
+
+# PyCharm / IntelliJ IDEA
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# Cursor (based on VSCode)
+.cursor/
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# Vim
+*.swp
+*.swo
+*~
+[._]*.s[a-v][a-z]
+[._]*.sw[a-p]
+[._]s[a-rt-v][a-z]
+[._]ss[a-gi-z]
+[._]sw[a-p]
+
+# Emacs
+*~
+\#*\#
+/.emacs.desktop
+/.emacs.desktop.lock
+*.elc
+auto-save-list
+tramp
+.\#*
+
+# =============================================================================
+# OS Files
+# =============================================================================
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+._*
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+.AppleDB
+.AppleDesktop
+Network Trash Folder
+Temporary Items
+.apdisk
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+*.stackdump
+[Dd]esktop.ini
+$RECYCLE.BIN/
+*.cab
+*.msi
+*.msix
+*.msm
+*.msp
+*.lnk
+
+# Linux
+*~
+.fuse_hidden*
+.directory
+.Trash-*
+.nfs*
+
+# =============================================================================
+# FastAPI / Web Framework
+# =============================================================================
+
+# FastAPI specific
+.pytest_cache/
+*.db-journal
+
+# =============================================================================
+# Database
+# =============================================================================
+
+# SQLite
+*.db
+*.sqlite
+*.sqlite3
+*.sqlite3-journal
+db.sqlite3
+db.sqlite3-journal
+
+# PostgreSQL
+*.pgsql
+*.pgdump
+*.pgbackup
+
+# Database dumps
+*.dump
+*.sql.gz
+*.sql.bz2
+
+# =============================================================================
+# Environment Variables & Secrets
+# =============================================================================
+
+.env
+.env.local
+.env.*.local
+.env.*
+*.env
+!.env.example
+!.env.template
+
+# Secrets
+secrets/
+*.key
+*.pem
+*.p12
+*.pfx
+*.secret
+*.credentials
+
+# =============================================================================
+# Logs
+# =============================================================================
+
+*.log
+logs/
+*.log.*
+log/
+
+# =============================================================================
+# Docker
+# =============================================================================
+
+# Note: .dockerignore should be tracked, so don't ignore it
+# Docker volumes and data
+docker-data/
+.docker/
+
+# =============================================================================
+# Testing & Quality
+# =============================================================================
+
+# pytest
+.pytest_cache/
+.pytest/
+
+# Coverage
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+*.cover
+.nyc_output/
+
+# SonarQube
+.sonar/
+.sonarqube/
+.scannerwork/
+sonar-project.properties.bak
+
+# =============================================================================
+# Temporary Files
+# =============================================================================
+
+*.tmp
+*.temp
+*.bak
+*.backup
+*.swp
+*.swo
+*~
+
+# =============================================================================
+# Project Specific
+# =============================================================================
+
+# Local development
+local/
+tmp/
+temp/
+scratch/
+
+# Data files (uncomment if you want to ignore large CSV files)
+# data/*.csv
+# !data/.gitkeep
+# !data/README.md
+
+# Generated files
+generated/
+output/
+
+# Alembic (keep migrations, but ignore if regenerating)
+# Uncomment if you want to ignore migration files
+# alembic/versions/*.py
+# !alembic/versions/__init__.py
+
+# =============================================================================
+# Other Tools
+# =============================================================================
+
+# Jupyter Notebook
+.ipynb_checkpoints
+*.ipynb_checkpoints
+
+# IPython
+profile_default/
+ipython_config.py
+
+# Celery
+celerybeat-schedule
+celerybeat.pid
+
+# SageMath
+*.sage.py
+
+# Translations
+*.mo
+*.pot
+
+# Sphinx documentation
+docs/_build/
+docs/_static/
+docs/_templates/
+
+# MkDocs
+/site
+
+# PyBuilder
+.pybuilder/
+target/
+
+# Rope
+.ropeproject
+
+# Spyder
+.spyderproject
+.spyproject
+
+# Scrapy
+.scrapy
+
+# Django (if used)
+local_settings.py
+
+# Flask (if used)
+instance/
+.webassets-cache
