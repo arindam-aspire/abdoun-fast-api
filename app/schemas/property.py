@@ -75,6 +75,202 @@ class PropertySearchResult(BaseModel):
         )
 
 
+class PropertySearchResultExtended(BaseModel):
+    """
+    Extended schema for property search results matching frontend format.
+    
+    Attributes match the expected JSON format for search results.
+    """
+    id: int
+    title: str
+    price: Optional[str] = None  # Formatted as "2,100 JD"
+    status: Optional[str] = None  # "rent" or "buy"
+    category: Optional[str] = None  # "residential", "land", etc.
+    searchPropertyType: Optional[str] = None  # "Apartments", "Residential Lands"
+    city: Optional[str] = None  # "Amman"
+    areaName: Optional[str] = None  # "Jabal Amman", "Swefieh"
+    propertyType: Optional[str] = None  # "Apartment", "Lot / Land for sale"
+    images: Optional[list[str]] = None
+    location: Optional[str] = None  # "Jabal Amman, Amman"
+    beds: Optional[int] = None
+    baths: Optional[int] = None
+    area: Optional[str] = None  # Formatted as "1,800"
+    acres: Optional[str] = None  # For land properties
+    highlights: Optional[str] = None
+    badges: Optional[list[str]] = None
+    handover: Optional[str] = None
+    paymentPlan: Optional[str] = None
+    validatedDate: Optional[str] = None
+    brokerName: Optional[str] = None
+    brokerLogo: Optional[str] = None
+
+    @classmethod
+    def from_orm_obj(cls, obj: Property) -> "PropertySearchResultExtended":
+        """
+        Create PropertySearchResultExtended from a Property ORM object.
+        
+        Args:
+            obj: Property database model instance
+            
+        Returns:
+            PropertySearchResultExtended instance with formatted data
+        """
+        # Parse location_name to extract city and areaName
+        city = None
+        areaName = None
+        if obj.location_name:
+            parts = obj.location_name.split(" - ")
+            if len(parts) >= 2:
+                areaName = parts[0].strip()
+                city = parts[-1].strip()
+            elif len(parts) == 1:
+                city = parts[0].strip()
+        
+        # Determine status (buy or rent)
+        status = None
+        if obj.selling_price_amount:
+            status = "buy"
+        elif obj.rent_price_amount:
+            status = "rent"
+        
+        # Format price
+        price_str = None
+        if obj.selling_price_amount:
+            price_val = float(obj.selling_price_amount)
+            currency = obj.selling_price_currency or "JD"
+            if price_val == int(price_val):
+                price_str = f"{int(price_val):,} {currency}"
+            else:
+                price_str = f"{price_val:,.2f} {currency}"
+        elif obj.rent_price_amount:
+            price_val = float(obj.rent_price_amount)
+            currency = obj.rent_price_currency or "JD"
+            if price_val == int(price_val):
+                price_str = f"{int(price_val):,} {currency}"
+            else:
+                price_str = f"{price_val:,.2f} {currency}"
+        
+        # Format area
+        area_str = None
+        if obj.built_up_area:
+            area_val = float(obj.built_up_area)
+            if area_val == int(area_val):
+                area_str = f"{int(area_val):,}"
+            else:
+                area_str = f"{area_val:,.2f}"
+        
+        # Map category to searchPropertyType and propertyType
+        searchPropertyType = None
+        propertyType = None
+        category_lower = (obj.category or "").lower()
+        
+        if "apartment" in category_lower:
+            searchPropertyType = "Apartments"
+            propertyType = "Apartment"
+            category = "residential"
+        elif "villa" in category_lower or "house" in category_lower:
+            searchPropertyType = "Villas"
+            propertyType = "Villa"
+            category = "residential"
+        elif "building" in category_lower and "land" not in category_lower:
+            searchPropertyType = "Buildings"
+            propertyType = "Building"
+            category = "residential"
+        elif "farm" in category_lower:
+            searchPropertyType = "Farms"
+            propertyType = "Farm"
+            category = "residential"
+        elif "office" in category_lower:
+            searchPropertyType = "Offices"
+            propertyType = "Office"
+            category = "commercial"
+        elif "showroom" in category_lower:
+            searchPropertyType = "Showrooms"
+            propertyType = "Showroom"
+            category = "commercial"
+        elif "warehouse" in category_lower:
+            searchPropertyType = "Warehouses"
+            propertyType = "Warehouse"
+            category = "commercial"
+        elif "business" in category_lower:
+            searchPropertyType = "Businesses"
+            propertyType = "Business"
+            category = "commercial"
+        elif "land" in category_lower:
+            # Determine land type
+            if "residential" in category_lower:
+                searchPropertyType = "Residential Lands"
+            elif "commercial" in category_lower:
+                searchPropertyType = "Commercial Lands"
+            elif "industrial" in category_lower:
+                searchPropertyType = "Industrial Lands"
+            elif "agricultural" in category_lower:
+                searchPropertyType = "Agricultural Lands"
+            elif "mixed" in category_lower or "use" in category_lower:
+                searchPropertyType = "Mixed-Use Lands"
+            else:
+                searchPropertyType = "Residential Lands"  # Default for land
+            propertyType = "Lot / Land for sale"
+            category = "land"
+        else:
+            category = "residential"  # Default
+            if obj.category:
+                propertyType = obj.category
+                searchPropertyType = obj.category
+        
+        # Create highlights
+        highlights_parts = []
+        if obj.bedrooms:
+            highlights_parts.append(f"{obj.bedrooms}BHK")
+        if obj.category:
+            highlights_parts.append(obj.category)
+        highlights = " | ".join(highlights_parts) if highlights_parts else None
+        
+        # Create badges
+        badges = []
+        if status == "buy":
+            badges.append("For Sale")
+        elif status == "rent":
+            badges.append("For Rent")
+        if obj.status and obj.status.lower() == "ok":
+            badges.append("Verified")
+        
+        # Handle "nan" titles
+        title = obj.title if obj.title and str(obj.title).lower() not in ("nan", "none") else Defaults.UNTITLED_PROPERTY
+        
+        # Format validated date from created_at if available
+        validated_date_str = None
+        if obj.created_at:
+            day = obj.created_at.day
+            suffix = "th" if 11 <= day <= 13 else {1: "st", 2: "nd", 3: "rd"}.get(day % 10, "th")
+            validated_date_str = f"{day}{suffix} of {obj.created_at.strftime('%B')}"
+        
+        return cls(
+            id=obj.id,
+            title=title,
+            price=price_str,
+            status=status,
+            category=category,
+            searchPropertyType=searchPropertyType,
+            city=city,
+            areaName=areaName,
+            propertyType=propertyType,
+            images=obj.images or [],
+            location=obj.location_name,
+            beds=obj.bedrooms or 0,
+            baths=obj.bathrooms or 0,
+            area=area_str,
+            acres=None,  # Could be calculated if needed
+            highlights=highlights,
+            badges=badges if badges else None,
+            handover=None,  # Not available in current data model
+            paymentPlan=None,  # Not available in current data model
+            validatedDate=validated_date_str,
+            brokerName="Abdoun Real Estate",  # Default broker name
+            brokerLogo=None,  # Not available in current data model
+        )
+
+
 class PropertyDetail(BaseModel):
     """
     Schema for detailed property information.
@@ -281,5 +477,33 @@ class PropertyListResponse(BaseModel):
     """
     items: list[PropertySearchResult]
     total: int
+
+
+class PropertyListResponseExtended(BaseModel):
+    """
+    Extended schema for property list API response with frontend format.
+    
+    Attributes:
+        items: List of extended property search results
+        total: Total number of properties in the result set
+    """
+    items: list[PropertySearchResultExtended]
+    total: int
+
+
+class PropertySearchResponse(BaseModel):
+    """
+    Search API response matching the exact frontend contract.
+    
+    Attributes:
+        data: List of property search results
+        total: Total number of properties matching filters
+        page: Current page number (1-based)
+        pageSize: Number of items per page
+    """
+    data: list[PropertySearchResultExtended]
+    total: int
+    page: int
+    pageSize: int
 
 

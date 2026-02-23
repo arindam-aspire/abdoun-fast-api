@@ -8,7 +8,8 @@ A production-ready FastAPI application for managing and searching real estate pr
 - 📍 **Geocoding**: Automatic geocoding with Nominatim, Google Search, and Azure OpenAI fallback
 - 🏠 **Property Management**: Full CRUD operations for property listings
 - 📊 **CSV Import**: Bulk import properties from CSV files
-- 🔍 **Advanced Filtering**: Search by location, price, bedrooms, bathrooms, etc.
+- 🔍 **Advanced Filtering**: Search by status, category, type, city, locations, and price range
+- 📄 **Pagination**: Page-based pagination with configurable page size
 - 🚀 **Fast & Scalable**: Built with FastAPI, SQLAlchemy 2.0, and PostGIS
 
 ## Tech Stack
@@ -192,16 +193,75 @@ abdoun_fast_api/
 
 ### Properties
 
-- **GET** `/api/v1/properties` - List properties (with pagination)
-- **GET** `/api/v1/properties/{id}` - Get property details
+#### List Properties (with filters and pagination)
+- **GET** `/api/v1/properties` - Search and list properties with optional filters
 
-### Search
+**Query Parameters:**
+- `page` (int, default: 1) - Page number (1-based)
+- `pageSize` (int, default: 12, max: 100) - Number of items per page
+- `status` (string, optional) - Filter by listing type: `buy` or `rent`
+- `category` (string, optional) - Filter by category: `residential`, `commercial`, `land` (or `lands`)
+- `type` (string, optional) - Filter by property type slug (e.g., `apartments`, `villas`, `residential-lands`)
+- `city` (string, optional) - Filter by city name (lowercase)
+- `locations` (string, optional) - Filter by comma-separated area/neighborhood names (lowercase)
+- `budgetMin` / `minPrice` (string, optional) - Minimum price in JD (numeric string)
+- `budgetMax` / `maxPrice` (string, optional) - Maximum price in JD (numeric string)
 
-- **POST** `/api/v1/search` - Search properties by bounds or polygon
+**Response Format:**
+```json
+{
+  "data": [...],
+  "total": 100,
+  "page": 1,
+  "pageSize": 12
+}
+```
+
+**Example Requests:**
+```bash
+# List all properties (first page)
+GET /api/v1/properties
+
+# Filter by status and pagination
+GET /api/v1/properties?status=buy&page=1&pageSize=20
+
+# Filter by category and type
+GET /api/v1/properties?category=residential&type=apartments
+
+# Filter by city and price range
+GET /api/v1/properties?city=amman&budgetMin=100000&budgetMax=500000
+
+# Combined filters
+GET /api/v1/properties?status=buy&category=residential&type=apartments&city=amman&budgetMin=100000&budgetMax=500000&page=1&pageSize=12
+```
+
+#### Get Property Details
+- **GET** `/api/v1/properties/{id}` - Get detailed information about a specific property
+
+### Search (Spatial)
+
+- **POST** `/api/v1/search` - Search properties by geographic bounds or polygon
+
+**Request Body:**
+```json
+{
+  "mode": "bounds",  // or "polygon"
+  "bounds": {
+    "min_lng": 35.8,
+    "min_lat": 31.9,
+    "max_lng": 36.0,
+    "max_lat": 32.0
+  },
+  "limit": 100
+}
+```
 
 ### Import
 
-- **POST** `/api/v1/import-csv` - Import properties from CSV
+- **POST** `/api/v1/import-csv` - Import properties from CSV file
+
+**Query Parameters:**
+- `geocode_missing` (bool, default: false) - Geocode locations without coordinates
 
 See [TESTING_GUIDE.md](TESTING_GUIDE.md) for detailed API documentation and examples.
 

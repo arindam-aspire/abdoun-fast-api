@@ -37,18 +37,20 @@ def test_list_properties():
     if response.status_code == HTTPStatus.OK:
         data = response.json()
         print(f"✅ Success! Found {data['total']} properties")
-        if data['items']:
-            first_property_id = data['items'][0]['id']
-            print(f"   First property: {data['items'][0]['title']} (ID: {first_property_id})")
+        print(f"   Page: {data.get('page', 'N/A')}, PageSize: {data.get('pageSize', 'N/A')}")
+        if data.get('data'):
+            first_property_id = data['data'][0]['id']
+            print(f"   First property: {data['data'][0]['title']} (ID: {first_property_id})")
     else:
         print(f"❌ Error: {response.text}")
     
     # Test with pagination
-    print("\n--- Testing pagination (limit=5, offset=0) ---")
-    response = requests.get(f"{BASE_URL}/properties?limit=5&offset=0")
+    print("\n--- Testing pagination (page=1, pageSize=5) ---")
+    response = requests.get(f"{BASE_URL}/properties?page=1&pageSize=5")
     if response.status_code == HTTPStatus.OK:
         data = response.json()
-        print(f"✅ Found {len(data['items'])} properties (limit=5)")
+        print(f"✅ Found {len(data.get('data', []))} properties (pageSize=5)")
+        print(f"   Page: {data.get('page')}, Total: {data.get('total')}")
     
     return response.status_code == HTTPStatus.OK, first_property_id
 
@@ -78,10 +80,77 @@ def test_get_property_detail(property_id: int = 1):
     return response.status_code == HTTPStatus.OK
 
 
+def test_search_with_filters():
+    """Test GET /api/v1/properties with filters"""
+    print("\n" + "="*60)
+    print("TEST 3: Search Properties with Filters (GET /api/v1/properties)")
+    print("="*60)
+    
+    # Test with status filter
+    print("\n--- Testing status filter (status=buy) ---")
+    response = requests.get(f"{BASE_URL}/properties?status=buy&pageSize=5")
+    if response.status_code == HTTPStatus.OK:
+        data = response.json()
+        print(f"✅ Found {data['total']} properties for sale")
+        if data.get('data'):
+            print(f"   Sample: {data['data'][0]['title']} - {data['data'][0].get('price')}")
+    
+    # Test with category and type
+    print("\n--- Testing category and type (category=residential, type=apartments) ---")
+    response = requests.get(f"{BASE_URL}/properties?category=residential&type=apartments&pageSize=5")
+    if response.status_code == HTTPStatus.OK:
+        data = response.json()
+        print(f"✅ Found {data['total']} residential apartments")
+    
+    # Test with city filter
+    print("\n--- Testing city filter (city=amman) ---")
+    response = requests.get(f"{BASE_URL}/properties?city=amman&pageSize=5")
+    if response.status_code == HTTPStatus.OK:
+        data = response.json()
+        print(f"✅ Found {data['total']} properties in Amman")
+    
+    # Test with locations filter
+    print("\n--- Testing locations filter (locations=abdoun) ---")
+    response = requests.get(f"{BASE_URL}/properties?locations=abdoun&pageSize=5")
+    if response.status_code == HTTPStatus.OK:
+        data = response.json()
+        print(f"✅ Found {data['total']} properties in Abdoun")
+    
+    # Test with price range (budgetMin/budgetMax)
+    print("\n--- Testing price range (budgetMin=100000, budgetMax=500000) ---")
+    response = requests.get(f"{BASE_URL}/properties?budgetMin=100000&budgetMax=500000&pageSize=5")
+    if response.status_code == HTTPStatus.OK:
+        data = response.json()
+        print(f"✅ Found {data['total']} properties in price range")
+    
+    # Test with minPrice/maxPrice aliases
+    print("\n--- Testing price aliases (minPrice=100000, maxPrice=500000) ---")
+    response = requests.get(f"{BASE_URL}/properties?minPrice=100000&maxPrice=500000&pageSize=5")
+    if response.status_code == HTTPStatus.OK:
+        data = response.json()
+        print(f"✅ Found {data['total']} properties using price aliases")
+    
+    # Test combined filters
+    print("\n--- Testing combined filters ---")
+    response = requests.get(
+        f"{BASE_URL}/properties"
+        f"?status=buy&category=residential&type=apartments&city=amman&budgetMin=100000&budgetMax=500000&page=1&pageSize=5"
+    )
+    if response.status_code == HTTPStatus.OK:
+        data = response.json()
+        print(f"✅ Found {data['total']} properties matching all filters")
+        print(f"   Page: {data.get('page')}, PageSize: {data.get('pageSize')}")
+        if data.get('data'):
+            prop = data['data'][0]
+            print(f"   Sample: {prop.get('title')} - {prop.get('price')} - {prop.get('location')}")
+    
+    return response.status_code == HTTPStatus.OK
+
+
 def test_search_by_bounds():
     """Test POST /api/v1/search with bounds"""
     print("\n" + "="*60)
-    print("TEST 3: Search Properties by Bounds (POST /api/v1/search)")
+    print("TEST 4: Search Properties by Bounds (POST /api/v1/search)")
     print("="*60)
     
     # Search for properties in Amman area (approximate bounds)
@@ -107,7 +176,7 @@ def test_search_by_bounds():
     if response.status_code == HTTPStatus.OK:
         data = response.json()
         print(f"✅ Success! Found {data['total']} properties in bounds")
-        if data['items']:
+        if data.get('items'):
             print("   Sample properties:")
             for item in data['items'][:3]:
                 print(f"     - {item['title']} at ({item.get('lat')}, {item.get('lng')})")
@@ -120,7 +189,7 @@ def test_search_by_bounds():
 def test_search_by_polygon():
     """Test POST /api/v1/search with polygon"""
     print("\n" + "="*60)
-    print("TEST 4: Search Properties by Polygon (POST /api/v1/search)")
+    print("TEST 5: Search Properties by Polygon (POST /api/v1/search)")
     print("="*60)
     
     # Create a polygon around Amman city center
@@ -152,7 +221,7 @@ def test_search_by_polygon():
     if response.status_code == HTTPStatus.OK:
         data = response.json()
         print(f"✅ Success! Found {data['total']} properties in polygon")
-        if data['items']:
+        if data.get('items'):
             print("   Sample properties:")
             for item in data['items'][:3]:
                 print(f"     - {item['title']} at ({item.get('lat')}, {item.get('lng')})")
@@ -165,7 +234,7 @@ def test_search_by_polygon():
 def test_import_csv():
     """Test POST /api/v1/import-csv"""
     print("\n" + "="*60)
-    print("TEST 5: Import CSV (POST /api/v1/import-csv)")
+    print("TEST 6: Import CSV (POST /api/v1/import-csv)")
     print("="*60)
     
     csv_path = Path("data/abdoun_merged_properties.csv")
@@ -203,7 +272,7 @@ def main():
     
     try:
         # Test if server is running
-        response = requests.get(f"{BASE_URL}/properties?limit=1", timeout=5)
+        requests.get(f"{BASE_URL}/properties?pageSize=1", timeout=5)
     except requests.exceptions.ConnectionError:
         print("\n❌ ERROR: Cannot connect to FastAPI server!")
         print("   Please start the server first:")
@@ -219,6 +288,7 @@ def main():
     # Use the first property ID from the list, or try a common ID if list is empty
     property_id_to_test = first_property_id if first_property_id else 1
     results.append(("Get Property Detail", test_get_property_detail(property_id_to_test)))
+    results.append(("Search with Filters", test_search_with_filters()))
     results.append(("Search by Bounds", test_search_by_bounds()))
     results.append(("Search by Polygon", test_search_by_polygon()))
     # Skip CSV import test by default (can be slow and may create duplicates)
