@@ -8,7 +8,8 @@ A production-ready FastAPI application for managing and searching real estate pr
 - 📍 **Geocoding**: Automatic geocoding with Nominatim, Google Search, and Azure OpenAI fallback
 - 🏠 **Property Management**: Full CRUD operations for property listings
 - 📊 **CSV Import**: Bulk import properties from CSV files
-- 🔍 **Advanced Filtering**: Search by status, category, type, city, locations, and price range
+- 🔍 **Advanced Filtering**: Search by status, category, type, city, location, price range, and more
+- 🔗 **Similar Properties**: Find similar properties based on category, location, price, bedrooms, bathrooms, and area
 - 📄 **Pagination**: Page-based pagination with configurable page size
 - 🚀 **Fast & Scalable**: Built with FastAPI, SQLAlchemy 2.0, and PostGIS
 
@@ -193,52 +194,44 @@ abdoun_fast_api/
 
 ### Properties
 
-#### List Properties (with filters and pagination)
-- **GET** `/api/v1/properties` - Search and list properties with optional filters
+- **GET** `/api/v1/properties` - List properties with pagination and filtering
+  - **Query Parameters:**
+    - `page` (int, default: 1) - Page number
+    - `pageSize` (int, default: 50) - Number of properties per page
+    - `status` (string, optional) - Filter by status (e.g., "buy", "rent")
+    - `category` (string, optional) - Filter by category (e.g., "residential", "commercial")
+    - `type` (string, optional) - Filter by property type (e.g., "apartments", "villas")
+    - `city` (string, optional) - Filter by city (e.g., "amman")
+    - `locations` (string, optional) - Filter by location/area (e.g., "abdoun")
+    - `budgetMin` / `minPrice` (float, optional) - Minimum price filter
+    - `budgetMax` / `maxPrice` (float, optional) - Maximum price filter
+  - **Response:** Returns `PropertySearchResponse` with `data`, `page`, `pageSize`, and `total`
 
-**Query Parameters:**
-- `page` (int, default: 1) - Page number (1-based)
-- `pageSize` (int, default: 12, max: 100) - Number of items per page
-- `status` (string, optional) - Filter by listing type: `buy` or `rent`
-- `category` (string, optional) - Filter by category: `residential`, `commercial`, `land` (or `lands`)
-- `type` (string, optional) - Filter by property type slug (e.g., `apartments`, `villas`, `residential-lands`)
-- `city` (string, optional) - Filter by city name (lowercase)
-- `locations` (string, optional) - Filter by comma-separated area/neighborhood names (lowercase)
-- `budgetMin` / `minPrice` (string, optional) - Minimum price in JD (numeric string)
-- `budgetMax` / `maxPrice` (string, optional) - Maximum price in JD (numeric string)
+- **GET** `/api/v1/properties/{id}` - Get property details
+  - Returns complete property information including all fields
 
-**Response Format:**
-```json
-{
-  "data": [...],
-  "total": 100,
-  "page": 1,
-  "pageSize": 12
-}
-```
+- **GET** `/api/v1/properties/{id}/similar?limit=20` - Get similar properties
+  - **Query Parameters:**
+    - `limit` (int, default: 20, max: 50) - Maximum number of similar properties to return
+  - **Response:** Returns `PropertySearchResponse` with similar properties
+  - **Similarity Criteria:**
+    The endpoint finds similar properties based on multiple criteria:
+    - **Same Category/Type**: Matches properties with the same category (e.g., "Apartment", "Villa")
+    - **Same City/Location**: Extracts city from location_name (e.g., "Abdoun - Amman" → "Amman") and matches properties in the same city
+    - **Similar Price Range**: ±20% tolerance from the reference property's price
+      - Uses selling price if available, otherwise uses rent price
+      - Matches properties with prices within the tolerance range
+    - **Similar Bedrooms**: ±1 bedroom difference (e.g., if reference has 3 bedrooms, matches 2, 3, or 4 bedrooms)
+    - **Similar Bathrooms**: ±1 bathroom difference (e.g., if reference has 2 bathrooms, matches 1, 2, or 3 bathrooms)
+    - **Similar Built-up Area**: ±20% tolerance from the reference property's area
+    - **Excludes Current Property**: The reference property itself is excluded from results
+  - **Example:**
+    ```
+    GET /api/v1/properties/59/similar?limit=20
+    ```
+    This will find up to 20 properties similar to property ID 59 based on the criteria above.
 
-**Example Requests:**
-```bash
-# List all properties (first page)
-GET /api/v1/properties
-
-# Filter by status and pagination
-GET /api/v1/properties?status=buy&page=1&pageSize=20
-
-# Filter by category and type
-GET /api/v1/properties?category=residential&type=apartments
-
-# Filter by city and price range
-GET /api/v1/properties?city=amman&budgetMin=100000&budgetMax=500000
-
-# Combined filters
-GET /api/v1/properties?status=buy&category=residential&type=apartments&city=amman&budgetMin=100000&budgetMax=500000&page=1&pageSize=12
-```
-
-#### Get Property Details
-- **GET** `/api/v1/properties/{id}` - Get detailed information about a specific property
-
-### Search (Spatial)
+### Search
 
 - **POST** `/api/v1/search` - Search properties by geographic bounds or polygon
 
