@@ -52,9 +52,11 @@ abdoun_fast_api/
 │   ├── versions/               # Migration files
 │   └── env.py                  # Alembic environment
 ├── scripts/
-│   ├── import_from_csv.py      # CLI script for CSV import
-│   ├── enrich_csv_with_coordinates.py  # Geocode CSV locations
-│   └── test_endpoints.py       # API endpoint tests
+│   ├── seed_reference_data.py  # Seed reference tables (categories, types, etc.)
+│   ├── import_normalized_csv.py  # Import properties into normalized tables
+│   ├── check_data_status.py   # Check data counts in all tables
+│   ├── test_endpoints.py       # API endpoint tests
+│   └── enrich_csv_with_coordinates.py  # Geocode CSV locations
 ├── data/
 │   └── abdoun_merged_properties.csv  # Sample data
 ├── docker-compose.yml          # Docker setup
@@ -114,37 +116,128 @@ abdoun_fast_api/
    - **Docker**: Automatically converts `localhost` to `host.docker.internal` to access your local database
 
 5. **Set up database**
+   
+   **Step 5.1: Create Database and Enable PostGIS**
    ```powershell
-   # Create database and enable PostGIS
-   psql -U postgres -c "CREATE DATABASE realestate;"
-   psql -U postgres -d realestate -c "CREATE EXTENSION postgis;"
+   # Create database (replace 'Abdoun_RE' with your database name)
+   psql -U postgres -c "CREATE DATABASE Abdoun_RE;"
+   psql -U postgres -d Abdoun_RE -c "CREATE EXTENSION postgis;"
+   ```
    
-   # Load environment variables and run migrations
-   # Option 1: Use setup script (recommended)
-   .\setup.ps1 -Command python -CommandArgs -m,alembic,upgrade,head
+   **Step 5.2: Update .env with correct database name**
+   ```env
+   DATABASE_URL=postgresql+psycopg2://postgres:postgres@localhost:5432/Abdoun_RE
+   ```
    
-   # Option 2: Load env and run manually
-   . .\load_env.ps1
-   python -m alembic upgrade head
-   
-   # Option 3: Direct command (if .env is already loaded)
+   **Step 5.3: Run database migrations**
+   ```powershell
+   # This creates all normalized tables and drops old properties table
    python -m alembic upgrade head
    ```
-
-6. **Import sample data** (optional)
-   ```powershell
-   python scripts/import_from_csv.py data\abdoun_merged_properties.csv
+   
+   **Expected Output:**
+   ```
+   INFO  [alembic.runtime.migration] Running upgrade 0003_add_location_name -> 0004_normalized_tables
+   INFO  [alembic.runtime.migration] Running upgrade 0004_normalized_tables -> 0005_drop_old_props
    ```
 
-7. **Start the server**
+6. **Seed reference data**
+   
+   **Step 6.1: Seed categories, types, cities, areas, statuses, and features**
+   ```powershell
+   python scripts/seed_reference_data.py
+   ```
+   
+   **Expected Output:**
+   ```
+   ✓ Created category: Residential
+   ✓ Created property type: Apartment
+   ✓ Created city: Amman
+   ✓ Created area: Abdoun
+   ✓ Created status: Verified
+   ✓ Created feature: Elevator
+   ✓ Linked feature 'Elevator' to category 'Residential'
+   ...
+   ```
+
+7. **Import property data from CSV**
+   
+   **Step 7.1: Import properties into normalized tables**
+   ```powershell
+   python scripts/import_normalized_csv.py
+   ```
+   
+   **Expected Output:**
+   ```
+   Reading CSV file: data/abdoun_merged_properties.csv
+   Imported 2358 properties, skipped 0 duplicates
+   ```
+   
+   **Note:** The import script automatically:
+   - Parses `more_features` from CSV (pipe-separated format)
+   - Converts it to key-value JSON pairs (e.g., `{"Finishing": "Deluxe", "Windows": "Double Glazed"}`)
+   - Stores it in the `more_features` JSON column
+   
+   **Step 7.2: Verify data import** (optional)
+   ```powershell
+   # Check data status
+   python scripts/check_data_status.py
+   ```
+   
+   Or use SQL:
+   ```sql
+   SELECT COUNT(*) FROM properties_normalized;
+   -- Expected: 2358
+   
+   -- Check more_features JSON data
+   SELECT id, title, more_features 
+   FROM properties_normalized 
+   WHERE more_features IS NOT NULL 
+   LIMIT 5;
+   ```
+
+8. **Start the server**
    ```powershell
    uvicorn app.main:app --reload
    ```
 
-8. **Access the API**
+9. **Test the API**
+   
+   **Step 9.1: Run automated tests**
+   ```powershell
+   python scripts/test_endpoints.py
+   ```
+   
+   **Expected Output:**
+   ```
+   ✅ PASS: List Properties
+   ✅ PASS: Get Property Detail
+   ✅ PASS: Search with Filters
+   ✅ PASS: Search by Bounds
+   ✅ PASS: Search by Polygon
+   
+   Total: 5/5 tests passed
+   ```
+   
+   **Step 9.2: Manual testing**
    - API: http://127.0.0.1:8000
    - Interactive Docs: http://127.0.0.1:8000/docs
    - ReDoc: http://127.0.0.1:8000/redoc
+   
+   **Test endpoints:**
+   ```powershell
+   # List properties
+   GET http://127.0.0.1:8000/api/v1/properties?page=1&pageSize=12
+   
+   # Get property detail (use ID from list response)
+   GET http://127.0.0.1:8000/api/v1/properties/{id}
+   
+   # Get similar properties
+   GET http://127.0.0.1:8000/api/v1/properties/{id}/similar?limit=20
+   
+   # Search with filters
+   GET http://127.0.0.1:8000/api/v1/properties?status=buy&category=residential&city=amman&page=1&pageSize=12
+   ```
 
 ## Docker Setup
 
@@ -169,9 +262,13 @@ abdoun_fast_api/
    docker-compose exec api python -m alembic upgrade head
    ```
 
-4. **Import data** (optional)
+4. **Seed reference data and import properties**
    ```powershell
-   docker-compose exec api python scripts/import_from_csv.py data/abdoun_merged_properties.csv
+   # Seed reference data (categories, types, cities, etc.)
+   docker-compose exec api python scripts/seed_reference_data.py
+   
+   # Import property data
+   docker-compose exec api python scripts/import_normalized_csv.py
    ```
 
 5. **View logs**
@@ -233,7 +330,7 @@ abdoun_fast_api/
 
 ### Search
 
-- **POST** `/api/v1/search` - Search properties by geographic bounds or polygon
+- **POST** `/api/v1/properties/geo-search` - Search properties by geographic bounds or polygon
 
 **Request Body:**
 ```json
@@ -256,7 +353,7 @@ abdoun_fast_api/
 **Query Parameters:**
 - `geocode_missing` (bool, default: false) - Geocode locations without coordinates
 
-See [TESTING_GUIDE.md](TESTING_GUIDE.md) for detailed API documentation and examples.
+**Note:** Property IDs in API responses are integer hashes derived from UUID primary keys for API compatibility. The system uses deterministic SHA256 hashing to ensure consistent IDs across server restarts.
 
 ## Geocoding
 
@@ -270,63 +367,88 @@ See [AZURE_OPENAI_GEOCODING.md](AZURE_OPENAI_GEOCODING.md) for Azure OpenAI setu
 
 ## Scripts
 
-### Import CSV
+### Database Setup Scripts
+
+**Seed Reference Data:**
 ```powershell
-python scripts/import_from_csv.py data\abdoun_merged_properties.csv
+# Seeds categories, types, cities, areas, statuses, features, and relationships
+python scripts/seed_reference_data.py
 ```
 
-### Import with geocoding
+**Import Property Data:**
 ```powershell
-python scripts/import_from_csv.py data\abdoun_merged_properties.csv --geocode-missing
+# Imports properties from CSV into normalized tables
+python scripts/import_normalized_csv.py
 ```
 
-### Update existing properties
+**Update More Features Column (for existing data):**
 ```powershell
-python scripts/import_from_csv.py data\abdoun_merged_properties.csv --update-coordinates
+# Updates only the more_features JSON column for existing properties
+# Use this if you've already imported data and want to populate more_features
+python scripts/update_more_features.py
 ```
 
-### Enrich CSV with coordinates
+**Check Data Status:**
 ```powershell
-python scripts/enrich_csv_with_coordinates.py data\abdoun_merged_properties.csv
+# Displays counts for all tables
+python scripts/check_data_status.py
 ```
 
-### Test endpoints
+### Testing Scripts
+
+**Test API Endpoints:**
 ```powershell
+# Runs comprehensive API tests
 python scripts/test_endpoints.py
+```
+
+**Enrich CSV with Coordinates:**
+```powershell
+# Geocodes locations in CSV file
+python scripts/enrich_csv_with_coordinates.py data\abdoun_merged_properties.csv
 ```
 
 ## Database Schema
 
-### Properties Table
+### Normalized Database Structure
 
-- `id` (Integer, PK) - Auto-incrementing primary key
-- `url` (String, Unique) - Original property URL
-- `title` (String) - Property title
-- `description` (String) - Property description
-- `category` (String) - Property category
-- `status` (String) - Property status
-- `selling_price_amount` (Numeric) - Selling price
-- `selling_price_currency` (String) - Currency code
-- `rent_price_amount` (Numeric) - Rental price
-- `rent_price_currency` (String) - Currency code
-- `bedrooms` (Integer) - Number of bedrooms
-- `bathrooms` (Integer) - Number of bathrooms
-- `built_up_area` (Numeric) - Area in square meters
-- `features` (JSONB) - Array of features
-- `more_features` (JSONB) - Additional features
-- `images` (JSONB) - Array of image URLs
-- `latitude` (Float) - Latitude coordinate
-- `longitude` (Float) - Longitude coordinate
-- `location_name` (String) - Human-readable location (e.g., "Dabouq - Amman")
-- `location` (Geometry POINT) - PostGIS geometry for spatial queries
-- `created_at` (Timestamp) - Creation timestamp
-- `updated_at` (Timestamp) - Last update timestamp
+The database uses a normalized structure with separate tables for:
+
+**Reference Tables:**
+- `property_categories` - Categories (Residential, Commercial, Land)
+- `property_types` - Types (Apartment, Villa, Office, etc.)
+- `cities` - Cities (Amman, Irbid, etc.)
+- `areas` - Areas/Locations (Abdoun, Khalda, etc.)
+- `property_status` - Status values (Verified, Pending, etc.)
+- `features` - Property features (Elevator, Parking, etc.)
+- `search_fields` - Searchable fields configuration
+
+**Relationship Tables:**
+- `category_features` - Links features to categories
+- `type_features` - Links features to property types
+- `category_search_fields` - Links search fields to categories
+- `property_features` - Links features to properties (many-to-many)
+
+**Main Table:**
+- `properties_normalized` - Main property table with UUID primary key
+  - `id` (UUID, PK) - UUID primary key (converted to int hash for API)
+  - `category_id` (FK) - References `property_categories`
+  - `type_id` (FK) - References `property_types`
+  - `city_id` (FK) - References `cities`
+  - `location_id` (FK) - References `areas`
+  - `property_status_id` (FK) - References `property_status`
+  - `url` (String, Unique) - Original property URL
+  - `title`, `description`, `selling_price_amount`, `rent_price_amount`, etc.
+  - `images` (String) - JSON array of image URLs
+  - `more_features` (JSONB) - JSON object with key-value pairs (e.g., `{"Finishing": "Deluxe", "Windows": "Double Glazed"}`)
+  - `location` (Geometry POINT) - PostGIS geometry for spatial queries
+  - `created_at`, `updated_at` - Timestamps
 
 **Indexes:**
-- Primary key on `id`
+- Primary key on `id` (UUID)
 - Unique index on `url`
 - GIST index on `location` (for spatial queries)
-- Index on `location_name` (for text search)
+- Foreign key indexes on all relationship columns
 
 ## Development
 

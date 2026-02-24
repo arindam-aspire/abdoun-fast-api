@@ -1,11 +1,19 @@
 from typing import Annotated, Optional
+import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select, func, and_, or_
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
-from app.models.property import Property
+from app.models.property_normalized import (
+    PropertyNormalized as Property,
+    PropertyCategory,
+    PropertyType,
+    City,
+    Area,
+    PropertyFeature,
+)
 from app.schemas.property import (
     PropertyDetail,
     PropertySearchResult,
@@ -16,8 +24,10 @@ from app.schemas.property import (
 )
 from app.utils.constants import ErrorMessages, Defaults
 from app.utils.status_codes import STATUS_NOT_FOUND
+from sqlalchemy.orm import joinedload
  
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 DBSessionDep = Annotated[Session, Depends(get_db)]
 
@@ -43,7 +53,20 @@ def list_properties(
     Matches the frontend search contract for Home Page and Search Results page.
     Supports both budgetMin/budgetMax and minPrice/maxPrice for compatibility.
     """
-    stmt = select(Property)
+    # Build query with joins for normalized model
+    stmt = select(Property).options(
+        joinedload(Property.category),
+        joinedload(Property.type),
+        joinedload(Property.city),
+        joinedload(Property.area_rel),
+        joinedload(Property.property_status),
+    )
+    
+    # Join tables for filtering
+    stmt = stmt.join(PropertyCategory, Property.category_id == PropertyCategory.id)
+    stmt = stmt.join(PropertyType, Property.type_id == PropertyType.id)
+    stmt = stmt.join(City, Property.city_id == City.id)
+    stmt = stmt.join(Area, Property.location_id == Area.id)
     
     # Apply filters
     filters = []
@@ -56,77 +79,87 @@ def list_properties(
         elif status_lower == "rent":
             filters.append(Property.rent_price_amount.isnot(None))
     
-    # Filter by category
+    # Filter by category - use joined PropertyCategory table
     if category:
         category_lower = category.lower()
         # Handle "lands" as alias for "land"
         if category_lower in ("land", "lands"):
-            filters.append(func.lower(Property.category).contains("land"))
+            filters.append(func.lower(PropertyCategory.name).contains("land"))
         elif category_lower == "residential":
             filters.append(
                 or_(
-                    func.lower(Property.category).contains("apartment"),
-                    func.lower(Property.category).contains("villa"),
-                    func.lower(Property.category).contains("house"),
-                    func.lower(Property.category).contains("building"),
-                    func.lower(Property.category).contains("farm"),
+                    func.lower(PropertyCategory.name).contains("residential"),
+                    func.lower(PropertyType.name).contains("apartment"),
+                    func.lower(PropertyType.name).contains("villa"),
+                    func.lower(PropertyType.name).contains("house"),
+                    func.lower(PropertyType.name).contains("building"),
+                    func.lower(PropertyType.name).contains("farm"),
                 )
             )
         elif category_lower == "commercial":
             filters.append(
                 or_(
-                    func.lower(Property.category).contains("office"),
-                    func.lower(Property.category).contains("showroom"),
-                    func.lower(Property.category).contains("warehouse"),
-                    func.lower(Property.category).contains("business"),
+                    func.lower(PropertyCategory.name).contains("commercial"),
+                    func.lower(PropertyType.name).contains("office"),
+                    func.lower(PropertyType.name).contains("showroom"),
+                    func.lower(PropertyType.name).contains("warehouse"),
+                    func.lower(PropertyType.name).contains("business"),
                 )
             )
         else:
-            filters.append(func.lower(Property.category).contains(category_lower))
+            filters.append(func.lower(PropertyCategory.name).contains(category_lower))
     
-    # Filter by type (property type slug)
+    # Filter by type (property type slug) - use joined PropertyType table
     if type:
         type_lower = type.lower().replace("-", " ")
         # Residential types
         if "apartment" in type_lower:
-            filters.append(func.lower(Property.category).contains("apartment"))
+            filters.append(func.lower(PropertyType.name).contains("apartment"))
         elif "villa" in type_lower:
             filters.append(
                 or_(
-                    func.lower(Property.category).contains("villa"),
-                    func.lower(Property.category).contains("house"),
+                    func.lower(PropertyType.name).contains("villa"),
+                    func.lower(PropertyType.name).contains("house"),
                 )
             )
         elif "building" in type_lower:
-            filters.append(func.lower(Property.category).contains("building"))
+            filters.append(func.lower(PropertyType.name).contains("building"))
         elif "farm" in type_lower:
-            filters.append(func.lower(Property.category).contains("farm"))
+            filters.append(func.lower(PropertyType.name).contains("farm"))
         # Commercial types
         elif "office" in type_lower:
-            filters.append(func.lower(Property.category).contains("office"))
+            filters.append(func.lower(PropertyType.name).contains("office"))
         elif "showroom" in type_lower:
-            filters.append(func.lower(Property.category).contains("showroom"))
+            filters.append(func.lower(PropertyType.name).contains("showroom"))
         elif "warehouse" in type_lower:
-            filters.append(func.lower(Property.category).contains("warehouse"))
+            filters.append(func.lower(PropertyType.name).contains("warehouse"))
         elif "business" in type_lower:
-            filters.append(func.lower(Property.category).contains("business"))
+            filters.append(func.lower(PropertyType.name).contains("business"))
         # Land types
         elif "land" in type_lower:
-            filters.append(func.lower(Property.category).contains("land"))
+            filters.append(func.lower(PropertyType.name).contains("land"))
         else:
-            filters.append(func.lower(Property.category).contains(type_lower))
+            filters.append(func.lower(PropertyType.name).contains(type_lower))
     
-    # Filter by city (search in location_name)
+    # Filter by city - use joined City table or location_name fallback
     if city:
         city_lower = city.lower()
-        filters.append(func.lower(Property.location_name).contains(city_lower))
+        filters.append(
+            or_(
+                func.lower(City.name).contains(city_lower),
+                func.lower(Property.location_name).contains(city_lower)
+            )
+        )
     
-    # Filter by locations (comma-separated areas/neighborhoods)
+    # Filter by locations (comma-separated areas/neighborhoods) - use joined Area table
     if locations:
         location_list = [loc.strip().lower() for loc in locations.split(",") if loc.strip()]
         if location_list:
             location_filters = [
-                func.lower(Property.location_name).contains(loc) for loc in location_list
+                or_(
+                    func.lower(Area.name).contains(loc),
+                    func.lower(Property.location_name).contains(loc)
+                ) for loc in location_list
             ]
             filters.append(or_(*location_filters))
     
@@ -179,7 +212,14 @@ def list_properties(
         stmt = stmt.where(and_(*filters))
     
     # Get total count before pagination
+    # Need to join tables for count query if filters use them
     count_stmt = select(func.count(Property.id))
+    # Add joins if we have category/type/city/location filters
+    if category or type or city or locations:
+        count_stmt = count_stmt.join(PropertyCategory, Property.category_id == PropertyCategory.id)
+        count_stmt = count_stmt.join(PropertyType, Property.type_id == PropertyType.id)
+        count_stmt = count_stmt.join(City, Property.city_id == City.id)
+        count_stmt = count_stmt.join(Area, Property.location_id == Area.id)
     if filters:
         count_stmt = count_stmt.where(and_(*filters))
     total = db.execute(count_stmt).scalar() or 0
@@ -209,7 +249,7 @@ def list_properties(
 
 @router.get("/{property_id}/similar", response_model=PropertySearchResponse)
 def get_similar_properties(
-    property_id: int,
+    property_id: str,  # FastAPI path params are always strings
     db: DBSessionDep,
     limit: int = Query(20, ge=1, le=50, description="Maximum number of similar properties to return"),
 ) -> PropertySearchResponse:
@@ -233,34 +273,81 @@ def get_similar_properties(
     Raises:
         HTTPException: 404 if property not found
     """
-    # Get the reference property
-    prop = db.get(Property, property_id)
+    # Get the reference property with relationships loaded
+    # Handle UUID lookup - property_id might be int (from hash) or UUID string
+    prop = None
+    import uuid
+    from app.schemas.property import uuid_to_int_hash
+    
+    # Try to parse as UUID first
+    try:
+        uuid_obj = uuid.UUID(property_id)
+        prop = db.get(Property, uuid_obj)
+        if prop:
+            # Reload with relationships
+            prop = db.execute(
+                select(Property)
+                .options(
+                    joinedload(Property.category),
+                    joinedload(Property.type),
+                    joinedload(Property.city),
+                    joinedload(Property.area_rel),
+                )
+                .where(Property.id == uuid_obj)
+            ).unique().scalar_one()
+    except (ValueError, TypeError):
+        # Not a UUID, try as int hash
+        try:
+            target_hash = int(property_id)
+            # Search all properties to find matching hash
+            all_props = db.execute(select(Property)).scalars().all()
+            for p in all_props:
+                if isinstance(p.id, uuid.UUID):
+                    prop_hash = uuid_to_int_hash(p.id)
+                    if prop_hash == target_hash:
+                        # Reload with relationships
+                        prop = db.execute(
+                            select(Property)
+                            .options(
+                                joinedload(Property.category),
+                                joinedload(Property.type),
+                                joinedload(Property.city),
+                                joinedload(Property.area_rel),
+                            )
+                            .where(Property.id == p.id)
+                        ).unique().scalar_one()
+                        break
+        except (ValueError, TypeError):
+            pass
+    
     if not prop:
         raise HTTPException(
             status_code=STATUS_NOT_FOUND,
             detail=ErrorMessages.PROPERTY_NOT_FOUND
         )
     
-    # Build similarity filters
+    # Build similarity filters with joins
+    stmt = select(Property).options(
+        joinedload(Property.category),
+        joinedload(Property.type),
+        joinedload(Property.city),
+        joinedload(Property.area_rel),
+    )
+    stmt = stmt.join(PropertyCategory, Property.category_id == PropertyCategory.id)
+    stmt = stmt.join(City, Property.city_id == City.id)
+    
     filters = []
     
     # Exclude the current property
-    filters.append(Property.id != property_id)
+    filters.append(Property.id != prop.id)
     
-    # Same category/type
-    if prop.category:
-        filters.append(Property.category.ilike(f"%{prop.category}%"))
+    # Same category/type - use relationships
+    if prop.category_id:
+        filters.append(Property.category_id == prop.category_id)
     
-    # Same city (extract from location_name if available)
-    if prop.location_name:
-        # Try to extract city (usually after " - " separator)
-        location_parts = prop.location_name.split(" - ")
-        if len(location_parts) >= 2:
-            city = location_parts[-1].strip()
-            filters.append(Property.location_name.ilike(f"%{city}%"))
-        else:
-            # If no separator, use the whole location_name
-            filters.append(Property.location_name.ilike(f"%{prop.location_name}%"))
+    # Same city - use relationship
+    if prop.city_id:
+        filters.append(Property.city_id == prop.city_id)
     
     # Similar price range (±20%)
     price_tolerance = 0.2  # 20% tolerance
@@ -309,29 +396,29 @@ def get_similar_properties(
             )
         )
     
-    # Similar area (±20%)
-    if prop.built_up_area:
-        area = float(prop.built_up_area)
+    # Similar area (±20%) - normalized model uses 'area' field
+    area_value = getattr(prop, 'area', None) or getattr(prop, 'built_up_area', None)
+    if area_value:
+        area = float(area_value)
         min_area = area * (1 - price_tolerance)
         max_area = area * (1 + price_tolerance)
         filters.append(
             and_(
-                Property.built_up_area.isnot(None),
-                Property.built_up_area >= min_area,
-                Property.built_up_area <= max_area,
+                Property.area.isnot(None),
+                Property.area >= min_area,
+                Property.area <= max_area,
             )
         )
     
-    # Build query
-    stmt = select(Property)
+    # Apply filters
     if filters:
         stmt = stmt.where(and_(*filters))
     
     # Order by relevance (same category first, then by price similarity, then by creation date)
     stmt = stmt.order_by(Property.created_at.desc()).limit(limit)
     
-    # Execute query
-    results = db.execute(stmt).scalars().all()
+    # Execute query - use unique() to avoid duplicate rows from joins
+    results = db.execute(stmt).unique().scalars().all()
     
     # Convert to extended format
     data = [
@@ -349,14 +436,14 @@ def get_similar_properties(
 
 @router.get("/{property_id}", response_model=PropertyDetail)
 def get_property(
-    property_id: int,
+    property_id: str,  # FastAPI path params are always strings
     db: DBSessionDep,
 ) -> PropertyDetail:
     """
     Get detailed information about a specific property.
     
     Args:
-        property_id: The unique identifier of the property
+        property_id: The unique identifier of the property (int hash or UUID string)
         
     Returns:
         PropertyDetail with all property information
@@ -364,7 +451,101 @@ def get_property(
     Raises:
         HTTPException: 404 if property not found
     """
-    prop = db.get(Property, property_id)
+    # Try to get property - handle both UUID and int (hash) IDs
+    # FastAPI path parameters are always strings, so we need to parse them
+    prop = None
+    import uuid
+    from app.schemas.property import uuid_to_int_hash
+    
+    # Try to parse as UUID first
+    try:
+        uuid_obj = uuid.UUID(property_id)
+        prop = db.get(Property, uuid_obj)
+        if prop:
+            # Reload with relationships
+            prop = db.execute(
+                select(Property)
+                .options(
+                    joinedload(Property.category),
+                    joinedload(Property.type),
+                    joinedload(Property.city),
+                    joinedload(Property.area_rel),
+                    joinedload(Property.property_status),
+                    joinedload(Property.features).joinedload(PropertyFeature.feature),
+                )
+                .where(Property.id == uuid_obj)
+            ).unique().scalar_one()
+    except (ValueError, TypeError):
+        # Not a UUID, try as int hash
+        try:
+            # If int, search all properties and match by hash
+            # Note: This is inefficient for large datasets. Consider adding a hash->UUID mapping table.
+            
+            # Convert property_id to int for comparison
+            target_hash = int(property_id)
+            # Query all properties - first without relationships to speed up search
+            print(f"[DEBUG] Looking up property with hash: {target_hash} (type: {type(target_hash)})")
+            logger.info(f"Looking up property with hash: {target_hash}")
+            all_props = db.execute(select(Property)).scalars().all()
+            print(f"[DEBUG] Found {len(all_props)} properties in database")
+            logger.info(f"Found {len(all_props)} properties in database")
+            
+            if not all_props:
+                logger.warning(f"No properties found in database when searching for hash {target_hash}")
+            else:
+                # Search through properties to find matching hash
+                found_uuid = None
+                checked = 0
+                sample_hashes = []
+                
+                for p in all_props:
+                    if isinstance(p.id, uuid.UUID):
+                        # Calculate hash the same way as in PropertySearchResultExtended
+                        prop_hash = uuid_to_int_hash(p.id)
+                        checked += 1
+                        
+                        # Collect first 5 hashes for debugging
+                        if checked <= 5:
+                            sample_hashes.append(f"UUID {p.id} -> hash {prop_hash}")
+                        
+                        if prop_hash == target_hash:
+                            found_uuid = p.id
+                            print(f"[DEBUG] Found matching property! UUID: {p.id}, hash: {prop_hash}")
+                            logger.info(f"Found matching property! UUID: {p.id}, hash: {prop_hash}")
+                            break
+                
+                if not found_uuid:
+                    warning_msg = (
+                        f"Property with hash {target_hash} not found after checking {checked} properties. "
+                        f"Sample hashes: {', '.join(sample_hashes)}"
+                    )
+                    print(f"[DEBUG] {warning_msg}")
+                    logger.warning(warning_msg)
+                else:
+                    # If found, reload with relationships
+                    prop = db.execute(
+                        select(Property)
+                        .options(
+                            joinedload(Property.category),
+                            joinedload(Property.type),
+                            joinedload(Property.city),
+                            joinedload(Property.area_rel),
+                            joinedload(Property.property_status),
+                            joinedload(Property.features).joinedload(PropertyFeature.feature),
+                        )
+                        .where(Property.id == found_uuid)
+                    ).unique().scalar_one()
+                    logger.info(f"Successfully loaded property {found_uuid} with relationships")
+        except (ValueError, TypeError) as e:
+            # Could not parse as int either
+            print(f"[DEBUG] Could not parse property_id '{property_id}' as UUID or int: {e}")
+            logger.error(f"Could not parse property_id '{property_id}' as UUID or int: {e}")
+        except Exception as e:
+            # Log the error for debugging
+            print(f"[DEBUG] Error in property lookup: {e}")
+            logger.error(f"Error in property lookup for hash {target_hash}: {e}", exc_info=True)
+            # Don't re-raise, let it fall through to 404
+    
     if not prop:
         raise HTTPException(
             status_code=STATUS_NOT_FOUND,

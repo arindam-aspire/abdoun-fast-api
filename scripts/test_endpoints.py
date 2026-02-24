@@ -148,9 +148,9 @@ def test_search_with_filters():
 
 
 def test_search_by_bounds():
-    """Test POST /api/v1/search with bounds"""
+    """Test POST /api/v1/properties/geo-search with bounds"""
     print("\n" + "="*60)
-    print("TEST 4: Search Properties by Bounds (POST /api/v1/search)")
+    print("TEST 4: Search Properties by Bounds (POST /api/v1/properties/geo-search)")
     print("="*60)
     
     # Search for properties in Amman area (approximate bounds)
@@ -167,7 +167,7 @@ def test_search_by_bounds():
     
     print(f"Searching bounds: {payload['bounds']}")
     response = requests.post(
-        f"{BASE_URL}/search",
+        f"{BASE_URL}/properties/geo-search",
         json=payload,
         headers={"Content-Type": "application/json"}
     )
@@ -187,9 +187,9 @@ def test_search_by_bounds():
 
 
 def test_search_by_polygon():
-    """Test POST /api/v1/search with polygon"""
+    """Test POST /api/v1/properties/geo-search with polygon"""
     print("\n" + "="*60)
-    print("TEST 5: Search Properties by Polygon (POST /api/v1/search)")
+    print("TEST 5: Search Properties by Polygon (POST /api/v1/properties/geo-search)")
     print("="*60)
     
     # Create a polygon around Amman city center
@@ -212,7 +212,7 @@ def test_search_by_polygon():
     
     print("Searching polygon area around Amman")
     response = requests.post(
-        f"{BASE_URL}/search",
+        f"{BASE_URL}/properties/geo-search",
         json=payload,
         headers={"Content-Type": "application/json"}
     )

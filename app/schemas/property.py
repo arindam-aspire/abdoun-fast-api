@@ -9,13 +9,34 @@ from __future__ import annotations
 
 from typing import Any, Literal, Optional
 import json
+import hashlib
 
 from pydantic import BaseModel, Field
 from sqlalchemy import select, func
 from sqlalchemy.orm import Session
 
-from app.models.property import Property
+import uuid
+from app.models.property_normalized import PropertyNormalized as Property
 from app.utils.constants import Defaults
+
+
+def uuid_to_int_hash(uuid_obj: uuid.UUID) -> int:
+    """
+    Convert a UUID to a deterministic integer hash.
+    
+    Uses SHA256 to ensure deterministic hashing across different Python processes.
+    
+    Args:
+        uuid_obj: UUID object to convert
+        
+    Returns:
+        Integer hash value (0 to 10^9 - 1)
+    """
+    # Use SHA256 for deterministic hashing
+    hash_bytes = hashlib.sha256(str(uuid_obj).encode()).digest()
+    # Convert first 8 bytes to integer and take modulo
+    hash_int = int.from_bytes(hash_bytes[:8], byteorder='big')
+    return hash_int % (10**9)
 
 
 class PropertySearchResult(BaseModel):
@@ -51,27 +72,47 @@ class PropertySearchResult(BaseModel):
         """
         Create PropertySearchResult from a Property ORM object.
         
+        Supports both old Property model and new PropertyNormalized model.
+        
         Args:
             obj: Property database model instance
             
         Returns:
             PropertySearchResult instance with data from the ORM object
         """
-        price = obj.selling_price_amount or obj.rent_price_amount
-        currency = obj.selling_price_currency or obj.rent_price_currency
-        thumbnail = (obj.images or [None])[0]
+        # Handle normalized model (PropertyNormalized)
+        if hasattr(obj, 'category_id'):  # Normalized model
+            price = obj.selling_price_amount or obj.rent_price_amount
+            currency = obj.selling_price_currency or obj.rent_price_currency
+            # Parse images from JSON string
+            images = []
+            if obj.images:
+                try:
+                    import json
+                    images = json.loads(obj.images) if isinstance(obj.images, str) else obj.images
+                except:
+                    images = []
+            thumbnail = images[0] if images else None
+            # Convert UUID to int for compatibility (use deterministic hash)
+            prop_id = uuid_to_int_hash(obj.id) if isinstance(obj.id, uuid.UUID) else int(obj.id) if hasattr(obj.id, '__int__') else obj.id
+        else:  # Old model
+            price = obj.selling_price_amount or obj.rent_price_amount
+            currency = obj.selling_price_currency or obj.rent_price_currency
+            thumbnail = (obj.images or [None])[0]
+            prop_id = obj.id
+        
         # Handle "nan" titles
         title = obj.title if obj.title and str(obj.title).lower() not in ("nan", "none") else Defaults.UNTITLED_PROPERTY
         return cls(
-            id=obj.id,
+            id=prop_id,
             title=title,
             price=float(price) if price is not None else None,
             price_currency=currency,
             bedrooms=obj.bedrooms,
             bathrooms=obj.bathrooms,
             thumbnail=thumbnail,
-            lat=obj.latitude,
-            lng=obj.longitude,
+            lat=float(obj.latitude) if obj.latitude is not None else None,
+            lng=float(obj.longitude) if obj.longitude is not None else None,
         )
 
 
@@ -81,7 +122,7 @@ class PropertySearchResultExtended(BaseModel):
     
     Attributes match the expected JSON format for search results.
     """
-    id: int
+    id: int | str  # Support both int (old) and UUID string (normalized)
     title: str
     price: Optional[str] = None  # Formatted as "2,100 JD"
     status: Optional[str] = None  # "rent" or "buy"
@@ -116,24 +157,35 @@ class PropertySearchResultExtended(BaseModel):
             PropertySearchResultExtended instance with formatted data
         """
         # Parse location_name to extract city and areaName
+        # Handle normalized model (has relationships) vs old model
         city = None
         areaName = None
-        if obj.location_name:
-            parts = obj.location_name.split(" - ")
-            if len(parts) >= 2:
-                areaName = parts[0].strip()
-                city = parts[-1].strip()
-            elif len(parts) == 1:
-                city = parts[0].strip()
+        if hasattr(obj, 'city_id'):  # Normalized model - use relationships
+            city = obj.city.name if obj.city else None
+            areaName = obj.area_rel.name if obj.area_rel else None
+        # Fallback to location_name parsing if relationships not loaded
+        if not city or not areaName:
+            if obj.location_name:
+                parts = obj.location_name.split(" - ")
+                if len(parts) >= 2:
+                    areaName = areaName or parts[0].strip()
+                    city = city or parts[-1].strip()
+                elif len(parts) == 1:
+                    city = city or parts[0].strip()
         
         # Determine status (buy or rent)
+        # Priority: if both exist, status is "buy" (for API compatibility)
+        # But badges will show both "For Sale" and "For Rent"
         status = None
-        if obj.selling_price_amount:
+        has_selling_price = obj.selling_price_amount is not None
+        has_rent_price = obj.rent_price_amount is not None
+        
+        if has_selling_price:
             status = "buy"
-        elif obj.rent_price_amount:
+        elif has_rent_price:
             status = "rent"
         
-        # Format price
+        # Format price (prefer selling price if both exist)
         price_str = None
         if obj.selling_price_amount:
             price_val = float(obj.selling_price_amount)
@@ -150,19 +202,32 @@ class PropertySearchResultExtended(BaseModel):
             else:
                 price_str = f"{price_val:,.2f} {currency}"
         
-        # Format area
+        # Format area - handle both old and normalized models
         area_str = None
-        if obj.built_up_area:
-            area_val = float(obj.built_up_area)
+        built_up_area = getattr(obj, 'built_up_area', None) or getattr(obj, 'area', None)
+        if built_up_area:
+            area_val = float(built_up_area)
             if area_val == int(area_val):
                 area_str = f"{int(area_val):,}"
             else:
                 area_str = f"{area_val:,.2f}"
         
         # Map category to searchPropertyType and propertyType
+        # Handle normalized model (has relationships) vs old model (has direct fields)
         searchPropertyType = None
         propertyType = None
-        category_lower = (obj.category or "").lower()
+        if hasattr(obj, 'category_id'):  # Normalized model
+            # Access via relationships
+            category_name = obj.category.name if obj.category else None
+            type_name = obj.type.name if obj.type else None
+            city_name = obj.city.name if obj.city else None
+            area_name = obj.area_rel.name if obj.area_rel else None
+            category_lower = (category_name or "").lower()
+        else:  # Old model
+            category_name = getattr(obj, 'category', None)
+            category_lower = (category_name or "").lower()
+            city_name = None
+            area_name = None
         
         if "apartment" in category_lower:
             searchPropertyType = "Apartments"
@@ -214,25 +279,53 @@ class PropertySearchResultExtended(BaseModel):
             category = "land"
         else:
             category = "residential"  # Default
-            if obj.category:
-                propertyType = obj.category
-                searchPropertyType = obj.category
+            # Use type_name if available, otherwise category_name, otherwise default
+            if hasattr(obj, 'category_id'):  # Normalized model
+                if type_name:
+                    propertyType = type_name
+                    searchPropertyType = type_name + "s" if not type_name.endswith("s") else type_name
+                elif category_name:
+                    propertyType = category_name
+                    searchPropertyType = category_name
+                else:
+                    propertyType = "Property"
+                    searchPropertyType = "Properties"
+            else:  # Old model
+                if category_name:
+                    propertyType = category_name
+                    searchPropertyType = category_name
+                else:
+                    propertyType = "Property"
+                    searchPropertyType = "Properties"
         
         # Create highlights
         highlights_parts = []
         if obj.bedrooms:
             highlights_parts.append(f"{obj.bedrooms}BHK")
-        if obj.category:
-            highlights_parts.append(obj.category)
+        # Get category name from relationship or direct field
+        category_for_highlights = None
+        if hasattr(obj, 'category_id'):  # Normalized
+            category_for_highlights = obj.category.name if obj.category else None
+        else:  # Old model
+            category_for_highlights = getattr(obj, 'category', None)
+        if category_for_highlights:
+            highlights_parts.append(category_for_highlights)
         highlights = " | ".join(highlights_parts) if highlights_parts else None
         
         # Create badges
+        # Show both badges if both prices exist
         badges = []
-        if status == "buy":
+        if has_selling_price:
             badges.append("For Sale")
-        elif status == "rent":
+        if has_rent_price:
             badges.append("For Rent")
-        if obj.status and obj.status.lower() == "ok":
+        # Check verification status - handle both old and normalized models
+        is_verified = False
+        if hasattr(obj, 'is_verified'):  # Normalized model
+            is_verified = obj.is_verified
+        elif hasattr(obj, 'status'):  # Old model
+            is_verified = obj.status and obj.status.lower() == "ok"
+        if is_verified:
             badges.append("Verified")
         
         # Handle "nan" titles
@@ -245,8 +338,29 @@ class PropertySearchResultExtended(BaseModel):
             suffix = "th" if 11 <= day <= 13 else {1: "st", 2: "nd", 3: "rd"}.get(day % 10, "th")
             validated_date_str = f"{day}{suffix} of {obj.created_at.strftime('%B')}"
         
+        # Parse images - handle both JSON string (normalized) and list (old)
+        images_list = []
+        if hasattr(obj, 'images'):
+            if isinstance(obj.images, str):
+                try:
+                    import json
+                    images_list = json.loads(obj.images)
+                except:
+                    images_list = []
+            elif isinstance(obj.images, list):
+                images_list = obj.images
+        
+        # Convert UUID to int for compatibility
+        prop_id = obj.id
+        if hasattr(obj, 'category_id'):  # Normalized model with UUID
+            # Convert UUID to int hash for API compatibility
+            if isinstance(obj.id, uuid.UUID):
+                prop_id = uuid_to_int_hash(obj.id)
+            elif hasattr(obj.id, '__int__'):
+                prop_id = int(obj.id)
+        
         return cls(
-            id=obj.id,
+            id=prop_id,
             title=title,
             price=price_str,
             status=status,
@@ -255,7 +369,7 @@ class PropertySearchResultExtended(BaseModel):
             city=city,
             areaName=areaName,
             propertyType=propertyType,
-            images=obj.images or [],
+            images=images_list,
             location=obj.location_name,
             beds=obj.bedrooms or 0,
             baths=obj.bathrooms or 0,
@@ -313,7 +427,7 @@ class PropertyDetail(BaseModel):
     bathrooms: Optional[int] = None
     built_up_area: Optional[float] = None
     features: Optional[list[Any]] = None
-    more_features: Optional[list[Any]] = None
+    more_features: Optional[dict[str, Any]] = None  # JSON object with key-value pairs
     images: Optional[list[str]] = None
     latitude: Optional[float] = None
     longitude: Optional[float] = None
@@ -324,6 +438,8 @@ class PropertyDetail(BaseModel):
         """
         Create PropertyDetail from a Property ORM object.
         
+        Supports both old Property model and new PropertyNormalized model.
+        
         Args:
             obj: Property database model instance
             
@@ -332,13 +448,49 @@ class PropertyDetail(BaseModel):
         """
         # Handle "nan" titles
         title = obj.title if obj.title and str(obj.title).lower() not in ("nan", "none") else Defaults.UNTITLED_PROPERTY
+        
+        # Handle normalized model vs old model
+        if hasattr(obj, 'category_id'):  # Normalized model
+            # Get category and status from relationships
+            category_name = obj.category.name if obj.category else None
+            status_name = obj.property_status.name if obj.property_status else None
+            
+            # Parse images from JSON string
+            images_list = []
+            if obj.images:
+                try:
+                    import json
+                    images_list = json.loads(obj.images) if isinstance(obj.images, str) else obj.images
+                except:
+                    images_list = []
+            
+            # Get features from relationship
+            features_list = [f.feature.name for f in obj.features if f.feature] if obj.features else []
+            # Get more_features from JSON column (already in key-value format as dict)
+            more_features_dict = obj.more_features if hasattr(obj, 'more_features') and obj.more_features else None
+            
+            # Convert UUID to int for compatibility
+            prop_id = obj.id
+            if isinstance(obj.id, uuid.UUID):
+                prop_id = uuid_to_int_hash(obj.id)
+            
+            built_up_area = float(obj.area) if obj.area is not None else None
+        else:  # Old model
+            category_name = getattr(obj, 'category', None)
+            status_name = getattr(obj, 'status', None)
+            images_list = obj.images or []
+            features_list = obj.features or []
+            more_features_list = obj.more_features or []
+            prop_id = obj.id
+            built_up_area = float(obj.built_up_area) if obj.built_up_area is not None else None
+        
         return cls(
-            id=obj.id,
+            id=prop_id,
             url=obj.url,
             title=title,
             description=obj.description,
-            category=obj.category,
-            status=obj.status,
+            category=category_name,
+            status=status_name,
             selling_price_amount=float(obj.selling_price_amount)
             if obj.selling_price_amount is not None
             else None,
@@ -349,14 +501,12 @@ class PropertyDetail(BaseModel):
             rent_price_currency=obj.rent_price_currency,
             bedrooms=obj.bedrooms,
             bathrooms=obj.bathrooms,
-            built_up_area=float(obj.built_up_area)
-            if obj.built_up_area is not None
-            else None,
-            features=obj.features,
-            more_features=obj.more_features,
-            images=obj.images,
-            latitude=obj.latitude,
-            longitude=obj.longitude,
+            built_up_area=built_up_area,
+            features=features_list,
+            more_features=more_features_dict if hasattr(obj, 'category_id') else more_features_list,
+            images=images_list,
+            latitude=float(obj.latitude) if obj.latitude is not None else None,
+            longitude=float(obj.longitude) if obj.longitude is not None else None,
             location_name=obj.location_name,
         )
 
@@ -426,6 +576,8 @@ class PropertySearchRequest(BaseModel):
         Performs a spatial query based on the search mode and filters,
         returning properties that intersect with the specified area.
         
+        Supports both old Property model and new PropertyNormalized model.
+        
         Args:
             db: SQLAlchemy database session
             
@@ -435,7 +587,15 @@ class PropertySearchRequest(BaseModel):
         Note:
             Returns empty list if required filter is missing for the selected mode.
         """
-        stmt = select(Property)
+        from sqlalchemy.orm import joinedload
+        from app.models.property_normalized import PropertyCategory, PropertyType, City, Area
+        
+        stmt = select(Property).options(
+            joinedload(Property.category),
+            joinedload(Property.type),
+            joinedload(Property.city),
+            joinedload(Property.area_rel),
+        )
 
         if self.mode == "bounds":
             if not self.bounds:
@@ -460,7 +620,7 @@ class PropertySearchRequest(BaseModel):
 
         stmt = stmt.limit(self.limit)
 
-        results = db.execute(stmt).scalars().all()
+        results = db.execute(stmt).unique().scalars().all()
         return [PropertySearchResult.from_orm_obj(p) for p in results]
 
 

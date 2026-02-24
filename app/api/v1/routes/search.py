@@ -17,7 +17,7 @@ router = APIRouter()
 DBSessionDep = Annotated[Session, Depends(get_db)]
 
 
-@router.post("/search", response_model=PropertyListResponse)
+@router.post("/geo-search", response_model=PropertyListResponse)
 def search_properties(
     payload: PropertySearchRequest,
     db: DBSessionDep,

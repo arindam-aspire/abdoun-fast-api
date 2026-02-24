@@ -12,7 +12,7 @@ try:
 except ImportError:
     UploadFile = None  # type: ignore
 
-from app.models.property import Property
+from app.models.property_normalized import PropertyNormalized as Property
 from app.utils.constants import Defaults, CSVImportMessages
 from app.utils.log_messages import LogMessages, format_log_message
 from app.utils.logger import get_logger
