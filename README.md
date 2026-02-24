@@ -302,6 +302,7 @@ abdoun_fast_api/
     - `locations` (string, optional) - Filter by location/area (e.g., "abdoun")
     - `budgetMin` / `minPrice` (float, optional) - Minimum price filter
     - `budgetMax` / `maxPrice` (float, optional) - Maximum price filter
+    - `exclusive` (bool, optional) - Filter by exclusive status (`true` for exclusive only, `false` for non-exclusive only)
   - **Response:** Returns `PropertySearchResponse` with `data`, `page`, `pageSize`, and `total`
 
 - **GET** `/api/v1/properties/{id}` - Get property details
@@ -528,6 +529,92 @@ python -m alembic upgrade head
 | `AZURE_DEPLOYMENT_NAME` | Azure OpenAI deployment name | - | - |
 
 **Note:** When running in Docker, the application automatically detects Docker environment and converts `localhost` in `DATABASE_URL` to `host.docker.internal` to access your local database. You can use `localhost` in your `.env` file for both local and Docker development.
+
+## Exclusive Properties
+
+### Overview
+
+Exclusive properties are premium, high-value listings that represent approximately 5-6% of total properties. They are automatically identified based on specific criteria.
+
+### Criteria for Exclusive Properties
+
+A property is marked as **Exclusive** if **ALL 3 conditions** are met:
+
+1. **High Price**:
+   - Selling price > **800,000 JOD** OR
+   - Rent price > **45,000 JOD**
+
+2. **Premium Location**:
+   - Located in: **Abdoun**, **Dabouq**, **Dair Gbhar**, **Al Rabieh**, **Al Sweifieh**
+
+3. **Premium Type**:
+   - Property type: **Villa** (includes Detached/Semi-Detached from CSV)
+
+### Exclusive Property Statistics & Ranges
+
+Based on current data (2,358 total properties):
+
+- **Total Exclusive Properties**: 123 (5.2%)
+- **Price Ranges**:
+  - **Selling Price**: 1,000 - 950,000 JOD
+  - **Rent Price**: 25,000 - 350,000 JOD
+- **Distribution by Location**:
+  - Abdoun: ~86 properties
+  - Dabouq: ~43 properties
+  - Dair Gbhar: ~6 properties
+  - Al Rabieh: ~3 properties
+  - Al Sweifieh: ~2 properties
+- **Distribution by Type**:
+  - Detached: ~111 properties
+  - Semi-Detached: ~27 properties
+
+### Using Exclusive Properties
+
+**Filter in Regular List Endpoint:**
+```powershell
+# Get only exclusive properties
+GET http://localhost:8000/api/v1/properties?exclusive=true&page=1&pageSize=12
+
+# Get only non-exclusive properties
+GET http://localhost:8000/api/v1/properties?exclusive=false&page=1&pageSize=12
+
+# Combine with other filters
+GET http://localhost:8000/api/v1/properties?exclusive=true&city=amman&status=buy&page=1&pageSize=12
+```
+
+**Dedicated Exclusive Endpoint:**
+```powershell
+# Get exclusive properties only
+GET http://localhost:8000/api/v1/properties/exclusive?page=1&pageSize=12
+
+# With all available filters
+GET http://localhost:8000/api/v1/properties/exclusive?status=buy&category=residential&type=villas&city=amman&locations=abdoun&budgetMin=800000&budgetMax=2000000&page=1&pageSize=12
+
+# Available query parameters (same as regular properties endpoint):
+# - status: "buy" or "rent"
+# - category: "residential", "commercial", "land" (or "lands")
+# - type: property type slug (e.g., "apartments", "villas", "residential-lands")
+# - city: city name, lowercase (e.g., "amman")
+# - locations: comma-separated area/neighborhood names, lowercase (e.g., "abdoun,dabouq")
+# - budgetMin / minPrice: minimum price in JD (numeric string)
+# - budgetMax / maxPrice: maximum price in JD (numeric string)
+# - page: page number (default: 1)
+# - pageSize: items per page (default: 12, max: 100)
+```
+
+### Updating Exclusive Properties
+
+To update the `is_exclusive` field for all properties:
+
+```powershell
+# Test first (dry run)
+python scripts/update_exclusive_properties.py --dry-run
+
+# Actually update database
+python scripts/update_exclusive_properties.py
+```
+
+The script analyzes all properties and marks them as exclusive based on the approved criteria. It can be run multiple times safely.
 
 ## License
 

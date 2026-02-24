@@ -231,6 +231,106 @@ def test_search_by_polygon():
     return response.status_code == HTTPStatus.OK
 
 
+def test_exclusive_properties():
+    """Test GET /api/v1/properties/exclusive"""
+    print("\n" + "="*60)
+    print("TEST 6: Exclusive Properties (GET /api/v1/properties/exclusive)")
+    print("="*60)
+    
+    # Test basic exclusive endpoint
+    print("\n--- Testing exclusive properties (no filters) ---")
+    response = requests.get(f"{BASE_URL}/properties/exclusive?pageSize=5")
+    print(f"Status: {response.status_code}")
+    if response.status_code == HTTPStatus.OK:
+        data = response.json()
+        print(f"✅ Found {data['total']} exclusive properties")
+        if data.get('data'):
+            print(f"   Sample: {data['data'][0]['title']} - {data['data'][0].get('price')}")
+    
+    # Test exclusive with filters
+    print("\n--- Testing exclusive with filters (status=buy, city=amman, locations=abdoun) ---")
+    response = requests.get(
+        f"{BASE_URL}/properties/exclusive"
+        f"?status=buy&city=amman&locations=abdoun&budgetMin=800000&budgetMax=2000000&pageSize=5"
+    )
+    if response.status_code == HTTPStatus.OK:
+        data = response.json()
+        print(f"✅ Found {data['total']} exclusive properties matching filters")
+        if data.get('data'):
+            prop = data['data'][0]
+            print(f"   Sample: {prop.get('title')} - {prop.get('price')} - {prop.get('location')}")
+    
+    # Test exclusive filter in regular endpoint
+    print("\n--- Testing exclusive=true filter in regular endpoint ---")
+    response = requests.get(f"{BASE_URL}/properties?exclusive=true&pageSize=5")
+    if response.status_code == HTTPStatus.OK:
+        data = response.json()
+        print(f"✅ Found {data['total']} exclusive properties using exclusive=true")
+        if data.get('data'):
+            print(f"   Sample: {data['data'][0]['title']} - {data['data'][0].get('price')}")
+    
+    # Test exclusive=false filter
+    print("\n--- Testing exclusive=false filter ---")
+    response = requests.get(f"{BASE_URL}/properties?exclusive=false&pageSize=5")
+    if response.status_code == HTTPStatus.OK:
+        data = response.json()
+        print(f"✅ Found {data['total']} non-exclusive properties")
+    
+    return response.status_code == HTTPStatus.OK
+
+
+def test_similar_properties(property_id: int = None):
+    """Test GET /api/v1/properties/{property_id}/similar"""
+    print("\n" + "="*60)
+    print(f"TEST 7: Similar Properties (GET /api/v1/properties/{{id}}/similar)")
+    print("="*60)
+    
+    # Get a property ID first if not provided
+    if property_id is None:
+        print("--- Getting a property ID to test similar properties ---")
+        response = requests.get(f"{BASE_URL}/properties?pageSize=1")
+        if response.status_code == HTTPStatus.OK:
+            data = response.json()
+            if data.get('data'):
+                property_id = data['data'][0]['id']
+                print(f"   Using property ID: {property_id}")
+            else:
+                print("⚠️  No properties found to test similar properties")
+                return False
+        else:
+            print("⚠️  Could not get property ID")
+            return False
+    
+    # Test similar properties with default limit
+    print(f"\n--- Testing similar properties for ID {property_id} (default limit) ---")
+    response = requests.get(f"{BASE_URL}/properties/{property_id}/similar")
+    print(f"Status: {response.status_code}")
+    if response.status_code == HTTPStatus.OK:
+        data = response.json()
+        print(f"✅ Success! Found {data['total']} similar properties")
+        print(f"   Page: {data.get('page')}, PageSize: {data.get('pageSize')}")
+        if data.get('data'):
+            print("   Sample similar properties:")
+            for prop in data['data'][:3]:
+                print(f"     - {prop.get('title')} - {prop.get('price')} - {prop.get('location')}")
+    elif response.status_code == HTTPStatus.NOT_FOUND:
+        print(f"⚠️  Property {property_id} not found")
+        return False
+    else:
+        print(f"❌ Error: {response.text}")
+        return False
+    
+    # Test similar properties with custom limit
+    print(f"\n--- Testing similar properties with limit=5 ---")
+    response = requests.get(f"{BASE_URL}/properties/{property_id}/similar?limit=5")
+    if response.status_code == HTTPStatus.OK:
+        data = response.json()
+        print(f"✅ Found {len(data.get('data', []))} similar properties (limit=5)")
+        print(f"   Total available: {data.get('total')}")
+    
+    return response.status_code == HTTPStatus.OK
+
+
 def test_import_csv():
     """Test POST /api/v1/import-csv"""
     print("\n" + "="*60)
@@ -291,6 +391,8 @@ def main():
     results.append(("Search with Filters", test_search_with_filters()))
     results.append(("Search by Bounds", test_search_by_bounds()))
     results.append(("Search by Polygon", test_search_by_polygon()))
+    results.append(("Exclusive Properties", test_exclusive_properties()))
+    results.append(("Similar Properties", test_similar_properties(property_id_to_test)))
     # Skip CSV import test by default (can be slow and may create duplicates)
     # results.append(("Import CSV", test_import_csv()))
     

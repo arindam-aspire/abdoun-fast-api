@@ -44,6 +44,7 @@ def list_properties(
     budgetMax: Optional[str] = Query(None, description="Maximum price in JD (numeric string)"),
     minPrice: Optional[str] = Query(None, description="Alias for budgetMin (for hero search compatibility)"),
     maxPrice: Optional[str] = Query(None, description="Alias for budgetMax (for hero search compatibility)"),
+    exclusive: Optional[str] = Query(None, description="Filter by exclusive status (true/1 for exclusive only, false/0 for non-exclusive only)"),
     page: int = Query(1, ge=1, description="Page number, 1-based"),
     pageSize: int = Query(12, ge=1, le=100, description="Items per page"),
 ) -> PropertySearchResponse:
@@ -163,6 +164,16 @@ def list_properties(
             ]
             filters.append(or_(*location_filters))
     
+    # Filter by exclusive status
+    exclusive_bool = None
+    if exclusive is not None:
+        # Handle string "true"/"false" or boolean True/False
+        exclusive_bool = str(exclusive).lower() in ("true", "1", "yes")
+        if exclusive_bool:
+            filters.append(Property.is_exclusive == True)
+        else:
+            filters.append(Property.is_exclusive == False)
+    
     # Filter by budget (price range)
     # Support both budgetMin/budgetMax and minPrice/maxPrice
     min_budget = budgetMin or minPrice
@@ -233,6 +244,221 @@ def list_properties(
     # Execute query
     results = db.execute(stmt).scalars().all()
     
+    # Convert to extended format
+    data = [
+        PropertySearchResultExtended.from_orm_obj(p)
+        for p in results
+    ]
+    
+    return PropertySearchResponse(
+        data=data,
+        total=total,
+        page=page,
+        pageSize=pageSize
+    )
+
+
+@router.get("/exclusive", response_model=PropertySearchResponse)
+def list_exclusive_properties(
+    db: DBSessionDep,
+    status: Optional[str] = Query(None, description="Listing type: buy or rent"),
+    category: Optional[str] = Query(None, description="One of: residential, commercial, land. On Hero, 'Land' is sent as lands."),
+    type: Optional[str] = Query(None, description="Slugified property type (e.g., apartments, villas, residential-lands)"),
+    city: Optional[str] = Query(None, description="City name, lowercase"),
+    locations: Optional[str] = Query(None, description="Comma-separated area/neighborhood names, lowercase"),
+    budgetMin: Optional[str] = Query(None, description="Minimum price in JD (numeric string)"),
+    budgetMax: Optional[str] = Query(None, description="Maximum price in JD (numeric string)"),
+    minPrice: Optional[str] = Query(None, description="Alias for budgetMin (for hero search compatibility)"),
+    maxPrice: Optional[str] = Query(None, description="Alias for budgetMax (for hero search compatibility)"),
+    page: int = Query(1, ge=1, description="Page number, 1-based"),
+    pageSize: int = Query(12, ge=1, le=100, description="Items per page"),
+) -> PropertySearchResponse:
+    """
+    List exclusive properties with optional filters and pagination.
+    
+    Same as regular property list endpoint but only returns properties where is_exclusive = True.
+    Uses the same response format and supports all the same filters.
+    """
+    # Build query with joins for normalized model (same as list_properties)
+    stmt = select(Property).options(
+        joinedload(Property.category),
+        joinedload(Property.type),
+        joinedload(Property.city),
+        joinedload(Property.area_rel),
+        joinedload(Property.property_status),
+    )
+    
+    # Join tables for filtering
+    stmt = stmt.join(PropertyCategory, Property.category_id == PropertyCategory.id)
+    stmt = stmt.join(PropertyType, Property.type_id == PropertyType.id)
+    stmt = stmt.join(City, Property.city_id == City.id)
+    stmt = stmt.join(Area, Property.location_id == Area.id)
+    
+    # Apply filters (same logic as list_properties)
+    filters = []
+    
+    # CRITICAL: Only show exclusive properties
+    filters.append(Property.is_exclusive == True)
+    
+    # Status filter (buy = has selling_price, rent = has rent_price)
+    if status:
+        status_lower = status.lower()
+        if status_lower == "buy":
+            filters.append(Property.selling_price_amount.isnot(None))
+        elif status_lower == "rent":
+            filters.append(Property.rent_price_amount.isnot(None))
+    
+    # Filter by category - use joined PropertyCategory table
+    if category:
+        category_lower = category.lower()
+        # Handle "lands" as alias for "land"
+        if category_lower in ("land", "lands"):
+            filters.append(func.lower(PropertyCategory.name).contains("land"))
+        elif category_lower == "residential":
+            filters.append(
+                or_(
+                    func.lower(PropertyCategory.name).contains("residential"),
+                    func.lower(PropertyType.name).contains("apartment"),
+                    func.lower(PropertyType.name).contains("villa"),
+                    func.lower(PropertyType.name).contains("house"),
+                    func.lower(PropertyType.name).contains("building"),
+                    func.lower(PropertyType.name).contains("farm"),
+                )
+            )
+        elif category_lower == "commercial":
+            filters.append(
+                or_(
+                    func.lower(PropertyCategory.name).contains("commercial"),
+                    func.lower(PropertyType.name).contains("office"),
+                    func.lower(PropertyType.name).contains("showroom"),
+                    func.lower(PropertyType.name).contains("warehouse"),
+                    func.lower(PropertyType.name).contains("business"),
+                )
+            )
+        else:
+            filters.append(func.lower(PropertyCategory.name).contains(category_lower))
+    
+    # Filter by type (property type slug) - use joined PropertyType table
+    if type:
+        type_lower = type.lower().replace("-", " ")
+        # Residential types
+        if "apartment" in type_lower:
+            filters.append(func.lower(PropertyType.name).contains("apartment"))
+        elif "villa" in type_lower:
+            filters.append(
+                or_(
+                    func.lower(PropertyType.name).contains("villa"),
+                    func.lower(PropertyType.name).contains("house"),
+                )
+            )
+        elif "building" in type_lower:
+            filters.append(func.lower(PropertyType.name).contains("building"))
+        elif "farm" in type_lower:
+            filters.append(func.lower(PropertyType.name).contains("farm"))
+        # Commercial types
+        elif "office" in type_lower:
+            filters.append(func.lower(PropertyType.name).contains("office"))
+        elif "showroom" in type_lower:
+            filters.append(func.lower(PropertyType.name).contains("showroom"))
+        elif "warehouse" in type_lower:
+            filters.append(func.lower(PropertyType.name).contains("warehouse"))
+        else:
+            filters.append(func.lower(PropertyType.name).contains(type_lower))
+    
+    # Filter by city - use joined City table
+    if city:
+        city_lower = city.lower()
+        filters.append(
+            or_(
+                func.lower(City.name).contains(city_lower),
+                func.lower(Property.location_name).contains(city_lower)
+            )
+        )
+    
+    # Filter by locations (comma-separated areas/neighborhoods) - use joined Area table
+    if locations:
+        location_list = [loc.strip().lower() for loc in locations.split(",") if loc.strip()]
+        if location_list:
+            location_filters = [
+                or_(
+                    func.lower(Area.name).contains(loc),
+                    func.lower(Property.location_name).contains(loc)
+                ) for loc in location_list
+            ]
+            filters.append(or_(*location_filters))
+    
+    # Note: is_exclusive == True filter is already applied at line 301
+    
+    # Filter by budget (price range)
+    # Support both budgetMin/budgetMax and minPrice/maxPrice
+    min_budget = budgetMin or minPrice
+    max_budget = budgetMax or maxPrice
+    
+    # Determine which price field to filter based on status
+    status_lower = (status or "").lower() if status else None
+    
+    if min_budget:
+        try:
+            min_val = float(min_budget)
+            if status_lower == "buy":
+                filters.append(Property.selling_price_amount >= min_val)
+            elif status_lower == "rent":
+                filters.append(Property.rent_price_amount >= min_val)
+            else:
+                # No status specified - check both price fields
+                filters.append(
+                    or_(
+                        Property.selling_price_amount >= min_val,
+                        Property.rent_price_amount >= min_val,
+                    )
+                )
+        except (ValueError, TypeError):
+            pass  # Ignore invalid budget values
+    
+    if max_budget:
+        try:
+            max_val = float(max_budget)
+            if status_lower == "buy":
+                filters.append(Property.selling_price_amount <= max_val)
+            elif status_lower == "rent":
+                filters.append(Property.rent_price_amount <= max_val)
+            else:
+                # No status specified - check both price fields
+                filters.append(
+                    or_(
+                        Property.selling_price_amount <= max_val,
+                        Property.rent_price_amount <= max_val,
+                    )
+                )
+        except (ValueError, TypeError):
+            pass  # Ignore invalid budget values
+    
+    # Apply all filters
+    if filters:
+        stmt = stmt.where(and_(*filters))
+    
+    # Get total count before pagination
+    # Need to join tables for count query if filters use them
+    count_stmt = select(func.count(Property.id))
+    # Add joins if we have category/type/city/location filters
+    if category or type or city or locations:
+        count_stmt = count_stmt.join(PropertyCategory, Property.category_id == PropertyCategory.id)
+        count_stmt = count_stmt.join(PropertyType, Property.type_id == PropertyType.id)
+        count_stmt = count_stmt.join(City, Property.city_id == City.id)
+        count_stmt = count_stmt.join(Area, Property.location_id == Area.id)
+    if filters:
+        count_stmt = count_stmt.where(and_(*filters))
+    total = db.execute(count_stmt).scalar() or 0
+    
+    # Calculate offset from page and pageSize
+    offset = (page - 1) * pageSize
+    
+    # Apply ordering and pagination
+    stmt = stmt.order_by(Property.created_at.desc()).offset(offset).limit(pageSize)
+    
+    # Execute query
+    results = db.execute(stmt).scalars().all()
+
     # Convert to extended format
     data = [
         PropertySearchResultExtended.from_orm_obj(p)
