@@ -329,6 +329,28 @@ abdoun_fast_api/
     ```
     This will find up to 20 properties similar to property ID 59 based on the criteria above.
 
+### Locations
+
+- **GET** `/api/v1/cities` - Get list of all active cities
+  - **Response:** Returns list of cities with `id` and `name`
+  - **Example:**
+    ```powershell
+    GET http://localhost:8000/api/v1/cities
+    ```
+
+- **GET** `/api/v1/areas` - Get list of areas, optionally filtered by city
+  - **Query Parameters:**
+    - `city` (string, optional) - Filter areas by city name (case-insensitive)
+  - **Response:** Returns list of areas with `id`, `name`, `city_id`, and `city_name`
+  - **Examples:**
+    ```powershell
+    # Get all areas
+    GET http://localhost:8000/api/v1/areas
+    
+    # Get areas in a specific city
+    GET http://localhost:8000/api/v1/areas?city=amman
+    ```
+
 ### Search
 
 - **POST** `/api/v1/properties/geo-search` - Search properties by geographic bounds or polygon

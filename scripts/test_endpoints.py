@@ -331,6 +331,59 @@ def test_similar_properties(property_id: int = None):
     return response.status_code == HTTPStatus.OK
 
 
+def test_list_cities():
+    """Test GET /api/v1/cities"""
+    print("\n" + "="*60)
+    print("TEST 8: List Cities (GET /api/v1/cities)")
+    print("="*60)
+    
+    response = requests.get(f"{BASE_URL}/cities")
+    print(f"Status: {response.status_code}")
+    if response.status_code == HTTPStatus.OK:
+        data = response.json()
+        print(f"✅ Success! Found {data['total']} cities")
+        if data.get('data'):
+            print("   Sample cities:")
+            for city in data['data'][:5]:
+                print(f"     - {city['name']} (ID: {city['id']})")
+    else:
+        print(f"❌ Error: {response.text}")
+    
+    return response.status_code == HTTPStatus.OK
+
+
+def test_list_areas():
+    """Test GET /api/v1/areas"""
+    print("\n" + "="*60)
+    print("TEST 9: List Areas (GET /api/v1/areas)")
+    print("="*60)
+    
+    # Test all areas
+    print("\n--- Testing all areas (no filter) ---")
+    response = requests.get(f"{BASE_URL}/areas")
+    print(f"Status: {response.status_code}")
+    if response.status_code == HTTPStatus.OK:
+        data = response.json()
+        print(f"✅ Found {data['total']} areas")
+        if data.get('data'):
+            print("   Sample areas:")
+            for area in data['data'][:5]:
+                print(f"     - {area['name']} (City: {area.get('city_name', 'N/A')})")
+    
+    # Test areas filtered by city
+    print("\n--- Testing areas filtered by city (city=amman) ---")
+    response = requests.get(f"{BASE_URL}/areas?city=amman")
+    if response.status_code == HTTPStatus.OK:
+        data = response.json()
+        print(f"✅ Found {data['total']} areas in Amman")
+        if data.get('data'):
+            print("   Sample areas in Amman:")
+            for area in data['data'][:5]:
+                print(f"     - {area['name']}")
+    
+    return response.status_code == HTTPStatus.OK
+
+
 def test_import_csv():
     """Test POST /api/v1/import-csv"""
     print("\n" + "="*60)
@@ -393,6 +446,8 @@ def main():
     results.append(("Search by Polygon", test_search_by_polygon()))
     results.append(("Exclusive Properties", test_exclusive_properties()))
     results.append(("Similar Properties", test_similar_properties(property_id_to_test)))
+    results.append(("List Cities", test_list_cities()))
+    results.append(("List Areas", test_list_areas()))
     # Skip CSV import test by default (can be slow and may create duplicates)
     # results.append(("Import CSV", test_import_csv()))
     
