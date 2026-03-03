@@ -16,8 +16,10 @@ from sqlalchemy import (
     JSON,
     Numeric,
     String,
+    Text,
     TIMESTAMP,
     UUID,
+    UniqueConstraint,
     func,
 )
 from sqlalchemy.orm import DeclarativeBase, relationship
@@ -215,11 +217,20 @@ class PropertyNormalized(Base):
     )
     location_name = Column(String, nullable=True, index=True)  # For backward compatibility
 
+    # Display reference from source (e.g. CSV property_id "01002") for SEO and listing
+    reference_number = Column(String(50), nullable=True, index=True)
+
     price = Column(Numeric(15, 2), nullable=False)  # Primary price (selling or rent)
+    currency = Column(String(3), nullable=True)  # Single currency for this property (from CSV selling_price/rent_price)
     selling_price_amount = Column(Numeric(15, 2), nullable=True)  # If available for sale
     selling_price_currency = Column(String(3), nullable=True)
     rent_price_amount = Column(Numeric(15, 2), nullable=True)  # If available for rent
     rent_price_currency = Column(String(3), nullable=True)
+
+    # From CSV: rent_commission ("5.00 %"), contract_duration ("Undefined"), payment_method ("Annual")
+    rent_commission_percent = Column(Numeric(5, 2), nullable=True)
+    contract_duration = Column(String(50), nullable=True)
+    payment_method = Column(String(50), nullable=True)
 
     area = Column(Numeric(10, 2))  # Built-up area
     plot_area = Column(Numeric(10, 2))  # Plot/land area
@@ -253,6 +264,44 @@ class PropertyNormalized(Base):
         back_populates="property",
         cascade="all, delete"
     )
+    translations = relationship(
+        "PropertyTranslation",
+        back_populates="property",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+    )
+    media_items = relationship(
+        "PropertyMedia",
+        back_populates="property",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+        order_by="PropertyMedia.display_order",
+    )
+
+
+# ==============================
+# Property Translations (i18n)
+# ==============================
+# Best practice: separate table for title/description per language.
+# Slug is NOT translated; derive from title when needed for SEO.
+# UNIQUE(property_id, language_code) in DB ensures one row per language per property.
+
+class PropertyTranslation(Base):
+    __tablename__ = "property_translations"
+
+    id = Column(Integer, primary_key=True, index=True)
+    property_id = Column(UUID(as_uuid=True), ForeignKey("properties_normalized.id", ondelete="CASCADE"), nullable=False)
+    language_code = Column(String(5), nullable=False)  # 'en', 'ar', 'esp', 'fr'
+    title = Column(Text, nullable=True)
+    description = Column(Text, nullable=True)
+    address = Column(Text, nullable=True)
+
+    created_at = Column(TIMESTAMP, server_default=func.now())
+    updated_at = Column(TIMESTAMP, server_default=func.now(), onupdate=func.now())
+
+    __table_args__ = (UniqueConstraint("property_id", "language_code", name="uq_property_translations_property_lang"),)
+
+    property = relationship("PropertyNormalized", back_populates="translations")
 
 
 # ==============================
@@ -265,9 +314,37 @@ class PropertyFeature(Base):
     property_id = Column(UUID(as_uuid=True), ForeignKey("properties_normalized.id"), primary_key=True)
     feature_id = Column(Integer, ForeignKey("features.id"), primary_key=True)
 
+    # Optional per-property value for this feature (e.g. Finishing=Deluxe)
+    value = Column(String(255), nullable=True)
+
     created_at = Column(TIMESTAMP, server_default=func.now())
     updated_at = Column(TIMESTAMP, server_default=func.now(), onupdate=func.now())
 
     property = relationship("PropertyNormalized", back_populates="features")
     feature = relationship("Feature", foreign_keys=[feature_id])
 
+
+# ==============================
+# Property Media
+# ==============================
+
+class PropertyMedia(Base):
+    __tablename__ = "property_media"
+
+    id = Column(Integer, primary_key=True, index=True)
+    property_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("properties_normalized.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    media_type = Column(String(20), nullable=False)  # image | video | floor_plan | document
+    url = Column(Text, nullable=False)
+    thumb_url = Column(Text, nullable=True)
+    is_primary = Column(Boolean, default=False)
+    display_order = Column(Integer, default=0)
+    caption = Column(Text, nullable=True)
+    created_at = Column(TIMESTAMP, server_default=func.now())
+    updated_at = Column(TIMESTAMP, server_default=func.now(), onupdate=func.now())
+
+    property = relationship("PropertyNormalized", back_populates="media_items")

@@ -11,6 +11,7 @@ python-dotenv==1.0.1
 python-multipart==0.0.9
 requests==2.31.0
 openai==0.28.1  # Azure OpenAI compatible version
+deep-translator==1.11.4  # Optional: for property title/description translation (ar, esp, fr)
 
 
 

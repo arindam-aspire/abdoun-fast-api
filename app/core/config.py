@@ -16,6 +16,11 @@ def _get_database_url() -> str:
     return os.getenv("DATABASE_URL", "postgresql+psycopg2://postgres:postgres@localhost:5432/realestate")
 
 
+def _parse_csv_env(name: str, default: str = "") -> list[str]:
+    raw = os.getenv(name, default)
+    return [item.strip() for item in raw.split(",") if item.strip()]
+
+
 class Settings(BaseModel):
     app_name: str = SystemMessages.APP_NAME
     environment: str = os.getenv("ENVIRONMENT", "local")
@@ -24,6 +29,14 @@ class Settings(BaseModel):
     database_url: str = _get_database_url()
 
     api_v1_prefix: str = SystemMessages.API_V1_PREFIX
+
+    cors_origins: list[str] = _parse_csv_env(
+        "CORS_ORIGINS",
+        "http://localhost:3000,http://127.0.0.1:3000",
+    )
+    cors_allow_credentials: bool = os.getenv("CORS_ALLOW_CREDENTIALS", "true").lower() == "true"
+    cors_allow_methods: list[str] = _parse_csv_env("CORS_ALLOW_METHODS", "*")
+    cors_allow_headers: list[str] = _parse_csv_env("CORS_ALLOW_HEADERS", "*")
     
     # Azure OpenAI settings (optional, for geocoding fallback)
     azure_openai_key: str | None = os.getenv("AZURE_OPENAI_KEY")

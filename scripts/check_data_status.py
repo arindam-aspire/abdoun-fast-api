@@ -22,6 +22,7 @@ from app.models.property_normalized import (
     CategorySearchField,
     PropertyNormalized,
     PropertyFeature,
+    PropertyTranslation,
 )
 
 
@@ -40,6 +41,7 @@ def check_table_counts(db):
         "category_search_fields": CategorySearchField,
         "properties_normalized": PropertyNormalized,
         "property_features": PropertyFeature,
+        "property_translations": PropertyTranslation,
     }
     
     print("=" * 60)
@@ -51,6 +53,19 @@ def check_table_counts(db):
         count = db.execute(select(func.count()).select_from(model)).scalar() or 0
         status = "✓" if count > 0 else "✗"
         print(f"{status} {table_name:30} : {count:5} rows")
+
+    # property_translations by language (en, ar, esp, fr)
+    trans_total = db.execute(select(func.count(PropertyTranslation.id))).scalar() or 0
+    if trans_total > 0:
+        print()
+        print("  property_translations by language:")
+        for lang in ("en", "ar", "esp", "fr"):
+            c = db.execute(
+                select(func.count(PropertyTranslation.id)).where(
+                    PropertyTranslation.language_code == lang
+                )
+            ).scalar() or 0
+            print(f"    {lang}: {c}")
     
     print()
     print("=" * 60)

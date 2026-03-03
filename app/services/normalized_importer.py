@@ -20,6 +20,14 @@ from app.models.property_normalized import (
     Feature,
     PropertyStatus,
     PropertyFeature,
+    PropertyTranslation,
+    PropertyMedia,
+)
+from app.services.translation_service import get_or_create_translation
+from app.schemas.property import (
+    FEATURE_VALUE_KEYS,
+    META_FEATURE_NAMES,
+    FEATURE_VALUE_LIKE_NAMES,
 )
 from app.services.csv_importer import (
     _parse_price,
@@ -80,6 +88,41 @@ def parse_more_features_to_json(more_features_list: list[str] | None) -> dict | 
             result[key] = value
     
     return result if result else None
+
+
+def _parse_rent_commission(value: Any) -> float | None:
+    """Parse rent_commission from CSV (e.g. '5.00 %' -> 5.0)."""
+    if value is None or pd.isna(value):
+        return None
+    s = str(value).strip().replace("%", "").replace(",", ".").strip()
+    if not s or s.lower() in ("nan", "none", "undefined"):
+        return None
+    try:
+        return float(s)
+    except ValueError:
+        return None
+
+
+def _filter_features_to_amenities(
+    features_list: list[str],
+    more_features_json: dict | None,
+) -> list[str]:
+    """
+    Keep only real amenities from CSV 'features' column.
+    Exclude: value-slot keys (Finishing, Windows, ...), meta names (Floor Type, Garage, ...),
+    value-like names (Standard, Deluxe, ...), and any key/value from more_features.
+    """
+    excluded = set(FEATURE_VALUE_KEYS) | set(META_FEATURE_NAMES) | set(FEATURE_VALUE_LIKE_NAMES)
+    if more_features_json:
+        for k, v in more_features_json.items():
+            if k:
+                excluded.add(k.strip())
+            if v and isinstance(v, str):
+                excluded.add(v.strip())
+    return [
+        f for f in features_list
+        if f and f.strip() and f.strip() not in excluded
+    ]
 
 
 def _slugify(text: str) -> str:
@@ -357,7 +400,17 @@ def create_property_normalized_from_row(
     
     furniture_status = _normalize_string(row.get("furniture"))
     parking = _normalize_string(row.get("garage")) is not None
-    
+
+    # Reference number from CSV property_id (e.g. "01002") for display/SEO
+    reference_number = _normalize_string(row.get("property_id"))
+
+    # Pricing extras from CSV: rent_commission ("5.00 %"), contract_duration ("Undefined"), payment_method ("Annual")
+    rent_commission_percent = _parse_rent_commission(row.get("rent_commission"))
+    contract_duration_raw = _normalize_string(row.get("contract_duration"))
+    contract_duration = contract_duration_raw if contract_duration_raw and contract_duration_raw.lower() != "undefined" else None
+    payment_method_raw = _normalize_string(row.get("payment_method"))
+    payment_method = payment_method_raw.strip().lower() if payment_method_raw else None
+
     # Store images as JSON string
     images_json = json.dumps(images) if images else "[]"
     
@@ -376,6 +429,7 @@ def create_property_normalized_from_row(
         longitude=lng_f,
         location_name=location_str,  # Keep for backward compatibility
         price=primary_price,
+        currency=selling_currency or rent_currency or "JOD",
         selling_price_amount=selling_amount,
         selling_price_currency=selling_currency,
         rent_price_amount=rent_amount,
@@ -387,6 +441,11 @@ def create_property_normalized_from_row(
         furniture_status=furniture_status,
         parking=parking,
         images=images_json,
+        more_features=more_features_json,
+        reference_number=reference_number,
+        rent_commission_percent=rent_commission_percent,
+        contract_duration=contract_duration,
+        payment_method=payment_method,
     )
     
     # Set location geometry if coordinates available
@@ -397,6 +456,38 @@ def create_property_normalized_from_row(
         )
     
     return prop
+
+
+def add_property_media_from_images(
+    db: Session,
+    property_id: UUID,
+    images: list[str] | None,
+) -> None:
+    """Normalize image URLs into property_media rows (media_type='image')."""
+    if not images:
+        return
+
+    seen_urls: set[str] = set()
+    media_rows: list[PropertyMedia] = []
+    for idx, raw_url in enumerate(images, start=1):
+        url = _normalize_string(raw_url)
+        if not url or url in seen_urls:
+            continue
+        seen_urls.add(url)
+        media_rows.append(
+            PropertyMedia(
+                property_id=property_id,
+                media_type="image",
+                url=url,
+                thumb_url=url,
+                is_primary=(len(media_rows) == 0),
+                display_order=idx,
+                caption=None,
+            )
+        )
+
+    if media_rows:
+        db.add_all(media_rows)
 
 
 def add_property_features(
@@ -415,10 +506,10 @@ def add_property_features(
         if normalized_name not in seen_features:
             seen_features.add(normalized_name)
             unique_features.append(feature_name.strip())
-    
+
     if not unique_features:
         return
-    
+
     # Get all existing relationships for this property in one query
     existing_relationships = db.execute(
         select(PropertyFeature.feature_id).where(
@@ -426,7 +517,7 @@ def add_property_features(
         )
     ).scalars().all()
     existing_feature_ids = set(existing_relationships)
-    
+
     # Get or create features and collect new ones to add
     new_prop_features = []
     for feature_name in unique_features:
@@ -439,10 +530,73 @@ def add_property_features(
                 )
             )
             existing_feature_ids.add(feature.id)  # Prevent duplicates in same batch
-    
+
     # Bulk add new features
     if new_prop_features:
         db.add_all(new_prop_features)
+
+
+# CSV column -> Feature name for "meta" fields stored as Feature + PropertyFeature.value
+META_FEATURE_COLUMNS = [
+    ("type", "Floor Type"),           # Upper Floor, Ground, Semi Ground Floor, Detached, etc.
+    ("floor", "Floor"),               # 1.0, -1.0, 0.0
+    ("building_status", "Building Status"),  # Used, New
+    ("garage", "Garage"),             # Closed, Open
+    ("terrace_area", "Terrace Area"), # 50 Sqm, 170 Sqm, etc.
+    ("garden_area", "Garden Area"),   # 50 Sqm, etc.
+    ("master_bedrooms", "Master Bedrooms"),  # 1.0, 2.0
+    ("kitchens", "Kitchens"),         # 1.0
+    ("furniture", "Furniture"),       # Furnished, Unfurnished (also in column; feature for consistency)
+]
+
+
+def _format_meta_value(raw: Any, column: str) -> str | None:
+    """Format a CSV cell value for storage in PropertyFeature.value."""
+    if raw is None or (isinstance(raw, float) and pd.isna(raw)):
+        return None
+    s = str(raw).strip()
+    if not s or s.lower() in ("nan", "none"):
+        return None
+    # Normalize float-looking integers for floor, master_bedrooms, kitchens
+    if column in ("floor", "master_bedrooms", "kitchens"):
+        try:
+            f = float(s)
+            if f == int(f):
+                return str(int(f))
+            return s
+        except ValueError:
+            return s
+    return s
+
+
+def add_property_meta_features(db: Session, property_id: UUID, row: pd.Series) -> None:
+    """
+    Add meta fields from CSV as features with values (when not already table columns).
+    Uses META_FEATURE_COLUMNS: (csv_column, feature_name). Value is stored in PropertyFeature.value.
+    """
+    for csv_col, feature_name in META_FEATURE_COLUMNS:
+        raw = row.get(csv_col)
+        if csv_col in ("terrace_area", "garden_area"):
+            # Parse area-style "50 Sqm" or "170 Sqm" to numeric string
+            num = _parse_area(raw)
+            value_str = str(int(num)) if num is not None and num == int(num) else (str(num) if num is not None else None)
+        else:
+            value_str = _format_meta_value(raw, csv_col)
+        if not value_str:
+            continue
+        feature = get_or_create_feature(db, feature_name)
+        if not feature:
+            continue
+        existing = db.execute(
+            select(PropertyFeature).where(
+                PropertyFeature.property_id == property_id,
+                PropertyFeature.feature_id == feature.id,
+            )
+        ).scalar_one_or_none()
+        if existing:
+            existing.value = value_str
+        else:
+            db.add(PropertyFeature(property_id=property_id, feature_id=feature.id, value=value_str))
 
 
 def import_properties_normalized_from_dataframe(
@@ -494,16 +648,12 @@ def import_properties_normalized_from_dataframe(
             continue
         
         try:
-            # Combine features and more_features for PropertyFeature relationships
-            all_features = []
-            if features:
-                all_features.extend(features)
-            if more_features:
-                all_features.extend(more_features)
-            
-            # Parse more_features into key-value JSON object
+            # CSV 'features' = amenities only; 'more_features' = value slots (Finishing|Deluxe|...).
+            all_features = list(features) if features else []
             more_features_json = parse_more_features_to_json(more_features)
-            
+            # Only add real amenities to PropertyFeature; value keys/values stay in more_features JSON.
+            amenities_only = _filter_features_to_amenities(all_features, more_features_json)
+
             # Create property
             prop = create_property_normalized_from_row(
                 db=db,
@@ -517,17 +667,33 @@ def import_properties_normalized_from_dataframe(
                 rent_amount=rent_amount,
                 rent_currency=rent_currency,
                 images=images,
-                features_list=all_features,
+                features_list=amenities_only,
                 more_features_json=more_features_json,
             )
             
             db.add(prop)
             db.flush()  # Flush to get the property ID
-            
-            # Add features
-            if all_features:
-                add_property_features(db, prop.id, all_features)
-            
+
+            # Add English translation (title, description) to property_translations
+            get_or_create_translation(
+                db,
+                property_id=prop.id,
+                language_code="en",
+                title=title,
+                description=_normalize_string(row.get("description")),
+                address=_normalize_location_name(row.get("location")),
+            )
+
+            # Add only amenities (value slots come from more_features JSON)
+            if amenities_only:
+                add_property_features(db, prop.id, amenities_only)
+
+            # Add meta fields as features with values (floor type, floor, building_status, garage, terrace_area, garden_area, master_bedrooms, kitchens, furniture)
+            add_property_meta_features(db, prop.id, row)
+
+            # Keep normalized media table in sync for new imports.
+            add_property_media_from_images(db, prop.id, images)
+
             db.commit()
             imported_count += 1
             
@@ -542,4 +708,3 @@ def import_properties_normalized_from_dataframe(
     
     logger.info(f"Imported {imported_count} properties, skipped {skipped_duplicates} duplicates")
     return imported_count
-

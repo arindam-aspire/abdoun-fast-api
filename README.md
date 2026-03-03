@@ -11,6 +11,7 @@ A production-ready FastAPI application for managing and searching real estate pr
 - 🔍 **Advanced Filtering**: Search by status, category, type, city, location, price range, and more
 - 🔗 **Similar Properties**: Find similar properties based on category, location, price, bedrooms, bathrooms, and area
 - 📄 **Pagination**: Page-based pagination with configurable page size
+- 🌍 **Multi-Language (i18n)**: Property title and description in English, Arabic, Spanish, and French via `property_translations` table
 - 🚀 **Fast & Scalable**: Built with FastAPI, SQLAlchemy 2.0, and PostGIS
 
 ## Tech Stack
@@ -47,6 +48,8 @@ abdoun_fast_api/
 │   │   └── property.py         # Pydantic schemas for API
 │   └── services/
 │       ├── csv_importer.py      # CSV import logic
+│       ├── normalized_importer.py  # Normalized CSV import (writes property_translations en)
+│       ├── translation_service.py  # i18n: translate_text, get_title_description_all_languages
 │       └── geocoding.py        # Geocoding service
 ├── alembic/                    # Database migrations
 │   ├── versions/               # Migration files
@@ -54,7 +57,11 @@ abdoun_fast_api/
 ├── scripts/
 │   ├── seed_reference_data.py  # Seed reference tables (categories, types, etc.)
 │   ├── import_normalized_csv.py  # Import properties into normalized tables
-│   ├── check_data_status.py   # Check data counts in all tables
+│   ├── backfill_property_translations.py  # Backfill en + optional ar, esp, fr translations
+│   ├── backfill_reference_number.py      # Backfill reference_number from CSV property_id
+│   ├── backfill_feature_values_from_csv.py  # Backfill PropertyFeature.value from CSV more_features
+│   ├── backfill_meta_features_from_csv.py   # Backfill Floor Type, Floor, Garage, Terrace Area, etc. from CSV as features
+│   ├── check_data_status.py   # Check data counts (includes property_translations by language)
 │   ├── test_endpoints.py       # API endpoint tests
 │   └── enrich_csv_with_coordinates.py  # Geocode CSV locations
 ├── data/
@@ -135,10 +142,17 @@ abdoun_fast_api/
    python -m alembic upgrade head
    ```
    
-   **Expected Output:**
+   **Step 5.4: Populate new columns after migrations (currency, rent_commission_percent, contract_duration, payment_method)**  
+   If you added migrations 0010 (currency) or 0011 (rent_commission, contract_duration, payment_method), run the normalized import so these fields are filled from the CSV. New imports get them automatically; for an existing DB, re-run the import (existing rows are skipped by URL; only new rows get the new fields unless you run a backfill).
+   ```powershell
+   python scripts/import_normalized_csv.py
+   # Or with custom CSV path:
+   python scripts/import_normalized_csv.py --csv-path data/abdoun_merged_properties.csv
    ```
-   INFO  [alembic.runtime.migration] Running upgrade 0003_add_location_name -> 0004_normalized_tables
-   INFO  [alembic.runtime.migration] Running upgrade 0004_normalized_tables -> 0005_drop_old_props
+   
+   **Expected migration output (example):**
+   ```
+   INFO  [alembic.runtime.migration] Running upgrade 0010_currency -> 0011_pricing_extras, add rent_commission_percent, contract_duration, payment_method to properties_normalized
    ```
 
 6. **Seed reference data**
@@ -182,6 +196,20 @@ abdoun_fast_api/
    ```powershell
    # Check data status
    python scripts/check_data_status.py
+   ```
+   
+   **Step 7.3: Backfill multi-language translations** (optional)
+   ```powershell
+   # Add English rows to property_translations from existing title/description
+   python scripts/backfill_property_translations.py
+   # Optionally add Arabic, Spanish, French (requires: pip install deep-translator)
+   python scripts/backfill_property_translations.py --translate-other-languages --workers 10 --batch 50
+   # Verify: python scripts/backfill_property_translations.py --status
+   ```
+   
+   **Step 7.4: Backfill reference_number** (if you had existing data before migration 0008)
+   ```powershell
+   python scripts/backfill_reference_number.py
    ```
    
    Or use SQL:
@@ -303,10 +331,11 @@ abdoun_fast_api/
     - `budgetMin` / `minPrice` (float, optional) - Minimum price filter
     - `budgetMax` / `maxPrice` (float, optional) - Maximum price filter
     - `exclusive` (bool, optional) - Filter by exclusive status (`true` for exclusive only, `false` for non-exclusive only)
-  - **Response:** Returns `PropertySearchResponse` with `data`, `page`, `pageSize`, and `total`
+    - `lang` (string, optional) - Language code for display (`en`, `ar`, `esp`, `fr`); list/detail return **multi-language objects** for `title`/`description` (see [Multi-Language Support](#multi-language-i18n-support))
+  - **Response:** Returns `PropertySearchResponse` with `data`, `page`, `pageSize`, and `total`. Each property has `title` and (on detail) `description` as objects: `{"en": "...", "ar": "...", "esp": "...", "fr": "..."}`
 
 - **GET** `/api/v1/properties/{id}` - Get property details
-  - Returns complete property information including all fields
+  - Returns complete property information. `title` and `description` are multi-language objects: `{"en": "...", "ar": "...", "esp": "...", "fr": "..."}`. Optional query: `lang` (for future use; response always includes all languages)
 
 - **GET** `/api/v1/properties/{id}/similar?limit=20` - Get similar properties
   - **Query Parameters:**
@@ -400,9 +429,13 @@ python scripts/seed_reference_data.py
 
 **Import Property Data:**
 ```powershell
-# Imports properties from CSV into normalized tables
+# Imports properties from CSV into normalized tables (includes currency, rent_commission_percent, contract_duration, payment_method from CSV)
 python scripts/import_normalized_csv.py
+
+# Custom CSV path
+python scripts/import_normalized_csv.py --csv-path data/abdoun_merged_properties.csv
 ```
+After running `alembic upgrade head` for migrations 0010/0011, run the import above to populate the new columns.
 
 **Update More Features Column (for existing data):**
 ```powershell
@@ -413,8 +446,64 @@ python scripts/update_more_features.py
 
 **Check Data Status:**
 ```powershell
-# Displays counts for all tables
+# Displays counts for all tables and property_translations by language (en, ar, esp, fr)
 python scripts/check_data_status.py
+```
+
+**Backfill Property Translations (Multi-Language):**
+```powershell
+# 1) Backfill English only (from properties_normalized.title/description)
+python scripts/backfill_property_translations.py
+
+# 2) Show current translation counts (verify what's in DB)
+python scripts/backfill_property_translations.py --status
+
+# 3) Backfill ar, esp, fr by translating from en (uses deep_translator when available)
+python scripts/backfill_property_translations.py --translate-other-languages
+
+# 4) Faster run: more workers, smaller commit batches
+python scripts/backfill_property_translations.py --translate-other-languages --workers 10 --batch 50
+
+# 5) Dry run (no DB writes)
+python scripts/backfill_property_translations.py --translate-other-languages --dry-run
+```
+
+**Backfill Reference Number (for existing data):**
+```powershell
+# After migration 0008_add_reference_number: fill reference_number from CSV property_id (match by url)
+python scripts/backfill_reference_number.py
+
+# Dry run (show what would be updated, no commit)
+python scripts/backfill_reference_number.py --dry-run
+
+# Custom CSV path
+python scripts/backfill_reference_number.py --csv-path data/abdoun_merged_properties.csv
+```
+
+**Backfill Feature Values (for Finishing, Windows, etc. from CSV more_features):**
+```powershell
+# Populate PropertyFeature.value for selected keys (Finishing, Windows, Window Shutters, Doors,
+# Air Conditioning, Heating System, Heating Fuel) using CSV more_features (matched by url)
+python scripts/backfill_feature_values_from_csv.py
+
+# Dry run (show what would be updated, no commit)
+python scripts/backfill_feature_values_from_csv.py --dry-run
+
+# Custom CSV path
+python scripts/backfill_feature_values_from_csv.py --csv-path data/abdoun_merged_properties.csv
+```
+
+**Backfill Meta Features (Floor Type, Floor, Garage, Terrace Area, etc. from CSV):**
+```powershell
+# Populate Floor Type, Floor, Building Status, Garage, Terrace Area, Garden Area, Master Bedrooms, Kitchens, Furniture
+# as Feature + PropertyFeature.value (so general/details in API can be filled from features)
+python scripts/backfill_meta_features_from_csv.py
+
+# Dry run
+python scripts/backfill_meta_features_from_csv.py --dry-run
+
+# Custom CSV path
+python scripts/backfill_meta_features_from_csv.py --csv-path data/abdoun_merged_properties.csv
 ```
 
 ### Testing Scripts
@@ -461,17 +550,121 @@ The database uses a normalized structure with separate tables for:
   - `location_id` (FK) - References `areas`
   - `property_status_id` (FK) - References `property_status`
   - `url` (String, Unique) - Original property URL
-  - `title`, `description`, `selling_price_amount`, `rent_price_amount`, etc.
+  - `title`, `description` - Legacy single-language fields (fallback; prefer `property_translations`)
+  - `selling_price_amount`, `rent_price_amount`, etc.
   - `images` (String) - JSON array of image URLs
   - `more_features` (JSONB) - JSON object with key-value pairs (e.g., `{"Finishing": "Deluxe", "Windows": "Double Glazed"}`)
+  - `reference_number` (String, nullable) - Display reference from source (e.g. CSV property_id "01002")
   - `location` (Geometry POINT) - PostGIS geometry for spatial queries
   - `created_at`, `updated_at` - Timestamps
+
+**Translations Table (i18n):**
+- `property_translations` - Title and description per language (best practice: separate table, not JSONB)
+  - `id` (SERIAL, PK)
+  - `property_id` (UUID, FK → `properties_normalized.id` ON DELETE CASCADE)
+  - `language_code` (VARCHAR(5)) - `en`, `ar`, `esp`, `fr`
+  - `title` (TEXT)
+  - `description` (TEXT)
+  - `created_at`, `updated_at`
+  - **UNIQUE(property_id, language_code)** - One row per property per language
+  - Index on `(property_id, language_code)` for fast lookups
+  - Slug is **not** stored here; derive from title when needed for SEO.
 
 **Indexes:**
 - Primary key on `id` (UUID)
 - Unique index on `url`
 - GIST index on `location` (for spatial queries)
+- GIST index on `location` (for spatial queries)
 - Foreign key indexes on all relationship columns
+- Index on `property_translations(property_id, language_code)`
+
+## Multi-Language (i18n) Support
+
+### Overview
+
+Property **title** and **description** are stored per language in the `property_translations` table. Supported languages: **en** (English), **ar** (Arabic), **esp** (Spanish), **fr** (French). Slug is not translated; derive from title when needed.
+
+### Table Design
+
+| Column          | Type        | Description |
+|-----------------|-------------|-------------|
+| `id`            | SERIAL (PK) | Primary key |
+| `property_id`   | UUID (FK)   | References `properties_normalized.id` ON DELETE CASCADE |
+| `language_code` | VARCHAR(5)  | `en`, `ar`, `esp`, `fr` |
+| `title`         | TEXT        | Title in this language |
+| `description`   | TEXT        | Description in this language |
+| `created_at`    | TIMESTAMP   | |
+| `updated_at`    | TIMESTAMP   | |
+
+- **UNIQUE(property_id, language_code)** so each property has at most one row per language.
+- Best practice: separate translation table (not JSONB) for indexing, filtering, and scaling.
+
+### API Response Format
+
+List and detail responses return **title** and **description** as objects keyed by language:
+
+```json
+{
+  "id": 123,
+  "title": {
+    "en": "Apartment for Rent",
+    "ar": "شقة للإيجار",
+    "esp": "Apartamento en alquiler",
+    "fr": "Appartement à louer"
+  },
+  "description": {
+    "en": "Spacious furnished apartment in the heart of Dair Gbhar...",
+    "ar": "شقة مفروشة واسعة في قلب دير غبار...",
+    "esp": "...",
+    "fr": "..."
+  },
+  ...
+}
+```
+
+Frontend can pick the right key (`en`, `ar`, `esp`, `fr`) for the current locale.
+
+### Translation Service
+
+- **`translate_text(text, target_lang, source_lang)`** – Translates a string. Uses **deep_translator** (Google Translate, no API key) when installed; otherwise returns source text. Can be replaced with AWS Translate.
+- **`get_or_create_translation(db, property_id, language_code, title=..., description=...)`** – Gets or creates a `property_translations` row.
+- **`translate_property_to_language(db, property_id, target_lang, ...)`** – Translates a property’s title/description to one language and persists it.
+- **`get_title_description_all_languages(prop)`** – Returns `(title_by_lang, description_by_lang)` dicts for API responses (keys: en, ar, esp, fr).
+
+### Backfill Script
+
+After migration `0007_add_property_translations` and importing properties:
+
+1. **Backfill English** from existing `properties_normalized.title`/`description`:
+   ```powershell
+   python scripts/backfill_property_translations.py
+   ```
+
+2. **Check counts** (verify DB state):
+   ```powershell
+   python scripts/backfill_property_translations.py --status
+   ```
+   Example output:
+   ```
+   property_translations:
+     total rows: 9432
+     en: 2358
+     ar: 2358
+     esp: 2358
+     fr: 2358
+     (properties_normalized: 2358 properties)
+   ```
+
+3. **Backfill ar, esp, fr** by translating from en (parallel workers; requires `deep-translator` for real translation):
+   ```powershell
+   pip install deep-translator
+   python scripts/backfill_property_translations.py --translate-other-languages
+   ```
+   Options: `--workers 8` (default), `--batch 100`, `--dry-run`.
+
+### CSV Import
+
+The normalized CSV importer writes **en** into `property_translations` when creating properties (from `property_name` and `description`). It also keeps `properties_normalized.title`/`description` for backward compatibility.
 
 ## Development
 
@@ -481,6 +674,12 @@ python scripts/test_endpoints.py
 ```
 
 ### Database Migrations
+
+**After upgrading (e.g. `alembic upgrade head`):**  
+To populate new columns (e.g. `currency`, `rent_commission_percent`, `contract_duration`, `payment_method`), run the normalized import so CSV data is loaded into the new fields:
+```powershell
+python scripts/import_normalized_csv.py
+```
 
 **Important:** Before running Alembic commands, ensure environment variables are loaded from `.env`:
 

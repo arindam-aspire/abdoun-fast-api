@@ -1,4 +1,5 @@
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.core.config import get_settings
@@ -12,6 +13,14 @@ def create_app() -> FastAPI:
         title=settings.app_name,
         version="1.0.0",
         debug=settings.debug,
+    )
+
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings.cors_origins,
+        allow_credentials=settings.cors_allow_credentials,
+        allow_methods=settings.cors_allow_methods,
+        allow_headers=settings.cors_allow_headers,
     )
     
     # Health check endpoint for Docker
@@ -28,7 +37,6 @@ def create_app() -> FastAPI:
 
 
 app = create_app()
-
 
 
 

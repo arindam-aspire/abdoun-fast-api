@@ -47,6 +47,7 @@ def list_properties(
     exclusive: Optional[str] = Query(None, description="Filter by exclusive status (true/1 for exclusive only, false/0 for non-exclusive only)"),
     page: int = Query(1, ge=1, description="Page number, 1-based"),
     pageSize: int = Query(12, ge=1, le=100, description="Items per page"),
+    lang: Optional[str] = Query(None, description="Language code for title/description: en, ar, esp, fr"),
 ) -> PropertySearchResponse:
     """
     Search properties with optional filters and pagination.
@@ -54,13 +55,14 @@ def list_properties(
     Matches the frontend search contract for Home Page and Search Results page.
     Supports both budgetMin/budgetMax and minPrice/maxPrice for compatibility.
     """
-    # Build query with joins for normalized model
+    # Build query with joins for normalized model (include translations for multi-lang title/description)
     stmt = select(Property).options(
         joinedload(Property.category),
         joinedload(Property.type),
         joinedload(Property.city),
         joinedload(Property.area_rel),
         joinedload(Property.property_status),
+        joinedload(Property.translations),
     )
     
     # Join tables for filtering
@@ -241,12 +243,12 @@ def list_properties(
     # Apply ordering and pagination
     stmt = stmt.order_by(Property.created_at.desc()).offset(offset).limit(pageSize)
     
-    # Execute query
-    results = db.execute(stmt).scalars().all()
+    # Execute query - use unique() to avoid duplicate rows from joined eager loads
+    results = db.execute(stmt).unique().scalars().all()
     
     # Convert to extended format
     data = [
-        PropertySearchResultExtended.from_orm_obj(p)
+        PropertySearchResultExtended.from_orm_obj(p, lang=lang)
         for p in results
     ]
     
@@ -272,6 +274,7 @@ def list_exclusive_properties(
     maxPrice: Optional[str] = Query(None, description="Alias for budgetMax (for hero search compatibility)"),
     page: int = Query(1, ge=1, description="Page number, 1-based"),
     pageSize: int = Query(12, ge=1, le=100, description="Items per page"),
+    lang: Optional[str] = Query(None, description="Language code for title/description: en, ar, esp, fr"),
 ) -> PropertySearchResponse:
     """
     List exclusive properties with optional filters and pagination.
@@ -279,13 +282,14 @@ def list_exclusive_properties(
     Same as regular property list endpoint but only returns properties where is_exclusive = True.
     Uses the same response format and supports all the same filters.
     """
-    # Build query with joins for normalized model (same as list_properties)
+    # Build query with joins for normalized model (same as list_properties; include translations)
     stmt = select(Property).options(
         joinedload(Property.category),
         joinedload(Property.type),
         joinedload(Property.city),
         joinedload(Property.area_rel),
         joinedload(Property.property_status),
+        joinedload(Property.translations),
     )
     
     # Join tables for filtering
@@ -456,12 +460,12 @@ def list_exclusive_properties(
     # Apply ordering and pagination
     stmt = stmt.order_by(Property.created_at.desc()).offset(offset).limit(pageSize)
     
-    # Execute query
-    results = db.execute(stmt).scalars().all()
+    # Execute query - use unique() to avoid duplicate rows from joined eager loads
+    results = db.execute(stmt).unique().scalars().all()
 
     # Convert to extended format
     data = [
-        PropertySearchResultExtended.from_orm_obj(p)
+        PropertySearchResultExtended.from_orm_obj(p, lang=lang)
         for p in results
     ]
     
@@ -478,6 +482,7 @@ def get_similar_properties(
     property_id: str,  # FastAPI path params are always strings
     db: DBSessionDep,
     limit: int = Query(20, ge=1, le=50, description="Maximum number of similar properties to return"),
+    lang: Optional[str] = Query(None, description="Language code for title/description: en, ar, esp, fr"),
 ) -> PropertySearchResponse:
     """
     Get similar properties based on the selected property.
@@ -533,7 +538,7 @@ def get_similar_properties(
                     if prop_hash == target_hash:
                         # Reload with relationships
                         prop = db.execute(
-                            select(Property)
+        select(Property)
                             .options(
                                 joinedload(Property.category),
                                 joinedload(Property.type),
@@ -552,12 +557,13 @@ def get_similar_properties(
             detail=ErrorMessages.PROPERTY_NOT_FOUND
         )
     
-    # Build similarity filters with joins
+    # Build similarity filters with joins (include translations for multi-lang title/description)
     stmt = select(Property).options(
         joinedload(Property.category),
         joinedload(Property.type),
         joinedload(Property.city),
         joinedload(Property.area_rel),
+        joinedload(Property.translations),
     )
     stmt = stmt.join(PropertyCategory, Property.category_id == PropertyCategory.id)
     stmt = stmt.join(City, Property.city_id == City.id)
@@ -620,7 +626,7 @@ def get_similar_properties(
                 Property.bathrooms == prop.bathrooms - 1,
                 Property.bathrooms == prop.bathrooms + 1,
             )
-        )
+    )
     
     # Similar area (±20%) - normalized model uses 'area' field
     area_value = getattr(prop, 'area', None) or getattr(prop, 'built_up_area', None)
@@ -645,10 +651,10 @@ def get_similar_properties(
     
     # Execute query - use unique() to avoid duplicate rows from joins
     results = db.execute(stmt).unique().scalars().all()
-    
+
     # Convert to extended format
     data = [
-        PropertySearchResultExtended.from_orm_obj(p)
+        PropertySearchResultExtended.from_orm_obj(p, lang=lang)
         for p in results
     ]
     
@@ -664,6 +670,7 @@ def get_similar_properties(
 def get_property(
     property_id: str,  # FastAPI path params are always strings
     db: DBSessionDep,
+    lang: Optional[str] = Query(None, description="Language code for title/description: en, ar, esp, fr"),
 ) -> PropertyDetail:
     """
     Get detailed information about a specific property.
@@ -697,6 +704,7 @@ def get_property(
                     joinedload(Property.city),
                     joinedload(Property.area_rel),
                     joinedload(Property.property_status),
+                    joinedload(Property.translations),
                     joinedload(Property.features).joinedload(PropertyFeature.feature),
                 )
                 .where(Property.id == uuid_obj)
@@ -757,6 +765,7 @@ def get_property(
                             joinedload(Property.city),
                             joinedload(Property.area_rel),
                             joinedload(Property.property_status),
+                            joinedload(Property.translations),
                             joinedload(Property.features).joinedload(PropertyFeature.feature),
                         )
                         .where(Property.id == found_uuid)
@@ -777,5 +786,5 @@ def get_property(
             status_code=STATUS_NOT_FOUND,
             detail=ErrorMessages.PROPERTY_NOT_FOUND
         )
-    return PropertyDetail.from_orm_obj(prop)
+    return PropertyDetail.from_orm_obj(prop, lang=lang)
 
