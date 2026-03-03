@@ -26,14 +26,22 @@ from app.services.translation_service import (
 )
 
 # Feature keys from CSV more_features that carry a value (appear in structured slots, not in amenities)
+FEATURE_KEY_FINISHING = "Finishing"
+FEATURE_KEY_WINDOWS = "Windows"
+FEATURE_KEY_WINDOW_SHUTTERS = "Window Shutters"
+FEATURE_KEY_DOORS = "Doors"
+FEATURE_KEY_AIR_CONDITIONING = "Air Conditioning"
+FEATURE_KEY_HEATING_SYSTEM = "Heating System"
+FEATURE_KEY_HEATING_FUEL = "Heating Fuel"
+
 FEATURE_VALUE_KEYS = {
-    "Finishing",
-    "Windows",
-    "Window Shutters",
-    "Doors",
-    "Air Conditioning",
-    "Heating System",
-    "Heating Fuel",
+    FEATURE_KEY_FINISHING,
+    FEATURE_KEY_WINDOWS,
+    FEATURE_KEY_WINDOW_SHUTTERS,
+    FEATURE_KEY_DOORS,
+    FEATURE_KEY_AIR_CONDITIONING,
+    FEATURE_KEY_HEATING_SYSTEM,
+    FEATURE_KEY_HEATING_FUEL,
 }
 
 # Meta fields stored as Feature + value; used in general/details only, not in features.amenities
@@ -302,6 +310,78 @@ def _parse_images_list_from_orm(obj: Property) -> list[str]:
     return [str(u).strip() for u in images_list if u and str(u).strip()]
 
 
+def _media_item_from_row(media_row: Any, idx: int) -> Optional[PropertyMediaItem]:
+    item = PropertyMediaItem(
+        id=int(getattr(media_row, "id", idx) or idx),
+        url=str(getattr(media_row, "url", "") or ""),
+        thumb_url=(getattr(media_row, "thumb_url", None) or getattr(media_row, "url", None)),
+        is_primary=bool(getattr(media_row, "is_primary", False)),
+        order=int(getattr(media_row, "display_order", idx) or idx),
+        caption=getattr(media_row, "caption", None),
+    )
+    return item if item.url else None
+
+
+def _append_media_item_by_type(
+    item: PropertyMediaItem,
+    media_type: str,
+    images: list[PropertyMediaItem],
+    videos: list[PropertyMediaItem],
+    floor_plans: list[PropertyMediaItem],
+    documents: list[PropertyMediaItem],
+) -> None:
+    if media_type == "video":
+        videos.append(item)
+    elif media_type == "floor_plan":
+        floor_plans.append(item)
+    elif media_type == "document":
+        documents.append(item)
+    else:
+        images.append(item)
+
+
+def _resolve_thumbnail(images: list[PropertyMediaItem]) -> Optional[str]:
+    primary_image = next((img for img in images if img.is_primary), None)
+    if primary_image:
+        return primary_image.thumb_url or primary_image.url
+    if images:
+        return images[0].thumb_url or images[0].url
+    return None
+
+
+def _build_media_from_loaded_rows(
+    media_rows: list[Any],
+    images: list[PropertyMediaItem],
+    videos: list[PropertyMediaItem],
+    floor_plans: list[PropertyMediaItem],
+    documents: list[PropertyMediaItem],
+) -> Optional[str]:
+    media_rows.sort(key=lambda m: (getattr(m, "display_order", 0) or 0, getattr(m, "id", 0) or 0))
+    for idx, media_row in enumerate(media_rows, start=1):
+        item = _media_item_from_row(media_row, idx)
+        if not item:
+            continue
+        media_type = (getattr(media_row, "media_type", "image") or "image").strip().lower()
+        _append_media_item_by_type(item, media_type, images, videos, floor_plans, documents)
+    return _resolve_thumbnail(images)
+
+
+def _build_media_from_legacy_images(obj: Property, images: list[PropertyMediaItem]) -> Optional[str]:
+    legacy_images = _parse_images_list_from_orm(obj)
+    for idx, url in enumerate(legacy_images, start=1):
+        images.append(
+            PropertyMediaItem(
+                id=idx,
+                url=url,
+                thumb_url=url,
+                is_primary=(idx == 1),
+                order=idx,
+                caption=None,
+            )
+        )
+    return _resolve_thumbnail(images)
+
+
 def _build_media_from_orm(obj: Property) -> PropertyMediaStructured:
     """Build structured media block from property_media with fallback to legacy images."""
     images: list[PropertyMediaItem] = []
@@ -313,49 +393,10 @@ def _build_media_from_orm(obj: Property) -> PropertyMediaStructured:
     # Only use media_items when already loaded to avoid implicit DB queries.
     media_rows = list(getattr(obj, "__dict__", {}).get("media_items") or [])
     if media_rows:
-        media_rows.sort(key=lambda m: (getattr(m, "display_order", 0) or 0, getattr(m, "id", 0) or 0))
-        for idx, m in enumerate(media_rows, start=1):
-            item = PropertyMediaItem(
-                id=int(getattr(m, "id", idx) or idx),
-                url=str(getattr(m, "url", "") or ""),
-                thumb_url=(getattr(m, "thumb_url", None) or getattr(m, "url", None)),
-                is_primary=bool(getattr(m, "is_primary", False)),
-                order=int(getattr(m, "display_order", idx) or idx),
-                caption=getattr(m, "caption", None),
-            )
-            if not item.url:
-                continue
-            media_type = (getattr(m, "media_type", "image") or "image").strip().lower()
-            if media_type == "video":
-                videos.append(item)
-            elif media_type == "floor_plan":
-                floor_plans.append(item)
-            elif media_type == "document":
-                documents.append(item)
-            else:
-                images.append(item)
-
-        primary_image = next((img for img in images if img.is_primary), None)
-        if primary_image:
-            thumbnail = primary_image.thumb_url or primary_image.url
-        elif images:
-            thumbnail = images[0].thumb_url or images[0].url
+        thumbnail = _build_media_from_loaded_rows(media_rows, images, videos, floor_plans, documents)
     else:
         # Backward-compatible fallback while old images column still exists.
-        legacy_images = _parse_images_list_from_orm(obj)
-        for idx, url in enumerate(legacy_images, start=1):
-            images.append(
-                PropertyMediaItem(
-                    id=idx,
-                    url=url,
-                    thumb_url=url,
-                    is_primary=(idx == 1),
-                    order=idx,
-                    caption=None,
-                )
-            )
-        if images:
-            thumbnail = images[0].thumb_url or images[0].url
+        thumbnail = _build_media_from_legacy_images(obj, images)
 
     return PropertyMediaStructured(
         thumbnail=thumbnail,
@@ -615,6 +656,51 @@ def _normalize_feature_value(val: str) -> str:
     return v.replace(" ", "_")
 
 
+def _get_normalized_feature_value(more_features: dict[str, Any], key: str) -> Optional[str]:
+    value = more_features.get(key)
+    if value is None:
+        return None
+    return _normalize_feature_value(str(value))
+
+
+def _is_excluded_feature_name(name: str) -> bool:
+    return name in FEATURE_VALUE_KEYS or name in META_FEATURE_NAMES or name in FEATURE_VALUE_LIKE_NAMES
+
+
+def _is_view_amenity(amenity_slug: str, view_type: list[str]) -> bool:
+    if "view" not in amenity_slug:
+        return False
+    if amenity_slug not in view_type:
+        view_type.append(amenity_slug)
+    return True
+
+
+def _collect_amenities_and_views(features: list[Any]) -> tuple[list[str], Optional[bool], list[str]]:
+    amenities: list[str] = []
+    has_view: Optional[bool] = None
+    view_type: list[str] = []
+
+    for pf in features:
+        feature = getattr(pf, "feature", None)
+        if not feature:
+            continue
+
+        name = getattr(feature, "name", None) or ""
+        if _is_excluded_feature_name(name):
+            continue
+
+        amenity_slug = _normalize_amenity_slug(name, getattr(feature, "slug", None))
+        if not amenity_slug:
+            continue
+
+        if amenity_slug not in amenities:
+            amenities.append(amenity_slug)
+        if _is_view_amenity(amenity_slug, view_type):
+            has_view = True
+
+    return amenities, has_view, view_type
+
+
 def _build_structured_features(
     obj: Property,
     more_features: Optional[dict[str, Any]] = None,
@@ -627,35 +713,18 @@ def _build_structured_features(
     if not hasattr(obj, "features"):
         return None
 
-    amenities: list[str] = []
-    has_view: Optional[bool] = None
-    view_type: list[str] = []
     mf = more_features or {}
 
     # Value slots: single source = more_features JSON (from DB column)
-    finishing = _normalize_feature_value(str(mf["Finishing"])) if mf.get("Finishing") else None
-    windows = _normalize_feature_value(str(mf["Windows"])) if mf.get("Windows") else None
-    window_shutters = _normalize_feature_value(str(mf["Window Shutters"])) if mf.get("Window Shutters") else None
-    doors = _normalize_feature_value(str(mf["Doors"])) if mf.get("Doors") else None
-    air_conditioning = _normalize_feature_value(str(mf["Air Conditioning"])) if mf.get("Air Conditioning") else None
-    heating_system = _normalize_feature_value(str(mf["Heating System"])) if mf.get("Heating System") else None
-    heating_fuel = _normalize_feature_value(str(mf["Heating Fuel"])) if mf.get("Heating Fuel") else None
+    finishing = _get_normalized_feature_value(mf, FEATURE_KEY_FINISHING)
+    windows = _get_normalized_feature_value(mf, FEATURE_KEY_WINDOWS)
+    window_shutters = _get_normalized_feature_value(mf, FEATURE_KEY_WINDOW_SHUTTERS)
+    doors = _get_normalized_feature_value(mf, FEATURE_KEY_DOORS)
+    air_conditioning = _get_normalized_feature_value(mf, FEATURE_KEY_AIR_CONDITIONING)
+    heating_system = _get_normalized_feature_value(mf, FEATURE_KEY_HEATING_SYSTEM)
+    heating_fuel = _get_normalized_feature_value(mf, FEATURE_KEY_HEATING_FUEL)
 
-    # Amenities only: from Property.features (exclude value keys, meta, value-like)
-    for pf in (obj.features or []):
-        feature = getattr(pf, "feature", None)
-        if not feature:
-            continue
-        name = getattr(feature, "name", None) or ""
-        if name in FEATURE_VALUE_KEYS or name in META_FEATURE_NAMES or name in FEATURE_VALUE_LIKE_NAMES:
-            continue
-        amenity_slug = _normalize_amenity_slug(name, getattr(feature, "slug", None))
-        if amenity_slug and amenity_slug not in amenities:
-            amenities.append(amenity_slug)
-        if "view" in (amenity_slug or ""):
-            has_view = True if has_view is not False else has_view
-            if amenity_slug not in view_type:
-                view_type.append(amenity_slug)
+    amenities, has_view, view_type = _collect_amenities_and_views(obj.features or [])
 
     return PropertyFeaturesStructured(
         amenities=amenities,
@@ -699,6 +768,45 @@ class PropertySearchResult(BaseModel):
     lat: Optional[float] = None
     lng: Optional[float] = None
 
+    @staticmethod
+    def _parse_normalized_images(raw_images: Any) -> list[Any]:
+        if not raw_images:
+            return []
+        if isinstance(raw_images, str):
+            try:
+                parsed = json.loads(raw_images)
+            except (TypeError, ValueError):
+                return []
+            return parsed if isinstance(parsed, list) else []
+        return raw_images if isinstance(raw_images, list) else []
+
+    @staticmethod
+    def _coerce_prop_id(raw_id: Any) -> Any:
+        if isinstance(raw_id, uuid.UUID):
+            return uuid_to_int_hash(raw_id)
+        if hasattr(raw_id, "__int__"):
+            return int(raw_id)
+        return raw_id
+
+    @staticmethod
+    def _extract_search_values(obj: Property) -> tuple[Any, Any, Any, Any]:
+        price = obj.selling_price_amount or obj.rent_price_amount
+        currency = obj.selling_price_currency or obj.rent_price_currency
+        if hasattr(obj, "category_id"):
+            images = PropertySearchResult._parse_normalized_images(obj.images)
+            thumbnail = images[0] if images else None
+            prop_id = PropertySearchResult._coerce_prop_id(obj.id)
+        else:
+            thumbnail = (obj.images or [None])[0]
+            prop_id = obj.id
+        return price, currency, thumbnail, prop_id
+
+    @staticmethod
+    def _sanitize_title(raw_title: Any) -> str:
+        if raw_title and str(raw_title).lower() not in ("nan", "none"):
+            return raw_title
+        return Defaults.UNTITLED_PROPERTY
+
     @classmethod
     def from_orm_obj(cls, obj: Property) -> "PropertySearchResult":
         """
@@ -712,29 +820,8 @@ class PropertySearchResult(BaseModel):
         Returns:
             PropertySearchResult instance with data from the ORM object
         """
-        # Handle normalized model (PropertyNormalized)
-        if hasattr(obj, 'category_id'):  # Normalized model
-            price = obj.selling_price_amount or obj.rent_price_amount
-            currency = obj.selling_price_currency or obj.rent_price_currency
-            # Parse images from JSON string
-            images = []
-            if obj.images:
-                try:
-                    import json
-                    images = json.loads(obj.images) if isinstance(obj.images, str) else obj.images
-                except:
-                    images = []
-            thumbnail = images[0] if images else None
-            # Convert UUID to int for compatibility (use deterministic hash)
-            prop_id = uuid_to_int_hash(obj.id) if isinstance(obj.id, uuid.UUID) else int(obj.id) if hasattr(obj.id, '__int__') else obj.id
-        else:  # Old model
-            price = obj.selling_price_amount or obj.rent_price_amount
-            currency = obj.selling_price_currency or obj.rent_price_currency
-            thumbnail = (obj.images or [None])[0]
-            prop_id = obj.id
-        
-        # Handle "nan" titles
-        title = obj.title if obj.title and str(obj.title).lower() not in ("nan", "none") else Defaults.UNTITLED_PROPERTY
+        price, currency, thumbnail, prop_id = cls._extract_search_values(obj)
+        title = cls._sanitize_title(obj.title)
         return cls(
             id=prop_id,
             title=title,
@@ -746,6 +833,189 @@ class PropertySearchResult(BaseModel):
             lat=float(obj.latitude) if obj.latitude is not None else None,
             lng=float(obj.longitude) if obj.longitude is not None else None,
         )
+
+
+def _is_normalized_property(obj: Property) -> bool:
+    return hasattr(obj, "category_id")
+
+
+def _extract_city_area(obj: Property) -> tuple[Optional[str], Optional[str]]:
+    city = None
+    area_name = None
+    if _is_normalized_property(obj):
+        city = obj.city.name if obj.city else None
+        area_name = obj.area_rel.name if obj.area_rel else None
+    if (not city or not area_name) and obj.location_name:
+        parts = obj.location_name.split(" - ")
+        if len(parts) >= 2:
+            area_name = area_name or parts[0].strip()
+            city = city or parts[-1].strip()
+        elif len(parts) == 1:
+            city = city or parts[0].strip()
+    return city, area_name
+
+
+def _derive_status(has_selling_price: bool, has_rent_price: bool) -> Optional[str]:
+    if has_selling_price:
+        return "buy"
+    if has_rent_price:
+        return "rent"
+    return None
+
+
+def _format_price_string(amount: Any, currency: Optional[str]) -> Optional[str]:
+    if amount is None:
+        return None
+    price_val = float(amount)
+    code = currency or "JD"
+    if price_val == int(price_val):
+        return f"{int(price_val):,} {code}"
+    return f"{price_val:,.2f} {code}"
+
+
+def _format_area_string(value: Any) -> Optional[str]:
+    if not value:
+        return None
+    area_val = float(value)
+    if area_val == int(area_val):
+        return f"{int(area_val):,}"
+    return f"{area_val:,.2f}"
+
+
+def _extract_category_context(obj: Property) -> tuple[Optional[str], Optional[str], Optional[str], Optional[str], str]:
+    if _is_normalized_property(obj):
+        category_name = obj.category.name if obj.category else None
+        type_name = obj.type.name if obj.type else None
+        city_name = obj.city.name if obj.city else None
+        area_name = obj.area_rel.name if obj.area_rel else None
+    else:
+        category_name = getattr(obj, "category", None)
+        type_name = None
+        city_name = None
+        area_name = None
+    return category_name, type_name, city_name, area_name, (category_name or "").lower()
+
+
+def _resolve_land_search_type(category_lower: str) -> str:
+    if "commercial" in category_lower:
+        return "Commercial Lands"
+    if "industrial" in category_lower:
+        return "Industrial Lands"
+    if "agricultural" in category_lower:
+        return "Agricultural Lands"
+    if "mixed" in category_lower or "use" in category_lower:
+        return "Mixed-Use Lands"
+    return "Residential Lands"
+
+
+def _map_search_types(
+    category_lower: str,
+    category_name: Optional[str],
+    type_name: Optional[str],
+    is_normalized: bool,
+) -> tuple[str, str, str]:
+    mappings: list[tuple[bool, tuple[str, str, str]]] = [
+        ("apartment" in category_lower, ("Apartments", "Apartment", "residential")),
+        ("villa" in category_lower or "house" in category_lower, ("Villas", "Villa", "residential")),
+        ("building" in category_lower and "land" not in category_lower, ("Buildings", "Building", "residential")),
+        ("farm" in category_lower, ("Farms", "Farm", "residential")),
+        ("office" in category_lower, ("Offices", "Office", "commercial")),
+        ("showroom" in category_lower, ("Showrooms", "Showroom", "commercial")),
+        ("warehouse" in category_lower, ("Warehouses", "Warehouse", "commercial")),
+        ("business" in category_lower, ("Businesses", "Business", "commercial")),
+    ]
+    for condition, result in mappings:
+        if condition:
+            return result
+
+    if "land" in category_lower:
+        return _resolve_land_search_type(category_lower), "Lot / Land for sale", "land"
+
+    if is_normalized and type_name:
+        search_type = type_name if type_name.endswith("s") else f"{type_name}s"
+        return search_type, type_name, "residential"
+    if category_name:
+        return category_name, category_name, "residential"
+    return "Properties", "Property", "residential"
+
+
+def _build_highlights(obj: Property, category_for_highlights: Optional[str]) -> Optional[str]:
+    highlights_parts: list[str] = []
+    if obj.bedrooms:
+        highlights_parts.append(f"{obj.bedrooms}BHK")
+    if category_for_highlights:
+        highlights_parts.append(category_for_highlights)
+    return " | ".join(highlights_parts) if highlights_parts else None
+
+
+def _build_badges(has_selling_price: bool, has_rent_price: bool, is_verified: bool) -> Optional[list[str]]:
+    badges: list[str] = []
+    if has_selling_price:
+        badges.append("For Sale")
+    if has_rent_price:
+        badges.append("For Rent")
+    if is_verified:
+        badges.append("Verified")
+    return badges if badges else None
+
+
+def _format_validated_date(created_at: Optional[datetime]) -> Optional[str]:
+    if not created_at:
+        return None
+    day = created_at.day
+    suffix = "th" if 11 <= day <= 13 else {1: "st", 2: "nd", 3: "rd"}.get(day % 10, "th")
+    return f"{day}{suffix} of {created_at.strftime('%B')}"
+
+
+def _coerce_property_id(obj: Property) -> Any:
+    if _is_normalized_property(obj):
+        if isinstance(obj.id, uuid.UUID):
+            return uuid_to_int_hash(obj.id)
+        if hasattr(obj.id, "__int__"):
+            return int(obj.id)
+    return obj.id
+
+
+def _map_embed_url(lat: Optional[float], lng: Optional[float]) -> Optional[str]:
+    if lat is None or lng is None:
+        return None
+    return f"https://maps.google.com/?q={lat},{lng}"
+
+
+def _build_location_detail(obj: Property) -> Optional[PropertyLocationDetail]:
+    is_normalized = _is_normalized_property(obj)
+    has_geo = obj.latitude is not None and obj.longitude is not None
+    has_rel = is_normalized and (obj.city or obj.area_rel or obj.location_name or has_geo)
+    if not has_rel and not has_geo:
+        return None
+
+    lat = float(obj.latitude) if obj.latitude is not None else None
+    lng = float(obj.longitude) if obj.longitude is not None else None
+    address_by_lang = get_address_all_languages(obj)
+    map_embed_url = _map_embed_url(lat, lng)
+
+    if is_normalized:
+        return PropertyLocationDetail(
+            country_id=1,
+            country="Jordan",
+            city_id=getattr(obj, "city_id", None),
+            city=obj.city.name if obj.city else None,
+            region_id=getattr(obj, "location_id", None),
+            region=obj.area_rel.name if obj.area_rel else None,
+            address=address_by_lang,
+            latitude=lat,
+            longitude=lng,
+            map_embed_url=map_embed_url,
+        )
+
+    return PropertyLocationDetail(
+        country_id=1,
+        country="Jordan",
+        address=address_by_lang,
+        latitude=lat,
+        longitude=lng,
+        map_embed_url=map_embed_url,
+    )
 
 
 class PropertySearchResultExtended(BaseModel):
@@ -790,217 +1060,40 @@ class PropertySearchResultExtended(BaseModel):
         If lang is provided (en, ar, esp, fr), title (and list-level fields) use
         property_translations for that language with fallback to property.title.
         """
-        # Parse location_name to extract city and areaName
-        # Handle normalized model (has relationships) vs old model
-        city = None
-        areaName = None
-        if hasattr(obj, 'city_id'):  # Normalized model - use relationships
-            city = obj.city.name if obj.city else None
-            areaName = obj.area_rel.name if obj.area_rel else None
-        # Fallback to location_name parsing if relationships not loaded
-        if not city or not areaName:
-            if obj.location_name:
-                parts = obj.location_name.split(" - ")
-                if len(parts) >= 2:
-                    areaName = areaName or parts[0].strip()
-                    city = city or parts[-1].strip()
-                elif len(parts) == 1:
-                    city = city or parts[0].strip()
-        
-        # Determine status (buy or rent)
-        # Priority: if both exist, status is "buy" (for API compatibility)
-        # But badges will show both "For Sale" and "For Rent"
-        status = None
+        city, area_name = _extract_city_area(obj)
         has_selling_price = obj.selling_price_amount is not None
         has_rent_price = obj.rent_price_amount is not None
-        
-        if has_selling_price:
-            status = "buy"
-        elif has_rent_price:
-            status = "rent"
-        
-        # Format price (prefer selling price if both exist)
-        price_str = None
-        if obj.selling_price_amount:
-            price_val = float(obj.selling_price_amount)
-            currency = obj.selling_price_currency or "JD"
-            if price_val == int(price_val):
-                price_str = f"{int(price_val):,} {currency}"
-            else:
-                price_str = f"{price_val:,.2f} {currency}"
-        elif obj.rent_price_amount:
-            price_val = float(obj.rent_price_amount)
-            currency = obj.rent_price_currency or "JD"
-            if price_val == int(price_val):
-                price_str = f"{int(price_val):,} {currency}"
-            else:
-                price_str = f"{price_val:,.2f} {currency}"
-        
-        # Format area - handle both old and normalized models
-        area_str = None
-        built_up_area = getattr(obj, 'built_up_area', None) or getattr(obj, 'area', None)
-        if built_up_area:
-            area_val = float(built_up_area)
-            if area_val == int(area_val):
-                area_str = f"{int(area_val):,}"
-            else:
-                area_str = f"{area_val:,.2f}"
-        
-        # Map category to searchPropertyType and propertyType
-        # Handle normalized model (has relationships) vs old model (has direct fields)
-        searchPropertyType = None
-        propertyType = None
-        if hasattr(obj, 'category_id'):  # Normalized model
-            # Access via relationships
-            category_name = obj.category.name if obj.category else None
-            type_name = obj.type.name if obj.type else None
-            city_name = obj.city.name if obj.city else None
-            area_name = obj.area_rel.name if obj.area_rel else None
-            category_lower = (category_name or "").lower()
-        else:  # Old model
-            category_name = getattr(obj, 'category', None)
-            category_lower = (category_name or "").lower()
-            city_name = None
-            area_name = None
-        
-        if "apartment" in category_lower:
-            searchPropertyType = "Apartments"
-            propertyType = "Apartment"
-            category = "residential"
-        elif "villa" in category_lower or "house" in category_lower:
-            searchPropertyType = "Villas"
-            propertyType = "Villa"
-            category = "residential"
-        elif "building" in category_lower and "land" not in category_lower:
-            searchPropertyType = "Buildings"
-            propertyType = "Building"
-            category = "residential"
-        elif "farm" in category_lower:
-            searchPropertyType = "Farms"
-            propertyType = "Farm"
-            category = "residential"
-        elif "office" in category_lower:
-            searchPropertyType = "Offices"
-            propertyType = "Office"
-            category = "commercial"
-        elif "showroom" in category_lower:
-            searchPropertyType = "Showrooms"
-            propertyType = "Showroom"
-            category = "commercial"
-        elif "warehouse" in category_lower:
-            searchPropertyType = "Warehouses"
-            propertyType = "Warehouse"
-            category = "commercial"
-        elif "business" in category_lower:
-            searchPropertyType = "Businesses"
-            propertyType = "Business"
-            category = "commercial"
-        elif "land" in category_lower:
-            # Determine land type
-            if "residential" in category_lower:
-                searchPropertyType = "Residential Lands"
-            elif "commercial" in category_lower:
-                searchPropertyType = "Commercial Lands"
-            elif "industrial" in category_lower:
-                searchPropertyType = "Industrial Lands"
-            elif "agricultural" in category_lower:
-                searchPropertyType = "Agricultural Lands"
-            elif "mixed" in category_lower or "use" in category_lower:
-                searchPropertyType = "Mixed-Use Lands"
-            else:
-                searchPropertyType = "Residential Lands"  # Default for land
-            propertyType = "Lot / Land for sale"
-            category = "land"
-        else:
-            category = "residential"  # Default
-            # Use type_name if available, otherwise category_name, otherwise default
-            if hasattr(obj, 'category_id'):  # Normalized model
-                if type_name:
-                    propertyType = type_name
-                    searchPropertyType = type_name + "s" if not type_name.endswith("s") else type_name
-                elif category_name:
-                    propertyType = category_name
-                    searchPropertyType = category_name
-                else:
-                    propertyType = "Property"
-                    searchPropertyType = "Properties"
-            else:  # Old model
-                if category_name:
-                    propertyType = category_name
-                    searchPropertyType = category_name
-                else:
-                    propertyType = "Property"
-                    searchPropertyType = "Properties"
-        
-        # Create highlights
-        highlights_parts = []
-        if obj.bedrooms:
-            highlights_parts.append(f"{obj.bedrooms}BHK")
-        # Get category name from relationship or direct field
-        category_for_highlights = None
-        if hasattr(obj, 'category_id'):  # Normalized
-            category_for_highlights = obj.category.name if obj.category else None
-        else:  # Old model
-            category_for_highlights = getattr(obj, 'category', None)
-        if category_for_highlights:
-            highlights_parts.append(category_for_highlights)
-        highlights = " | ".join(highlights_parts) if highlights_parts else None
-        
-        # Create badges
-        # Show both badges if both prices exist
-        badges = []
-        if has_selling_price:
-            badges.append("For Sale")
-        if has_rent_price:
-            badges.append("For Rent")
-        # Check verification status - handle both old and normalized models
-        is_verified = False
-        if hasattr(obj, 'is_verified'):  # Normalized model
-            is_verified = obj.is_verified
-        elif hasattr(obj, 'status'):  # Old model
-            is_verified = obj.status and obj.status.lower() == "ok"
-        if is_verified:
-            badges.append("Verified")
-        
-        # Title and description: multi-language objects { "en", "ar", "esp", "fr" }
-        title_by_lang, description_by_lang = get_title_description_all_languages(obj)
+        status = _derive_status(has_selling_price, has_rent_price)
+        price_str = _format_price_string(
+            obj.selling_price_amount if obj.selling_price_amount is not None else obj.rent_price_amount,
+            obj.selling_price_currency if obj.selling_price_amount is not None else obj.rent_price_currency,
+        )
 
-        # Format validated date from created_at if available
-        validated_date_str = None
-        if obj.created_at:
-            day = obj.created_at.day
-            suffix = "th" if 11 <= day <= 13 else {1: "st", 2: "nd", 3: "rd"}.get(day % 10, "th")
-            validated_date_str = f"{day}{suffix} of {obj.created_at.strftime('%B')}"
-        
+        built_up_area = getattr(obj, "built_up_area", None) or getattr(obj, "area", None)
+        area_str = _format_area_string(built_up_area)
+
+        category_name, type_name, city_name, area_name_rel, category_lower = _extract_category_context(obj)
+        if _is_normalized_property(obj):
+            city = city_name or city
+            area_name = area_name_rel or area_name
+        search_property_type, property_type, category = _map_search_types(
+            category_lower, category_name, type_name, _is_normalized_property(obj)
+        )
+
+        category_for_highlights = category_name if _is_normalized_property(obj) else getattr(obj, "category", None)
+        highlights = _build_highlights(obj, category_for_highlights)
+
+        is_verified = bool(getattr(obj, "is_verified", False))
+        if not _is_normalized_property(obj):
+            status_raw = getattr(obj, "status", None)
+            is_verified = bool(status_raw and str(status_raw).lower() == "ok")
+        badges = _build_badges(has_selling_price, has_rent_price, is_verified)
+
+        title_by_lang, description_by_lang = get_title_description_all_languages(obj)
+        validated_date_str = _format_validated_date(getattr(obj, "created_at", None))
         media_block = _build_media_from_orm(obj)
-        
-        # Convert UUID to int for compatibility
-        prop_id = obj.id
-        if hasattr(obj, 'category_id'):  # Normalized model with UUID
-            # Convert UUID to int hash for API compatibility
-            if isinstance(obj.id, uuid.UUID):
-                prop_id = uuid_to_int_hash(obj.id)
-            elif hasattr(obj.id, '__int__'):
-                prop_id = int(obj.id)
-        
-        # Nested location (country, city, region, map_embed_url) from existing fields
-        location_detail = None
-        if hasattr(obj, 'city_id') and (obj.city or obj.area_rel or obj.location_name or (obj.latitude and obj.longitude)):
-            lat = float(obj.latitude) if obj.latitude is not None else None
-            lng = float(obj.longitude) if obj.longitude is not None else None
-            address_by_lang = get_address_all_languages(obj)
-            location_detail = PropertyLocationDetail(
-                country_id=1,
-                country="Jordan",
-                city_id=getattr(obj, 'city_id', None),
-                city=obj.city.name if obj.city else None,
-                region_id=getattr(obj, 'location_id', None),
-                region=obj.area_rel.name if obj.area_rel else None,
-                address=address_by_lang,
-                latitude=lat,
-                longitude=lng,
-                map_embed_url=f"https://maps.google.com/?q={lat},{lng}" if (lat is not None and lng is not None) else None,
-            )
+        prop_id = _coerce_property_id(obj)
+        location_detail = _build_location_detail(obj)
         
         return cls(
             id=prop_id,
@@ -1010,10 +1103,10 @@ class PropertySearchResultExtended(BaseModel):
             price=price_str,
             status=status,
             category=category,
-            searchPropertyType=searchPropertyType,
+            searchPropertyType=search_property_type,
             city=city,
-            areaName=areaName,
-            propertyType=propertyType,
+            areaName=area_name,
+            propertyType=property_type,
             media=media_block,
             location=location_detail,
             beds=obj.bedrooms or 0,
@@ -1030,6 +1123,64 @@ class PropertySearchResultExtended(BaseModel):
             is_exclusive=getattr(obj, "is_exclusive", None),
             location_detail=location_detail,
         )
+
+
+def _extract_detail_base_fields(
+    obj: Property,
+) -> tuple[bool, Optional[str], Optional[str], Optional[str], Any, Optional[float], Optional[Any]]:
+    is_normalized = _is_normalized_property(obj)
+    if is_normalized:
+        category_name = obj.category.name if obj.category else None
+        property_type_name = obj.type.name if obj.type else None
+        status_name = obj.property_status.name if obj.property_status else None
+        prop_id = _coerce_property_id(obj)
+        built_up_area = float(obj.area) if obj.area is not None else None
+        legacy_more_features = None
+    else:
+        category_name = getattr(obj, "category", None)
+        property_type_name = getattr(obj, "property_type", None) or getattr(obj, "type", None)
+        status_name = getattr(obj, "status", None)
+        prop_id = obj.id
+        built_up_area = float(obj.built_up_area) if obj.built_up_area is not None else None
+        legacy_more_features = obj.more_features or []
+    return is_normalized, category_name, property_type_name, status_name, prop_id, built_up_area, legacy_more_features
+
+
+def _parse_more_features_for_structured(
+    obj: Property, is_normalized: bool
+) -> Optional[dict[str, Any]]:
+    if not is_normalized or not hasattr(obj, "more_features") or obj.more_features is None:
+        return None
+    mf = obj.more_features
+    if isinstance(mf, str):
+        try:
+            mf = json.loads(mf)
+        except (TypeError, ValueError):
+            return None
+    return mf if isinstance(mf, dict) else None
+
+
+def _build_detail_structured_blocks(
+    obj: Property,
+    is_normalized: bool,
+    parsed_more_features: Optional[dict[str, Any]],
+) -> tuple[
+    Optional[PropertyGeneralStructured],
+    Optional[PropertyDetailsStructured],
+    Optional[PropertyFeaturesStructured],
+    Optional[PropertyPricingStructured],
+    Optional[str],
+    Optional[PropertyMediaStructured],
+]:
+    if not is_normalized:
+        return None, None, None, None, None, None
+    general_block = _build_general_from_orm(obj)
+    details_block = _build_details_from_orm(obj)
+    features_structured = _build_structured_features(obj, parsed_more_features)
+    pricing_block = _build_pricing_from_orm(obj)
+    listing_type_value = pricing_block.listing_type if pricing_block else None
+    media_block = _build_media_from_orm(obj)
+    return general_block, details_block, features_structured, pricing_block, listing_type_value, media_block
 
 
 class PropertyDetail(BaseModel):
@@ -1107,93 +1258,26 @@ class PropertyDetail(BaseModel):
         """
         title_by_lang, description_by_lang = get_title_description_all_languages(obj)
 
-        # Handle normalized model vs old model
-        if hasattr(obj, 'category_id'):  # Normalized model
-            # Get category and status from relationships
-            category_name = obj.category.name if obj.category else None
-            property_type_name = obj.type.name if obj.type else None
-            status_name = obj.property_status.name if obj.property_status else None
-            
-            # Parse images from JSON string
-            # images_list = []
-            # if obj.images:
-            #     try:
-            #         import json
-            #         images_list = json.loads(obj.images) if isinstance(obj.images, str) else obj.images
-            #     except:
-            #         images_list = []
-            
-            # Get more_features from JSON column (already in key-value format as dict)
-            more_features_dict = obj.more_features if hasattr(obj, 'more_features') and obj.more_features else None
-            
-            # Convert UUID to int for compatibility
-            prop_id = obj.id
-            if isinstance(obj.id, uuid.UUID):
-                prop_id = uuid_to_int_hash(obj.id)
-            
-            built_up_area = float(obj.area) if obj.area is not None else None
-        else:  # Old model
-            category_name = getattr(obj, 'category', None)
-            property_type_name = getattr(obj, 'property_type', None) or getattr(obj, 'type', None)
-            status_name = getattr(obj, 'status', None)
-            # images_list = obj.images or []
-            more_features_list = obj.more_features or []
-            prop_id = obj.id
-            built_up_area = float(obj.built_up_area) if obj.built_up_area is not None else None
+        (
+            is_normalized,
+            category_name,
+            property_type_name,
+            status_name,
+            prop_id,
+            built_up_area,
+            more_features_list,
+        ) = _extract_detail_base_fields(obj)
 
-        # Structured blocks (general, details, features) for normalized model
-        general_block = _build_general_from_orm(obj) if hasattr(obj, "category_id") else None
-        details_block = _build_details_from_orm(obj) if hasattr(obj, "category_id") else None
-        # Features: value slots from properties_normalized.more_features only; amenities from obj.features
-        mf_for_features = None
-        if hasattr(obj, "category_id") and hasattr(obj, "more_features") and obj.more_features is not None:
-            mf_for_features = obj.more_features
-            if isinstance(mf_for_features, str):
-                try:
-                    mf_for_features = json.loads(mf_for_features)
-                except Exception:
-                    mf_for_features = None
-            if not isinstance(mf_for_features, dict):
-                mf_for_features = None
-        features_structured = (
-            _build_structured_features(obj, mf_for_features)
-            if hasattr(obj, "category_id")
-            else None
-        )
-        pricing_block = _build_pricing_from_orm(obj) if hasattr(obj, "category_id") else None
-        listing_type_value = pricing_block.listing_type if pricing_block else None
-        media_block = _build_media_from_orm(obj) if hasattr(obj, "category_id") else None
-
-        # Nested location for detail (same as list)
-        location_detail = None
-        if hasattr(obj, 'city_id') and (obj.city or obj.area_rel or obj.location_name or (obj.latitude and obj.longitude)):
-            lat = float(obj.latitude) if obj.latitude is not None else None
-            lng = float(obj.longitude) if obj.longitude is not None else None
-            address_by_lang = get_address_all_languages(obj)
-            location_detail = PropertyLocationDetail(
-                country_id=1,
-                country="Jordan",
-                city_id=getattr(obj, 'city_id', None),
-                city=obj.city.name if obj.city else None,
-                region_id=getattr(obj, 'location_id', None),
-                region=obj.area_rel.name if obj.area_rel else None,
-                address=address_by_lang,
-                latitude=lat,
-                longitude=lng,
-                map_embed_url=f"https://maps.google.com/?q={lat},{lng}" if (lat is not None and lng is not None) else None,
-            )
-        elif obj.latitude is not None and obj.longitude is not None:
-            lat = float(obj.latitude)
-            lng = float(obj.longitude)
-            address_by_lang = get_address_all_languages(obj)
-            location_detail = PropertyLocationDetail(
-                country_id=1,
-                country="Jordan",
-                address=address_by_lang,
-                latitude=lat,
-                longitude=lng,
-                map_embed_url=f"https://maps.google.com/?q={lat},{lng}",
-            )
+        parsed_more_features = _parse_more_features_for_structured(obj, is_normalized)
+        (
+            general_block,
+            details_block,
+            features_structured,
+            pricing_block,
+            listing_type_value,
+            media_block,
+        ) = _build_detail_structured_blocks(obj, is_normalized, parsed_more_features)
+        location_detail = _build_location_detail(obj)
         
         return cls(
             id=prop_id,
@@ -1216,7 +1300,7 @@ class PropertyDetail(BaseModel):
             bedrooms=obj.bedrooms,
             bathrooms=obj.bathrooms,
             built_up_area=built_up_area,
-            more_features=None if hasattr(obj, "category_id") else more_features_list,
+            more_features=None if is_normalized else more_features_list,
             media=media_block,
             latitude=float(obj.latitude) if obj.latitude is not None else None,
             longitude=float(obj.longitude) if obj.longitude is not None else None,

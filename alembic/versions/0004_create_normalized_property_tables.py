@@ -15,6 +15,9 @@ down_revision = "0003_add_location_name"
 branch_labels = None
 depends_on = None
 
+FK_PROPERTY_CATEGORIES_ID = "property_categories.id"
+FK_FEATURES_ID = "features.id"
+
 
 def upgrade() -> None:
     # Property Categories
@@ -32,7 +35,7 @@ def upgrade() -> None:
     op.create_table(
         "property_types",
         sa.Column("id", sa.Integer(), primary_key=True, index=True),
-        sa.Column("category_id", sa.Integer(), sa.ForeignKey("property_categories.id"), nullable=False),
+        sa.Column("category_id", sa.Integer(), sa.ForeignKey(FK_PROPERTY_CATEGORIES_ID), nullable=False),
         sa.Column("name", sa.String(100), nullable=False),
         sa.Column("slug", sa.String(100), nullable=False),
         sa.Column("is_active", sa.Boolean(), default=True),
@@ -77,7 +80,7 @@ def upgrade() -> None:
     op.create_table(
         "category_search_fields",
         sa.Column("id", sa.Integer(), primary_key=True, index=True),
-        sa.Column("category_id", sa.Integer(), sa.ForeignKey("property_categories.id"), nullable=False),
+        sa.Column("category_id", sa.Integer(), sa.ForeignKey(FK_PROPERTY_CATEGORIES_ID), nullable=False),
         sa.Column("field_id", sa.Integer(), sa.ForeignKey("search_fields.id"), nullable=False),
         sa.Column("is_required", sa.Boolean(), default=False),
         sa.Column("created_at", sa.TIMESTAMP(), server_default=sa.func.now()),
@@ -99,8 +102,8 @@ def upgrade() -> None:
     op.create_table(
         "category_features",
         sa.Column("id", sa.Integer(), primary_key=True, index=True),
-        sa.Column("category_id", sa.Integer(), sa.ForeignKey("property_categories.id"), nullable=False),
-        sa.Column("feature_id", sa.Integer(), sa.ForeignKey("features.id"), nullable=False),
+        sa.Column("category_id", sa.Integer(), sa.ForeignKey(FK_PROPERTY_CATEGORIES_ID), nullable=False),
+        sa.Column("feature_id", sa.Integer(), sa.ForeignKey(FK_FEATURES_ID), nullable=False),
         sa.Column("created_at", sa.TIMESTAMP(), server_default=sa.func.now()),
         sa.Column("updated_at", sa.TIMESTAMP(), server_default=sa.func.now(), onupdate=sa.func.now()),
     )
@@ -110,7 +113,7 @@ def upgrade() -> None:
         "type_features",
         sa.Column("id", sa.Integer(), primary_key=True, index=True),
         sa.Column("property_type_id", sa.Integer(), sa.ForeignKey("property_types.id"), nullable=False),
-        sa.Column("feature_id", sa.Integer(), sa.ForeignKey("features.id"), nullable=False),
+        sa.Column("feature_id", sa.Integer(), sa.ForeignKey(FK_FEATURES_ID), nullable=False),
         sa.Column("created_at", sa.TIMESTAMP(), server_default=sa.func.now()),
         sa.Column("updated_at", sa.TIMESTAMP(), server_default=sa.func.now(), onupdate=sa.func.now()),
     )
@@ -130,7 +133,7 @@ def upgrade() -> None:
     op.create_table(
         "properties_normalized",
         sa.Column("id", sa.UUID(as_uuid=True), primary_key=True, default=uuid.uuid4),
-        sa.Column("category_id", sa.Integer(), sa.ForeignKey("property_categories.id"), nullable=False),
+        sa.Column("category_id", sa.Integer(), sa.ForeignKey(FK_PROPERTY_CATEGORIES_ID), nullable=False),
         sa.Column("type_id", sa.Integer(), sa.ForeignKey("property_types.id"), nullable=False),
         sa.Column("property_status_id", sa.Integer(), sa.ForeignKey("property_status.id"), nullable=False),
         sa.Column("city_id", sa.Integer(), sa.ForeignKey("cities.id"), nullable=False),
@@ -171,7 +174,7 @@ def upgrade() -> None:
     op.create_table(
         "property_features",
         sa.Column("property_id", sa.UUID(as_uuid=True), sa.ForeignKey("properties_normalized.id"), primary_key=True),
-        sa.Column("feature_id", sa.Integer(), sa.ForeignKey("features.id"), primary_key=True),
+        sa.Column("feature_id", sa.Integer(), sa.ForeignKey(FK_FEATURES_ID), primary_key=True),
         sa.Column("created_at", sa.TIMESTAMP(), server_default=sa.func.now()),
         sa.Column("updated_at", sa.TIMESTAMP(), server_default=sa.func.now(), onupdate=sa.func.now()),
     )

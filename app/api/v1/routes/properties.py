@@ -1,7 +1,8 @@
-from typing import Annotated, Optional
-import logging
+import uuid
+from typing import Annotated, Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel
 from sqlalchemy import select, func, and_, or_
 from sqlalchemy.orm import Session
 
@@ -16,38 +17,362 @@ from app.models.property_normalized import (
 )
 from app.schemas.property import (
     PropertyDetail,
-    PropertySearchResult,
-    PropertyListResponse,
     PropertySearchResultExtended,
-    PropertyListResponseExtended,
     PropertySearchResponse,
+    uuid_to_int_hash,
 )
-from app.utils.constants import ErrorMessages, Defaults
+from app.utils.constants import ErrorMessages
 from app.utils.status_codes import STATUS_NOT_FOUND
 from sqlalchemy.orm import joinedload
  
 router = APIRouter()
-logger = logging.getLogger(__name__)
 
 DBSessionDep = Annotated[Session, Depends(get_db)]
+LANG_QUERY_DESCRIPTION = "Language code for title/description: en, ar, esp, fr"
+
+
+def _append_status_filter(filters: list[Any], status_lower: Optional[str]) -> None:
+    if status_lower == "buy":
+        filters.append(Property.selling_price_amount.isnot(None))
+    elif status_lower == "rent":
+        filters.append(Property.rent_price_amount.isnot(None))
+
+
+def _append_category_filter(filters: list[Any], category: Optional[str]) -> None:
+    if not category:
+        return
+
+    category_lower = category.lower()
+    if category_lower in ("land", "lands"):
+        filters.append(func.lower(PropertyCategory.name).contains("land"))
+    elif category_lower == "residential":
+        filters.append(
+            or_(
+                func.lower(PropertyCategory.name).contains("residential"),
+                func.lower(PropertyType.name).contains("apartment"),
+                func.lower(PropertyType.name).contains("villa"),
+                func.lower(PropertyType.name).contains("house"),
+                func.lower(PropertyType.name).contains("building"),
+                func.lower(PropertyType.name).contains("farm"),
+            )
+        )
+    elif category_lower == "commercial":
+        filters.append(
+            or_(
+                func.lower(PropertyCategory.name).contains("commercial"),
+                func.lower(PropertyType.name).contains("office"),
+                func.lower(PropertyType.name).contains("showroom"),
+                func.lower(PropertyType.name).contains("warehouse"),
+                func.lower(PropertyType.name).contains("business"),
+            )
+        )
+    else:
+        filters.append(func.lower(PropertyCategory.name).contains(category_lower))
+
+
+def _append_type_filter(filters: list[Any], type_slug: Optional[str]) -> None:
+    if not type_slug:
+        return
+
+    type_lower = type_slug.lower().replace("-", " ")
+    if "apartment" in type_lower:
+        filters.append(func.lower(PropertyType.name).contains("apartment"))
+    elif "villa" in type_lower:
+        filters.append(
+            or_(
+                func.lower(PropertyType.name).contains("villa"),
+                func.lower(PropertyType.name).contains("house"),
+            )
+        )
+    elif "building" in type_lower:
+        filters.append(func.lower(PropertyType.name).contains("building"))
+    elif "farm" in type_lower:
+        filters.append(func.lower(PropertyType.name).contains("farm"))
+    elif "office" in type_lower:
+        filters.append(func.lower(PropertyType.name).contains("office"))
+    elif "showroom" in type_lower:
+        filters.append(func.lower(PropertyType.name).contains("showroom"))
+    elif "warehouse" in type_lower:
+        filters.append(func.lower(PropertyType.name).contains("warehouse"))
+    elif "business" in type_lower:
+        filters.append(func.lower(PropertyType.name).contains("business"))
+    elif "land" in type_lower:
+        filters.append(func.lower(PropertyType.name).contains("land"))
+    else:
+        filters.append(func.lower(PropertyType.name).contains(type_lower))
+
+
+def _append_city_filter(filters: list[Any], city: Optional[str]) -> None:
+    if not city:
+        return
+
+    city_lower = city.lower()
+    filters.append(
+        or_(
+            func.lower(City.name).contains(city_lower),
+            func.lower(Property.location_name).contains(city_lower),
+        )
+    )
+
+
+def _append_locations_filter(filters: list[Any], locations: Optional[str]) -> None:
+    if not locations:
+        return
+
+    location_list = [loc.strip().lower() for loc in locations.split(",") if loc.strip()]
+    if not location_list:
+        return
+
+    location_filters = [
+        or_(
+            func.lower(Area.name).contains(loc),
+            func.lower(Property.location_name).contains(loc),
+        )
+        for loc in location_list
+    ]
+    filters.append(or_(*location_filters))
+
+
+def _append_exclusive_filter(filters: list[Any], exclusive: Optional[str]) -> None:
+    if exclusive is None:
+        return
+
+    exclusive_bool = str(exclusive).lower() in ("true", "1", "yes")
+    filters.append(Property.is_exclusive.is_(exclusive_bool))
+
+
+def _append_budget_bound_filter(
+    filters: list[Any],
+    value_raw: Optional[str],
+    status_lower: Optional[str],
+    *,
+    is_min: bool,
+) -> None:
+    if not value_raw:
+        return
+
+    try:
+        value = float(value_raw)
+    except (ValueError, TypeError):
+        return
+
+    if status_lower == "buy":
+        condition = Property.selling_price_amount >= value if is_min else Property.selling_price_amount <= value
+    elif status_lower == "rent":
+        condition = Property.rent_price_amount >= value if is_min else Property.rent_price_amount <= value
+    else:
+        condition = or_(
+            Property.selling_price_amount >= value if is_min else Property.selling_price_amount <= value,
+            Property.rent_price_amount >= value if is_min else Property.rent_price_amount <= value,
+        )
+    filters.append(condition)
+
+
+def _build_property_filters(
+    *,
+    status: Optional[str],
+    category: Optional[str],
+    type_slug: Optional[str],
+    city: Optional[str],
+    locations: Optional[str],
+    exclusive: Optional[str],
+    budget_min: Optional[str],
+    budget_max: Optional[str],
+    min_price: Optional[str],
+    max_price: Optional[str],
+) -> list[Any]:
+    filters: list[Any] = []
+    status_lower = status.lower() if status else None
+
+    _append_status_filter(filters, status_lower)
+    _append_category_filter(filters, category)
+    _append_type_filter(filters, type_slug)
+    _append_city_filter(filters, city)
+    _append_locations_filter(filters, locations)
+    _append_exclusive_filter(filters, exclusive)
+
+    min_budget = budget_min or min_price
+    max_budget = budget_max or max_price
+    _append_budget_bound_filter(filters, min_budget, status_lower, is_min=True)
+    _append_budget_bound_filter(filters, max_budget, status_lower, is_min=False)
+
+    return filters
+
+
+def _build_count_stmt(filters: list[Any], requires_joins: bool):
+    count_stmt = select(func.count(Property.id))
+    if requires_joins:
+        count_stmt = count_stmt.join(PropertyCategory, Property.category_id == PropertyCategory.id)
+        count_stmt = count_stmt.join(PropertyType, Property.type_id == PropertyType.id)
+        count_stmt = count_stmt.join(City, Property.city_id == City.id)
+        count_stmt = count_stmt.join(Area, Property.location_id == Area.id)
+    if filters:
+        count_stmt = count_stmt.where(and_(*filters))
+    return count_stmt
+
+
+class PropertySearchParams(BaseModel):
+    status: Optional[str] = None
+    category: Optional[str] = None
+    type_slug: Optional[str] = None
+    city: Optional[str] = None
+    locations: Optional[str] = None
+    budget_min: Optional[str] = None
+    budget_max: Optional[str] = None
+    min_price: Optional[str] = None
+    max_price: Optional[str] = None
+    exclusive: Optional[str] = None
+    page: int = 1
+    page_size: int = 12
+    lang: Optional[str] = None
+
+
+def _execute_property_search(db: Session, params: PropertySearchParams) -> PropertySearchResponse:
+    stmt = select(Property).options(
+        joinedload(Property.category),
+        joinedload(Property.type),
+        joinedload(Property.city),
+        joinedload(Property.area_rel),
+        joinedload(Property.property_status),
+        joinedload(Property.translations),
+    )
+
+    stmt = stmt.join(PropertyCategory, Property.category_id == PropertyCategory.id)
+    stmt = stmt.join(PropertyType, Property.type_id == PropertyType.id)
+    stmt = stmt.join(City, Property.city_id == City.id)
+    stmt = stmt.join(Area, Property.location_id == Area.id)
+
+    filters = _build_property_filters(
+        status=params.status,
+        category=params.category,
+        type_slug=params.type_slug,
+        city=params.city,
+        locations=params.locations,
+        exclusive=params.exclusive,
+        budget_min=params.budget_min,
+        budget_max=params.budget_max,
+        min_price=params.min_price,
+        max_price=params.max_price,
+    )
+
+    if filters:
+        stmt = stmt.where(and_(*filters))
+
+    requires_joins = any((params.category, params.type_slug, params.city, params.locations))
+    count_stmt = _build_count_stmt(filters, requires_joins)
+    total = db.execute(count_stmt).scalar() or 0
+
+    offset = (params.page - 1) * params.page_size
+    stmt = stmt.order_by(Property.created_at.desc()).offset(offset).limit(params.page_size)
+    results = db.execute(stmt).unique().scalars().all()
+
+    data = [PropertySearchResultExtended.from_orm_obj(p, lang=params.lang) for p in results]
+    return PropertySearchResponse(data=data, total=total, page=params.page, pageSize=params.page_size)
+
+
+def get_property_search_params(
+    status: Optional[str] = Query(None, description="Listing type: buy or rent"),
+    category: Optional[str] = Query(None, description="One of: residential, commercial, land. On Hero, 'Land' is sent as lands."),
+    type_slug: Optional[str] = Query(None, alias="type", description="Slugified property type (e.g., apartments, villas, residential-lands)"),
+    city: Optional[str] = Query(None, description="City name, lowercase"),
+    locations: Optional[str] = Query(None, description="Comma-separated area/neighborhood names, lowercase"),
+    budget_min: Optional[str] = Query(None, alias="budgetMin", description="Minimum price in JD (numeric string)"),
+    budget_max: Optional[str] = Query(None, alias="budgetMax", description="Maximum price in JD (numeric string)"),
+    min_price: Optional[str] = Query(None, alias="minPrice", description="Alias for budgetMin (for hero search compatibility)"),
+    max_price: Optional[str] = Query(None, alias="maxPrice", description="Alias for budgetMax (for hero search compatibility)"),
+    exclusive: Optional[str] = Query(None, description="Filter by exclusive status (true/1 for exclusive only, false/0 for non-exclusive only)"),
+    page: int = Query(1, ge=1, description="Page number, 1-based"),
+    page_size: int = Query(12, alias="pageSize", ge=1, le=100, description="Items per page"),
+    lang: Optional[str] = Query(None, description=LANG_QUERY_DESCRIPTION),
+) -> PropertySearchParams:
+    return PropertySearchParams(
+        status=status,
+        category=category,
+        type_slug=type_slug,
+        city=city,
+        locations=locations,
+        budget_min=budget_min,
+        budget_max=budget_max,
+        min_price=min_price,
+        max_price=max_price,
+        exclusive=exclusive,
+        page=page,
+        page_size=page_size,
+        lang=lang,
+    )
+
+
+def get_exclusive_property_search_params(
+    status: Optional[str] = Query(None, description="Listing type: buy or rent"),
+    category: Optional[str] = Query(None, description="One of: residential, commercial, land. On Hero, 'Land' is sent as lands."),
+    type_slug: Optional[str] = Query(None, alias="type", description="Slugified property type (e.g., apartments, villas, residential-lands)"),
+    city: Optional[str] = Query(None, description="City name, lowercase"),
+    locations: Optional[str] = Query(None, description="Comma-separated area/neighborhood names, lowercase"),
+    budget_min: Optional[str] = Query(None, alias="budgetMin", description="Minimum price in JD (numeric string)"),
+    budget_max: Optional[str] = Query(None, alias="budgetMax", description="Maximum price in JD (numeric string)"),
+    min_price: Optional[str] = Query(None, alias="minPrice", description="Alias for budgetMin (for hero search compatibility)"),
+    max_price: Optional[str] = Query(None, alias="maxPrice", description="Alias for budgetMax (for hero search compatibility)"),
+    page: int = Query(1, ge=1, description="Page number, 1-based"),
+    page_size: int = Query(12, alias="pageSize", ge=1, le=100, description="Items per page"),
+    lang: Optional[str] = Query(None, description=LANG_QUERY_DESCRIPTION),
+) -> PropertySearchParams:
+    return PropertySearchParams(
+        status=status,
+        category=category,
+        type_slug=type_slug,
+        city=city,
+        locations=locations,
+        budget_min=budget_min,
+        budget_max=budget_max,
+        min_price=min_price,
+        max_price=max_price,
+        exclusive="true",
+        page=page,
+        page_size=page_size,
+        lang=lang,
+    )
+
+
+def _load_property_with_options(db: Session, property_uuid: uuid.UUID, options: list[Any]) -> Optional[Property]:
+    return db.execute(
+        select(Property).options(*options).where(Property.id == property_uuid)
+    ).unique().scalar_one_or_none()
+
+
+def _find_property_uuid_by_hash(db: Session, target_hash: int) -> Optional[uuid.UUID]:
+    property_ids = db.execute(select(Property.id)).scalars().all()
+    for prop_id in property_ids:
+        if isinstance(prop_id, uuid.UUID) and uuid_to_int_hash(prop_id) == target_hash:
+            return prop_id
+    return None
+
+
+def _resolve_property_by_identifier(
+    db: Session,
+    property_id: str,
+    options: list[Any],
+) -> Optional[Property]:
+    try:
+        property_uuid = uuid.UUID(property_id)
+        return _load_property_with_options(db, property_uuid, options)
+    except (ValueError, TypeError):
+        pass
+
+    try:
+        target_hash = int(property_id)
+    except (ValueError, TypeError):
+        return None
+
+    property_uuid = _find_property_uuid_by_hash(db, target_hash)
+    if not property_uuid:
+        return None
+    return _load_property_with_options(db, property_uuid, options)
 
 
 @router.get("", response_model=PropertySearchResponse)
 def list_properties(
     db: DBSessionDep,
-    status: Optional[str] = Query(None, description="Listing type: buy or rent"),
-    category: Optional[str] = Query(None, description="One of: residential, commercial, land. On Hero, 'Land' is sent as lands."),
-    type: Optional[str] = Query(None, description="Slugified property type (e.g., apartments, villas, residential-lands)"),
-    city: Optional[str] = Query(None, description="City name, lowercase"),
-    locations: Optional[str] = Query(None, description="Comma-separated area/neighborhood names, lowercase"),
-    budgetMin: Optional[str] = Query(None, description="Minimum price in JD (numeric string)"),
-    budgetMax: Optional[str] = Query(None, description="Maximum price in JD (numeric string)"),
-    minPrice: Optional[str] = Query(None, description="Alias for budgetMin (for hero search compatibility)"),
-    maxPrice: Optional[str] = Query(None, description="Alias for budgetMax (for hero search compatibility)"),
-    exclusive: Optional[str] = Query(None, description="Filter by exclusive status (true/1 for exclusive only, false/0 for non-exclusive only)"),
-    page: int = Query(1, ge=1, description="Page number, 1-based"),
-    pageSize: int = Query(12, ge=1, le=100, description="Items per page"),
-    lang: Optional[str] = Query(None, description="Language code for title/description: en, ar, esp, fr"),
+    params: Annotated[PropertySearchParams, Depends(get_property_search_params)],
 ) -> PropertySearchResponse:
     """
     Search properties with optional filters and pagination.
@@ -55,226 +380,13 @@ def list_properties(
     Matches the frontend search contract for Home Page and Search Results page.
     Supports both budgetMin/budgetMax and minPrice/maxPrice for compatibility.
     """
-    # Build query with joins for normalized model (include translations for multi-lang title/description)
-    stmt = select(Property).options(
-        joinedload(Property.category),
-        joinedload(Property.type),
-        joinedload(Property.city),
-        joinedload(Property.area_rel),
-        joinedload(Property.property_status),
-        joinedload(Property.translations),
-    )
-    
-    # Join tables for filtering
-    stmt = stmt.join(PropertyCategory, Property.category_id == PropertyCategory.id)
-    stmt = stmt.join(PropertyType, Property.type_id == PropertyType.id)
-    stmt = stmt.join(City, Property.city_id == City.id)
-    stmt = stmt.join(Area, Property.location_id == Area.id)
-    
-    # Apply filters
-    filters = []
-    
-    # Status filter (buy = has selling_price, rent = has rent_price)
-    if status:
-        status_lower = status.lower()
-        if status_lower == "buy":
-            filters.append(Property.selling_price_amount.isnot(None))
-        elif status_lower == "rent":
-            filters.append(Property.rent_price_amount.isnot(None))
-    
-    # Filter by category - use joined PropertyCategory table
-    if category:
-        category_lower = category.lower()
-        # Handle "lands" as alias for "land"
-        if category_lower in ("land", "lands"):
-            filters.append(func.lower(PropertyCategory.name).contains("land"))
-        elif category_lower == "residential":
-            filters.append(
-                or_(
-                    func.lower(PropertyCategory.name).contains("residential"),
-                    func.lower(PropertyType.name).contains("apartment"),
-                    func.lower(PropertyType.name).contains("villa"),
-                    func.lower(PropertyType.name).contains("house"),
-                    func.lower(PropertyType.name).contains("building"),
-                    func.lower(PropertyType.name).contains("farm"),
-                )
-            )
-        elif category_lower == "commercial":
-            filters.append(
-                or_(
-                    func.lower(PropertyCategory.name).contains("commercial"),
-                    func.lower(PropertyType.name).contains("office"),
-                    func.lower(PropertyType.name).contains("showroom"),
-                    func.lower(PropertyType.name).contains("warehouse"),
-                    func.lower(PropertyType.name).contains("business"),
-                )
-            )
-        else:
-            filters.append(func.lower(PropertyCategory.name).contains(category_lower))
-    
-    # Filter by type (property type slug) - use joined PropertyType table
-    if type:
-        type_lower = type.lower().replace("-", " ")
-        # Residential types
-        if "apartment" in type_lower:
-            filters.append(func.lower(PropertyType.name).contains("apartment"))
-        elif "villa" in type_lower:
-            filters.append(
-                or_(
-                    func.lower(PropertyType.name).contains("villa"),
-                    func.lower(PropertyType.name).contains("house"),
-                )
-            )
-        elif "building" in type_lower:
-            filters.append(func.lower(PropertyType.name).contains("building"))
-        elif "farm" in type_lower:
-            filters.append(func.lower(PropertyType.name).contains("farm"))
-        # Commercial types
-        elif "office" in type_lower:
-            filters.append(func.lower(PropertyType.name).contains("office"))
-        elif "showroom" in type_lower:
-            filters.append(func.lower(PropertyType.name).contains("showroom"))
-        elif "warehouse" in type_lower:
-            filters.append(func.lower(PropertyType.name).contains("warehouse"))
-        elif "business" in type_lower:
-            filters.append(func.lower(PropertyType.name).contains("business"))
-        # Land types
-        elif "land" in type_lower:
-            filters.append(func.lower(PropertyType.name).contains("land"))
-        else:
-            filters.append(func.lower(PropertyType.name).contains(type_lower))
-    
-    # Filter by city - use joined City table or location_name fallback
-    if city:
-        city_lower = city.lower()
-        filters.append(
-            or_(
-                func.lower(City.name).contains(city_lower),
-                func.lower(Property.location_name).contains(city_lower)
-            )
-        )
-    
-    # Filter by locations (comma-separated areas/neighborhoods) - use joined Area table
-    if locations:
-        location_list = [loc.strip().lower() for loc in locations.split(",") if loc.strip()]
-        if location_list:
-            location_filters = [
-                or_(
-                    func.lower(Area.name).contains(loc),
-                    func.lower(Property.location_name).contains(loc)
-                ) for loc in location_list
-            ]
-            filters.append(or_(*location_filters))
-    
-    # Filter by exclusive status
-    exclusive_bool = None
-    if exclusive is not None:
-        # Handle string "true"/"false" or boolean True/False
-        exclusive_bool = str(exclusive).lower() in ("true", "1", "yes")
-        if exclusive_bool:
-            filters.append(Property.is_exclusive == True)
-        else:
-            filters.append(Property.is_exclusive == False)
-    
-    # Filter by budget (price range)
-    # Support both budgetMin/budgetMax and minPrice/maxPrice
-    min_budget = budgetMin or minPrice
-    max_budget = budgetMax or maxPrice
-    
-    # Determine which price field to filter based on status
-    status_lower = (status or "").lower() if status else None
-    
-    if min_budget:
-        try:
-            min_val = float(min_budget)
-            if status_lower == "buy":
-                filters.append(Property.selling_price_amount >= min_val)
-            elif status_lower == "rent":
-                filters.append(Property.rent_price_amount >= min_val)
-            else:
-                # No status specified - check both price fields
-                filters.append(
-                    or_(
-                        Property.selling_price_amount >= min_val,
-                        Property.rent_price_amount >= min_val,
-                    )
-                )
-        except (ValueError, TypeError):
-            pass  # Ignore invalid budget values
-    
-    if max_budget:
-        try:
-            max_val = float(max_budget)
-            if status_lower == "buy":
-                filters.append(Property.selling_price_amount <= max_val)
-            elif status_lower == "rent":
-                filters.append(Property.rent_price_amount <= max_val)
-            else:
-                # No status specified - check both price fields
-                filters.append(
-                    or_(
-                        Property.selling_price_amount <= max_val,
-                        Property.rent_price_amount <= max_val,
-                    )
-                )
-        except (ValueError, TypeError):
-            pass  # Ignore invalid budget values
-    
-    # Apply all filters
-    if filters:
-        stmt = stmt.where(and_(*filters))
-    
-    # Get total count before pagination
-    # Need to join tables for count query if filters use them
-    count_stmt = select(func.count(Property.id))
-    # Add joins if we have category/type/city/location filters
-    if category or type or city or locations:
-        count_stmt = count_stmt.join(PropertyCategory, Property.category_id == PropertyCategory.id)
-        count_stmt = count_stmt.join(PropertyType, Property.type_id == PropertyType.id)
-        count_stmt = count_stmt.join(City, Property.city_id == City.id)
-        count_stmt = count_stmt.join(Area, Property.location_id == Area.id)
-    if filters:
-        count_stmt = count_stmt.where(and_(*filters))
-    total = db.execute(count_stmt).scalar() or 0
-    
-    # Calculate offset from page and pageSize
-    offset = (page - 1) * pageSize
-    
-    # Apply ordering and pagination
-    stmt = stmt.order_by(Property.created_at.desc()).offset(offset).limit(pageSize)
-    
-    # Execute query - use unique() to avoid duplicate rows from joined eager loads
-    results = db.execute(stmt).unique().scalars().all()
-    
-    # Convert to extended format
-    data = [
-        PropertySearchResultExtended.from_orm_obj(p, lang=lang)
-        for p in results
-    ]
-    
-    return PropertySearchResponse(
-        data=data,
-        total=total,
-        page=page,
-        pageSize=pageSize
-    )
+    return _execute_property_search(db, params)
 
 
 @router.get("/exclusive", response_model=PropertySearchResponse)
 def list_exclusive_properties(
     db: DBSessionDep,
-    status: Optional[str] = Query(None, description="Listing type: buy or rent"),
-    category: Optional[str] = Query(None, description="One of: residential, commercial, land. On Hero, 'Land' is sent as lands."),
-    type: Optional[str] = Query(None, description="Slugified property type (e.g., apartments, villas, residential-lands)"),
-    city: Optional[str] = Query(None, description="City name, lowercase"),
-    locations: Optional[str] = Query(None, description="Comma-separated area/neighborhood names, lowercase"),
-    budgetMin: Optional[str] = Query(None, description="Minimum price in JD (numeric string)"),
-    budgetMax: Optional[str] = Query(None, description="Maximum price in JD (numeric string)"),
-    minPrice: Optional[str] = Query(None, description="Alias for budgetMin (for hero search compatibility)"),
-    maxPrice: Optional[str] = Query(None, description="Alias for budgetMax (for hero search compatibility)"),
-    page: int = Query(1, ge=1, description="Page number, 1-based"),
-    pageSize: int = Query(12, ge=1, le=100, description="Items per page"),
-    lang: Optional[str] = Query(None, description="Language code for title/description: en, ar, esp, fr"),
+    params: Annotated[PropertySearchParams, Depends(get_exclusive_property_search_params)],
 ) -> PropertySearchResponse:
     """
     List exclusive properties with optional filters and pagination.
@@ -282,199 +394,7 @@ def list_exclusive_properties(
     Same as regular property list endpoint but only returns properties where is_exclusive = True.
     Uses the same response format and supports all the same filters.
     """
-    # Build query with joins for normalized model (same as list_properties; include translations)
-    stmt = select(Property).options(
-        joinedload(Property.category),
-        joinedload(Property.type),
-        joinedload(Property.city),
-        joinedload(Property.area_rel),
-        joinedload(Property.property_status),
-        joinedload(Property.translations),
-    )
-    
-    # Join tables for filtering
-    stmt = stmt.join(PropertyCategory, Property.category_id == PropertyCategory.id)
-    stmt = stmt.join(PropertyType, Property.type_id == PropertyType.id)
-    stmt = stmt.join(City, Property.city_id == City.id)
-    stmt = stmt.join(Area, Property.location_id == Area.id)
-    
-    # Apply filters (same logic as list_properties)
-    filters = []
-    
-    # CRITICAL: Only show exclusive properties
-    filters.append(Property.is_exclusive == True)
-    
-    # Status filter (buy = has selling_price, rent = has rent_price)
-    if status:
-        status_lower = status.lower()
-        if status_lower == "buy":
-            filters.append(Property.selling_price_amount.isnot(None))
-        elif status_lower == "rent":
-            filters.append(Property.rent_price_amount.isnot(None))
-    
-    # Filter by category - use joined PropertyCategory table
-    if category:
-        category_lower = category.lower()
-        # Handle "lands" as alias for "land"
-        if category_lower in ("land", "lands"):
-            filters.append(func.lower(PropertyCategory.name).contains("land"))
-        elif category_lower == "residential":
-            filters.append(
-                or_(
-                    func.lower(PropertyCategory.name).contains("residential"),
-                    func.lower(PropertyType.name).contains("apartment"),
-                    func.lower(PropertyType.name).contains("villa"),
-                    func.lower(PropertyType.name).contains("house"),
-                    func.lower(PropertyType.name).contains("building"),
-                    func.lower(PropertyType.name).contains("farm"),
-                )
-            )
-        elif category_lower == "commercial":
-            filters.append(
-                or_(
-                    func.lower(PropertyCategory.name).contains("commercial"),
-                    func.lower(PropertyType.name).contains("office"),
-                    func.lower(PropertyType.name).contains("showroom"),
-                    func.lower(PropertyType.name).contains("warehouse"),
-                    func.lower(PropertyType.name).contains("business"),
-                )
-            )
-        else:
-            filters.append(func.lower(PropertyCategory.name).contains(category_lower))
-    
-    # Filter by type (property type slug) - use joined PropertyType table
-    if type:
-        type_lower = type.lower().replace("-", " ")
-        # Residential types
-        if "apartment" in type_lower:
-            filters.append(func.lower(PropertyType.name).contains("apartment"))
-        elif "villa" in type_lower:
-            filters.append(
-                or_(
-                    func.lower(PropertyType.name).contains("villa"),
-                    func.lower(PropertyType.name).contains("house"),
-                )
-            )
-        elif "building" in type_lower:
-            filters.append(func.lower(PropertyType.name).contains("building"))
-        elif "farm" in type_lower:
-            filters.append(func.lower(PropertyType.name).contains("farm"))
-        # Commercial types
-        elif "office" in type_lower:
-            filters.append(func.lower(PropertyType.name).contains("office"))
-        elif "showroom" in type_lower:
-            filters.append(func.lower(PropertyType.name).contains("showroom"))
-        elif "warehouse" in type_lower:
-            filters.append(func.lower(PropertyType.name).contains("warehouse"))
-        else:
-            filters.append(func.lower(PropertyType.name).contains(type_lower))
-    
-    # Filter by city - use joined City table
-    if city:
-        city_lower = city.lower()
-        filters.append(
-            or_(
-                func.lower(City.name).contains(city_lower),
-                func.lower(Property.location_name).contains(city_lower)
-            )
-        )
-    
-    # Filter by locations (comma-separated areas/neighborhoods) - use joined Area table
-    if locations:
-        location_list = [loc.strip().lower() for loc in locations.split(",") if loc.strip()]
-        if location_list:
-            location_filters = [
-                or_(
-                    func.lower(Area.name).contains(loc),
-                    func.lower(Property.location_name).contains(loc)
-                ) for loc in location_list
-            ]
-            filters.append(or_(*location_filters))
-    
-    # Note: is_exclusive == True filter is already applied at line 301
-    
-    # Filter by budget (price range)
-    # Support both budgetMin/budgetMax and minPrice/maxPrice
-    min_budget = budgetMin or minPrice
-    max_budget = budgetMax or maxPrice
-    
-    # Determine which price field to filter based on status
-    status_lower = (status or "").lower() if status else None
-    
-    if min_budget:
-        try:
-            min_val = float(min_budget)
-            if status_lower == "buy":
-                filters.append(Property.selling_price_amount >= min_val)
-            elif status_lower == "rent":
-                filters.append(Property.rent_price_amount >= min_val)
-            else:
-                # No status specified - check both price fields
-                filters.append(
-                    or_(
-                        Property.selling_price_amount >= min_val,
-                        Property.rent_price_amount >= min_val,
-                    )
-                )
-        except (ValueError, TypeError):
-            pass  # Ignore invalid budget values
-    
-    if max_budget:
-        try:
-            max_val = float(max_budget)
-            if status_lower == "buy":
-                filters.append(Property.selling_price_amount <= max_val)
-            elif status_lower == "rent":
-                filters.append(Property.rent_price_amount <= max_val)
-            else:
-                # No status specified - check both price fields
-                filters.append(
-                    or_(
-                        Property.selling_price_amount <= max_val,
-                        Property.rent_price_amount <= max_val,
-                    )
-                )
-        except (ValueError, TypeError):
-            pass  # Ignore invalid budget values
-    
-    # Apply all filters
-    if filters:
-        stmt = stmt.where(and_(*filters))
-    
-    # Get total count before pagination
-    # Need to join tables for count query if filters use them
-    count_stmt = select(func.count(Property.id))
-    # Add joins if we have category/type/city/location filters
-    if category or type or city or locations:
-        count_stmt = count_stmt.join(PropertyCategory, Property.category_id == PropertyCategory.id)
-        count_stmt = count_stmt.join(PropertyType, Property.type_id == PropertyType.id)
-        count_stmt = count_stmt.join(City, Property.city_id == City.id)
-        count_stmt = count_stmt.join(Area, Property.location_id == Area.id)
-    if filters:
-        count_stmt = count_stmt.where(and_(*filters))
-    total = db.execute(count_stmt).scalar() or 0
-    
-    # Calculate offset from page and pageSize
-    offset = (page - 1) * pageSize
-    
-    # Apply ordering and pagination
-    stmt = stmt.order_by(Property.created_at.desc()).offset(offset).limit(pageSize)
-    
-    # Execute query - use unique() to avoid duplicate rows from joined eager loads
-    results = db.execute(stmt).unique().scalars().all()
-
-    # Convert to extended format
-    data = [
-        PropertySearchResultExtended.from_orm_obj(p, lang=lang)
-        for p in results
-    ]
-    
-    return PropertySearchResponse(
-        data=data,
-        total=total,
-        page=page,
-        pageSize=pageSize
-    )
+    return _execute_property_search(db, params)
 
 
 @router.get("/{property_id}/similar", response_model=PropertySearchResponse)
@@ -482,82 +402,21 @@ def get_similar_properties(
     property_id: str,  # FastAPI path params are always strings
     db: DBSessionDep,
     limit: int = Query(20, ge=1, le=50, description="Maximum number of similar properties to return"),
-    lang: Optional[str] = Query(None, description="Language code for title/description: en, ar, esp, fr"),
+    lang: Optional[str] = Query(None, description=LANG_QUERY_DESCRIPTION),
 ) -> PropertySearchResponse:
     """
     Get similar properties based on the selected property.
-    
-    Similarity is determined by:
-    - Same category/type
-    - Same city/location
-    - Similar price range (±20%)
-    - Similar number of bedrooms/bathrooms
-    - Similar built-up area
-    
-    Args:
-        property_id: The unique identifier of the property to find similar ones for
-        limit: Maximum number of similar properties to return (default: 20, max: 50)
-        
-    Returns:
-        PropertySearchResponse with similar properties
-        
-    Raises:
-        HTTPException: 404 if property not found
     """
-    # Get the reference property with relationships loaded
-    # Handle UUID lookup - property_id might be int (from hash) or UUID string
-    prop = None
-    import uuid
-    from app.schemas.property import uuid_to_int_hash
-    
-    # Try to parse as UUID first
-    try:
-        uuid_obj = uuid.UUID(property_id)
-        prop = db.get(Property, uuid_obj)
-        if prop:
-            # Reload with relationships
-            prop = db.execute(
-                select(Property)
-                .options(
-                    joinedload(Property.category),
-                    joinedload(Property.type),
-                    joinedload(Property.city),
-                    joinedload(Property.area_rel),
-                )
-                .where(Property.id == uuid_obj)
-            ).unique().scalar_one()
-    except (ValueError, TypeError):
-        # Not a UUID, try as int hash
-        try:
-            target_hash = int(property_id)
-            # Search all properties to find matching hash
-            all_props = db.execute(select(Property)).scalars().all()
-            for p in all_props:
-                if isinstance(p.id, uuid.UUID):
-                    prop_hash = uuid_to_int_hash(p.id)
-                    if prop_hash == target_hash:
-                        # Reload with relationships
-                        prop = db.execute(
-        select(Property)
-                            .options(
-                                joinedload(Property.category),
-                                joinedload(Property.type),
-                                joinedload(Property.city),
-                                joinedload(Property.area_rel),
-                            )
-                            .where(Property.id == p.id)
-                        ).unique().scalar_one()
-                        break
-        except (ValueError, TypeError):
-            pass
-    
+    similar_options = [
+        joinedload(Property.category),
+        joinedload(Property.type),
+        joinedload(Property.city),
+        joinedload(Property.area_rel),
+    ]
+    prop = _resolve_property_by_identifier(db, property_id, similar_options)
     if not prop:
-        raise HTTPException(
-            status_code=STATUS_NOT_FOUND,
-            detail=ErrorMessages.PROPERTY_NOT_FOUND
-        )
-    
-    # Build similarity filters with joins (include translations for multi-lang title/description)
+        raise HTTPException(status_code=STATUS_NOT_FOUND, detail=ErrorMessages.PROPERTY_NOT_FOUND)
+
     stmt = select(Property).options(
         joinedload(Property.category),
         joinedload(Property.type),
@@ -567,224 +426,68 @@ def get_similar_properties(
     )
     stmt = stmt.join(PropertyCategory, Property.category_id == PropertyCategory.id)
     stmt = stmt.join(City, Property.city_id == City.id)
-    
-    filters = []
-    
-    # Exclude the current property
-    filters.append(Property.id != prop.id)
-    
-    # Same category/type - use relationships
+
+    filters: list[Any] = [Property.id != prop.id]
     if prop.category_id:
         filters.append(Property.category_id == prop.category_id)
-    
-    # Same city - use relationship
     if prop.city_id:
         filters.append(Property.city_id == prop.city_id)
-    
-    # Similar price range (±20%)
-    price_tolerance = 0.2  # 20% tolerance
-    
-    # Check if property has selling price or rent price
+
+    tolerance = 0.2
     if prop.selling_price_amount:
         price = float(prop.selling_price_amount)
-        min_price = price * (1 - price_tolerance)
-        max_price = price * (1 + price_tolerance)
         filters.append(
             and_(
                 Property.selling_price_amount.isnot(None),
-                Property.selling_price_amount >= min_price,
-                Property.selling_price_amount <= max_price,
+                Property.selling_price_amount >= price * (1 - tolerance),
+                Property.selling_price_amount <= price * (1 + tolerance),
             )
         )
     elif prop.rent_price_amount:
         price = float(prop.rent_price_amount)
-        min_price = price * (1 - price_tolerance)
-        max_price = price * (1 + price_tolerance)
         filters.append(
             and_(
                 Property.rent_price_amount.isnot(None),
-                Property.rent_price_amount >= min_price,
-                Property.rent_price_amount <= max_price,
+                Property.rent_price_amount >= price * (1 - tolerance),
+                Property.rent_price_amount <= price * (1 + tolerance),
             )
         )
-    
-    # Similar bedrooms (±1)
+
     if prop.bedrooms:
-        filters.append(
-            or_(
-                Property.bedrooms == prop.bedrooms,
-                Property.bedrooms == prop.bedrooms - 1,
-                Property.bedrooms == prop.bedrooms + 1,
-            )
-        )
-    
-    # Similar bathrooms (±1)
+        filters.append(or_(Property.bedrooms == prop.bedrooms, Property.bedrooms == prop.bedrooms - 1, Property.bedrooms == prop.bedrooms + 1))
     if prop.bathrooms:
-        filters.append(
-            or_(
-                Property.bathrooms == prop.bathrooms,
-                Property.bathrooms == prop.bathrooms - 1,
-                Property.bathrooms == prop.bathrooms + 1,
-            )
-    )
-    
-    # Similar area (±20%) - normalized model uses 'area' field
-    area_value = getattr(prop, 'area', None) or getattr(prop, 'built_up_area', None)
+        filters.append(or_(Property.bathrooms == prop.bathrooms, Property.bathrooms == prop.bathrooms - 1, Property.bathrooms == prop.bathrooms + 1))
+
+    area_value = getattr(prop, "area", None) or getattr(prop, "built_up_area", None)
     if area_value:
         area = float(area_value)
-        min_area = area * (1 - price_tolerance)
-        max_area = area * (1 + price_tolerance)
-        filters.append(
-            and_(
-                Property.area.isnot(None),
-                Property.area >= min_area,
-                Property.area <= max_area,
-            )
-        )
-    
-    # Apply filters
-    if filters:
-        stmt = stmt.where(and_(*filters))
-    
-    # Order by relevance (same category first, then by price similarity, then by creation date)
-    stmt = stmt.order_by(Property.created_at.desc()).limit(limit)
-    
-    # Execute query - use unique() to avoid duplicate rows from joins
-    results = db.execute(stmt).unique().scalars().all()
+        filters.append(and_(Property.area.isnot(None), Property.area >= area * (1 - tolerance), Property.area <= area * (1 + tolerance)))
 
-    # Convert to extended format
-    data = [
-        PropertySearchResultExtended.from_orm_obj(p, lang=lang)
-        for p in results
-    ]
-    
-    return PropertySearchResponse(
-        data=data,
-        total=len(data),
-        page=1,
-        pageSize=len(data)
-    )
+    stmt = stmt.where(and_(*filters)).order_by(Property.created_at.desc()).limit(limit)
+    results = db.execute(stmt).unique().scalars().all()
+    data = [PropertySearchResultExtended.from_orm_obj(p, lang=lang) for p in results]
+    return PropertySearchResponse(data=data, total=len(data), page=1, pageSize=len(data))
 
 
 @router.get("/{property_id}", response_model=PropertyDetail)
 def get_property(
     property_id: str,  # FastAPI path params are always strings
     db: DBSessionDep,
-    lang: Optional[str] = Query(None, description="Language code for title/description: en, ar, esp, fr"),
+    lang: Optional[str] = Query(None, description=LANG_QUERY_DESCRIPTION),
 ) -> PropertyDetail:
     """
     Get detailed information about a specific property.
-    
-    Args:
-        property_id: The unique identifier of the property (int hash or UUID string)
-        
-    Returns:
-        PropertyDetail with all property information
-        
-    Raises:
-        HTTPException: 404 if property not found
     """
-    # Try to get property - handle both UUID and int (hash) IDs
-    # FastAPI path parameters are always strings, so we need to parse them
-    prop = None
-    import uuid
-    from app.schemas.property import uuid_to_int_hash
-    
-    # Try to parse as UUID first
-    try:
-        uuid_obj = uuid.UUID(property_id)
-        prop = db.get(Property, uuid_obj)
-        if prop:
-            # Reload with relationships
-            prop = db.execute(
-                select(Property)
-                .options(
-                    joinedload(Property.category),
-                    joinedload(Property.type),
-                    joinedload(Property.city),
-                    joinedload(Property.area_rel),
-                    joinedload(Property.property_status),
-                    joinedload(Property.translations),
-                    joinedload(Property.features).joinedload(PropertyFeature.feature),
-                )
-                .where(Property.id == uuid_obj)
-            ).unique().scalar_one()
-    except (ValueError, TypeError):
-        # Not a UUID, try as int hash
-        try:
-            # If int, search all properties and match by hash
-            # Note: This is inefficient for large datasets. Consider adding a hash->UUID mapping table.
-            
-            # Convert property_id to int for comparison
-            target_hash = int(property_id)
-            # Query all properties - first without relationships to speed up search
-            print(f"[DEBUG] Looking up property with hash: {target_hash} (type: {type(target_hash)})")
-            logger.info(f"Looking up property with hash: {target_hash}")
-            all_props = db.execute(select(Property)).scalars().all()
-            print(f"[DEBUG] Found {len(all_props)} properties in database")
-            logger.info(f"Found {len(all_props)} properties in database")
-            
-            if not all_props:
-                logger.warning(f"No properties found in database when searching for hash {target_hash}")
-            else:
-                # Search through properties to find matching hash
-                found_uuid = None
-                checked = 0
-                sample_hashes = []
-                
-                for p in all_props:
-                    if isinstance(p.id, uuid.UUID):
-                        # Calculate hash the same way as in PropertySearchResultExtended
-                        prop_hash = uuid_to_int_hash(p.id)
-                        checked += 1
-                        
-                        # Collect first 5 hashes for debugging
-                        if checked <= 5:
-                            sample_hashes.append(f"UUID {p.id} -> hash {prop_hash}")
-                        
-                        if prop_hash == target_hash:
-                            found_uuid = p.id
-                            print(f"[DEBUG] Found matching property! UUID: {p.id}, hash: {prop_hash}")
-                            logger.info(f"Found matching property! UUID: {p.id}, hash: {prop_hash}")
-                            break
-                
-                if not found_uuid:
-                    warning_msg = (
-                        f"Property with hash {target_hash} not found after checking {checked} properties. "
-                        f"Sample hashes: {', '.join(sample_hashes)}"
-                    )
-                    print(f"[DEBUG] {warning_msg}")
-                    logger.warning(warning_msg)
-                else:
-                    # If found, reload with relationships
-                    prop = db.execute(
-                        select(Property)
-                        .options(
-                            joinedload(Property.category),
-                            joinedload(Property.type),
-                            joinedload(Property.city),
-                            joinedload(Property.area_rel),
-                            joinedload(Property.property_status),
-                            joinedload(Property.translations),
-                            joinedload(Property.features).joinedload(PropertyFeature.feature),
-                        )
-                        .where(Property.id == found_uuid)
-                    ).unique().scalar_one()
-                    logger.info(f"Successfully loaded property {found_uuid} with relationships")
-        except (ValueError, TypeError) as e:
-            # Could not parse as int either
-            print(f"[DEBUG] Could not parse property_id '{property_id}' as UUID or int: {e}")
-            logger.error(f"Could not parse property_id '{property_id}' as UUID or int: {e}")
-        except Exception as e:
-            # Log the error for debugging
-            print(f"[DEBUG] Error in property lookup: {e}")
-            logger.error(f"Error in property lookup for hash {target_hash}: {e}", exc_info=True)
-            # Don't re-raise, let it fall through to 404
-    
+    detail_options = [
+        joinedload(Property.category),
+        joinedload(Property.type),
+        joinedload(Property.city),
+        joinedload(Property.area_rel),
+        joinedload(Property.property_status),
+        joinedload(Property.translations),
+        joinedload(Property.features).joinedload(PropertyFeature.feature),
+    ]
+    prop = _resolve_property_by_identifier(db, property_id, detail_options)
     if not prop:
-        raise HTTPException(
-            status_code=STATUS_NOT_FOUND,
-            detail=ErrorMessages.PROPERTY_NOT_FOUND
-        )
+        raise HTTPException(status_code=STATUS_NOT_FOUND, detail=ErrorMessages.PROPERTY_NOT_FOUND)
     return PropertyDetail.from_orm_obj(prop, lang=lang)
-

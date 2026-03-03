@@ -26,6 +26,10 @@ from sqlalchemy.orm import DeclarativeBase, relationship
 
 from app.models.property import Base
 
+FK_PROPERTY_CATEGORIES_ID = "property_categories.id"
+FK_FEATURES_ID = "features.id"
+FK_PROPERTIES_NORMALIZED_ID = "properties_normalized.id"
+
 
 # ==============================
 # Property Categories
@@ -52,7 +56,7 @@ class PropertyType(Base):
     __tablename__ = "property_types"
 
     id = Column(Integer, primary_key=True, index=True)
-    category_id = Column(Integer, ForeignKey("property_categories.id"), nullable=False)
+    category_id = Column(Integer, ForeignKey(FK_PROPERTY_CATEGORIES_ID), nullable=False)
     name = Column(String(100), nullable=False)
     slug = Column(String(100), nullable=False)
     is_active = Column(Boolean, default=True)
@@ -119,7 +123,7 @@ class CategorySearchField(Base):
     __tablename__ = "category_search_fields"
 
     id = Column(Integer, primary_key=True, index=True)
-    category_id = Column(Integer, ForeignKey("property_categories.id"), nullable=False)
+    category_id = Column(Integer, ForeignKey(FK_PROPERTY_CATEGORIES_ID), nullable=False)
     field_id = Column(Integer, ForeignKey("search_fields.id"), nullable=False)
     is_required = Column(Boolean, default=False)
     created_at = Column(TIMESTAMP, server_default=func.now())
@@ -149,8 +153,8 @@ class CategoryFeature(Base):
     __tablename__ = "category_features"
 
     id = Column(Integer, primary_key=True, index=True)
-    category_id = Column(Integer, ForeignKey("property_categories.id"), nullable=False)
-    feature_id = Column(Integer, ForeignKey("features.id"), nullable=False)
+    category_id = Column(Integer, ForeignKey(FK_PROPERTY_CATEGORIES_ID), nullable=False)
+    feature_id = Column(Integer, ForeignKey(FK_FEATURES_ID), nullable=False)
     created_at = Column(TIMESTAMP, server_default=func.now())
     updated_at = Column(TIMESTAMP, server_default=func.now(), onupdate=func.now())
 
@@ -164,7 +168,7 @@ class TypeFeature(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     property_type_id = Column(Integer, ForeignKey("property_types.id"), nullable=False)
-    feature_id = Column(Integer, ForeignKey("features.id"), nullable=False)
+    feature_id = Column(Integer, ForeignKey(FK_FEATURES_ID), nullable=False)
     created_at = Column(TIMESTAMP, server_default=func.now())
     updated_at = Column(TIMESTAMP, server_default=func.now(), onupdate=func.now())
 
@@ -193,7 +197,7 @@ class PropertyNormalized(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
 
-    category_id = Column(Integer, ForeignKey("property_categories.id"), nullable=False)
+    category_id = Column(Integer, ForeignKey(FK_PROPERTY_CATEGORIES_ID), nullable=False)
     type_id = Column(Integer, ForeignKey("property_types.id"), nullable=False)
     property_status_id = Column(Integer, ForeignKey("property_status.id"), nullable=False)
 
@@ -290,7 +294,7 @@ class PropertyTranslation(Base):
     __tablename__ = "property_translations"
 
     id = Column(Integer, primary_key=True, index=True)
-    property_id = Column(UUID(as_uuid=True), ForeignKey("properties_normalized.id", ondelete="CASCADE"), nullable=False)
+    property_id = Column(UUID(as_uuid=True), ForeignKey(FK_PROPERTIES_NORMALIZED_ID, ondelete="CASCADE"), nullable=False)
     language_code = Column(String(5), nullable=False)  # 'en', 'ar', 'esp', 'fr'
     title = Column(Text, nullable=True)
     description = Column(Text, nullable=True)
@@ -311,8 +315,8 @@ class PropertyTranslation(Base):
 class PropertyFeature(Base):
     __tablename__ = "property_features"
 
-    property_id = Column(UUID(as_uuid=True), ForeignKey("properties_normalized.id"), primary_key=True)
-    feature_id = Column(Integer, ForeignKey("features.id"), primary_key=True)
+    property_id = Column(UUID(as_uuid=True), ForeignKey(FK_PROPERTIES_NORMALIZED_ID), primary_key=True)
+    feature_id = Column(Integer, ForeignKey(FK_FEATURES_ID), primary_key=True)
 
     # Optional per-property value for this feature (e.g. Finishing=Deluxe)
     value = Column(String(255), nullable=True)
@@ -334,7 +338,7 @@ class PropertyMedia(Base):
     id = Column(Integer, primary_key=True, index=True)
     property_id = Column(
         UUID(as_uuid=True),
-        ForeignKey("properties_normalized.id", ondelete="CASCADE"),
+        ForeignKey(FK_PROPERTIES_NORMALIZED_ID, ondelete="CASCADE"),
         nullable=False,
         index=True,
     )

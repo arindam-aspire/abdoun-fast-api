@@ -449,7 +449,7 @@ def import_properties_from_dataframe(
         existing_prop = existing_properties.get(url) if url else None
         if existing_prop:
             should_continue, update_inc, skip_inc = _handle_existing_property(
-                existing_prop, url, row, lat_f, lng_f,
+                existing_prop, row, lat_f, lng_f,
                 update_coordinates, skip_duplicates, db
             )
             if should_continue:
@@ -515,7 +515,6 @@ def _parse_row_data(row: pd.Series, geocode_missing: bool, geocoding_service) ->
 
 def _handle_existing_property(
     existing_prop: Property,
-    url: str,
     row: pd.Series,
     lat_f: float | None,
     lng_f: float | None,
@@ -553,6 +552,5 @@ async def import_properties_from_csv_file(
     content = await upload.read()
     df = pd.read_csv(io.BytesIO(content))
     return import_properties_from_dataframe(db, df, geocode_missing=geocode_missing)
-
 
 

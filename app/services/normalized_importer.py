@@ -256,7 +256,7 @@ def get_or_create_status(db: Session, status_name: str) -> PropertyStatus:
     return status
 
 
-def get_or_create_feature(db: Session, feature_name: str) -> Feature:
+def get_or_create_feature(db: Session, feature_name: str) -> Optional[Feature]:
     """Get or create a feature."""
     if not feature_name:
         return None
@@ -569,34 +569,42 @@ def _format_meta_value(raw: Any, column: str) -> str | None:
     return s
 
 
+def _meta_feature_value(row: pd.Series, csv_col: str) -> Optional[str]:
+    raw = row.get(csv_col)
+    if csv_col in ("terrace_area", "garden_area"):
+        num = _parse_area(raw)
+        if num is None:
+            return None
+        return str(int(num)) if num == int(num) else str(num)
+    return _format_meta_value(raw, csv_col)
+
+
+def _upsert_property_feature_value(db: Session, property_id: UUID, feature_id: int, value_str: str) -> None:
+    existing = db.execute(
+        select(PropertyFeature).where(
+            PropertyFeature.property_id == property_id,
+            PropertyFeature.feature_id == feature_id,
+        )
+    ).scalar_one_or_none()
+    if existing:
+        existing.value = value_str
+    else:
+        db.add(PropertyFeature(property_id=property_id, feature_id=feature_id, value=value_str))
+
+
 def add_property_meta_features(db: Session, property_id: UUID, row: pd.Series) -> None:
     """
     Add meta fields from CSV as features with values (when not already table columns).
     Uses META_FEATURE_COLUMNS: (csv_column, feature_name). Value is stored in PropertyFeature.value.
     """
     for csv_col, feature_name in META_FEATURE_COLUMNS:
-        raw = row.get(csv_col)
-        if csv_col in ("terrace_area", "garden_area"):
-            # Parse area-style "50 Sqm" or "170 Sqm" to numeric string
-            num = _parse_area(raw)
-            value_str = str(int(num)) if num is not None and num == int(num) else (str(num) if num is not None else None)
-        else:
-            value_str = _format_meta_value(raw, csv_col)
+        value_str = _meta_feature_value(row, csv_col)
         if not value_str:
             continue
         feature = get_or_create_feature(db, feature_name)
         if not feature:
             continue
-        existing = db.execute(
-            select(PropertyFeature).where(
-                PropertyFeature.property_id == property_id,
-                PropertyFeature.feature_id == feature.id,
-            )
-        ).scalar_one_or_none()
-        if existing:
-            existing.value = value_str
-        else:
-            db.add(PropertyFeature(property_id=property_id, feature_id=feature.id, value=value_str))
+        _upsert_property_feature_value(db, property_id, feature.id, value_str)
 
 
 def import_properties_normalized_from_dataframe(

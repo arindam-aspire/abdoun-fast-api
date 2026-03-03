@@ -277,7 +277,7 @@ def get_address_all_languages(
 
     source_text = (prop_or_address or "").strip()
     if not source_text:
-        return {lang: "" for lang in SUPPORTED_LANGUAGE_CODES}
+        return dict.fromkeys(SUPPORTED_LANGUAGE_CODES, "")
 
     out: dict[str, str] = {}
     for lang in SUPPORTED_LANGUAGE_CODES:
