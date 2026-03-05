@@ -105,7 +105,7 @@ def main() -> None:
     print(f"  CSV: {args.csv_path}")
     print(f"  Dry run: {args.dry_run}")
     updated, skipped = backfill_meta_features(args.csv_path, dry_run=args.dry_run)
-    print(f"\nSummary:")
+    print("\nSummary:")
     print(f"  Properties updated: {updated}")
     print(f"  CSV rows with no matching URL in DB: {skipped}")
 

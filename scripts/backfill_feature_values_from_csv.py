@@ -77,6 +77,88 @@ def parse_more_features_row(more_features_raw: object) -> Dict[str, str]:
     return out
 
 
+def _build_url_to_feature_values(df: pd.DataFrame) -> Dict[str, Dict[str, str]]:
+    url_to_feature_values: Dict[str, Dict[str, str]] = {}
+    for _, row in df.iterrows():
+        url = _normalize_str(row.get("url"))
+        if not url:
+            continue
+        kv = parse_more_features_row(row.get("more_features"))
+        if kv:
+            url_to_feature_values[url] = kv
+    return url_to_feature_values
+
+
+def _load_feature_map(db) -> Dict[str, Feature]:
+    existing_features = db.execute(select(Feature)).scalars().all()
+    return {feat.name: feat for feat in existing_features}
+
+
+def _load_properties_by_url(db, urls: list[str]) -> Dict[str, Property]:
+    props = db.execute(select(Property).where(Property.url.in_(urls))).scalars().all()
+    return {p.url: p for p in props if p.url}
+
+
+def _get_property_feature_row(db, property_id, feature_id) -> PropertyFeature | None:
+    return db.execute(
+        select(PropertyFeature).where(
+            PropertyFeature.property_id == property_id,
+            PropertyFeature.feature_id == feature_id,
+        )
+    ).scalar_one_or_none()
+
+
+def _upsert_property_feature_value(
+    db,
+    prop: Property,
+    feature: Feature,
+    value: str,
+    url: str,
+    dry_run: bool,
+) -> int:
+    pf = _get_property_feature_row(db, prop.id, feature.id)
+    if pf is None:
+        pf = PropertyFeature(property_id=prop.id, feature_id=feature.id, value=value)
+        if dry_run:
+            print(
+                f"[dry-run] would create PropertyFeature(property_id={prop.id}, "
+                f"feature_id={feature.id}, value={value!r}) for url={url!r}"
+            )
+        else:
+            db.add(pf)
+        return 1
+
+    if pf.value == value:
+        return 0
+
+    if dry_run:
+        print(
+            f"[dry-run] would update PropertyFeature(property_id={prop.id}, "
+            f"feature_id={feature.id}) value from {pf.value!r} to {value!r} "
+            f"for url={url!r}"
+        )
+    else:
+        pf.value = value
+    return 1
+
+
+def _apply_property_feature_values(
+    db,
+    prop: Property,
+    kv: Dict[str, str],
+    feature_by_name: Dict[str, Feature],
+    url: str,
+    dry_run: bool,
+) -> int:
+    updated = 0
+    for key, val in kv.items():
+        feature = feature_by_name.get(key)
+        if not feature:
+            continue
+        updated += _upsert_property_feature_value(db, prop, feature, val, url, dry_run)
+    return updated
+
+
 def backfill_feature_values(csv_path: Path, dry_run: bool = False) -> tuple[int, int]:
     """
     Backfill PropertyFeature.value from CSV more_features.
@@ -91,35 +173,14 @@ def backfill_feature_values(csv_path: Path, dry_run: bool = False) -> tuple[int,
             print("CSV must have 'url' and 'more_features' columns.")
             return 0, 0
 
-        # Build url -> {key: value} map from CSV
-        url_to_feature_values: Dict[str, Dict[str, str]] = {}
-        for _, row in df.iterrows():
-            url_raw = row.get("url")
-            url = _normalize_str(url_raw)
-            if not url:
-                continue
-            kv = parse_more_features_row(row.get("more_features"))
-            if kv:
-                url_to_feature_values[url] = kv
+        url_to_feature_values = _build_url_to_feature_values(df)
 
         if not url_to_feature_values:
             print("No feature key/value pairs found in CSV more_features.")
             return 0, 0
 
-        # Preload ALL Feature rows; we will only use keys that exist in this table
-        feature_by_name: Dict[str, Feature] = {}
-        existing_features = db.execute(select(Feature)).scalars().all()
-        for feat in existing_features:
-            feature_by_name[feat.name] = feat
-
-        # Load properties by URL
-        urls = list(url_to_feature_values.keys())
-        props = (
-            db.execute(select(Property).where(Property.url.in_(urls)))
-            .scalars()
-            .all()
-        )
-        props_by_url: Dict[str, Property] = {p.url: p for p in props if p.url}
+        feature_by_name = _load_feature_map(db)
+        props_by_url = _load_properties_by_url(db, list(url_to_feature_values.keys()))
 
         updated = 0
         skipped_no_match = 0
@@ -130,46 +191,14 @@ def backfill_feature_values(csv_path: Path, dry_run: bool = False) -> tuple[int,
                 skipped_no_match += 1
                 continue
 
-            for key, val in kv.items():
-                feature = feature_by_name.get(key)
-                if not feature:
-                    # We warned above; skip silently here.
-                    continue
-
-                # Get or create PropertyFeature row
-                pf = db.execute(
-                    select(PropertyFeature).where(
-                        PropertyFeature.property_id == prop.id,
-                        PropertyFeature.feature_id == feature.id,
-                    )
-                ).scalar_one_or_none()
-
-                if pf is None:
-                    pf = PropertyFeature(
-                        property_id=prop.id,
-                        feature_id=feature.id,
-                        value=val,
-                    )
-                    if dry_run:
-                        print(
-                            f"[dry-run] would create PropertyFeature(property_id={prop.id}, "
-                            f"feature_id={feature.id}, value={val!r}) for url={url!r}"
-                        )
-                    else:
-                        db.add(pf)
-                    updated += 1
-                else:
-                    if pf.value == val:
-                        continue
-                    if dry_run:
-                        print(
-                            f"[dry-run] would update PropertyFeature(property_id={prop.id}, "
-                            f"feature_id={feature.id}) value from {pf.value!r} to {val!r} "
-                            f"for url={url!r}"
-                        )
-                    else:
-                        pf.value = val
-                    updated += 1
+            updated += _apply_property_feature_values(
+                db=db,
+                prop=prop,
+                kv=kv,
+                feature_by_name=feature_by_name,
+                url=url,
+                dry_run=dry_run,
+            )
 
         if not dry_run and updated:
             db.commit()
@@ -212,12 +241,11 @@ def main() -> None:
 
     updated, skipped = backfill_feature_values(args.csv_path, dry_run=args.dry_run)
 
-    print(f"\nSummary:")
+    print("\nSummary:")
     print(f"  Updated / created PropertyFeature rows: {updated}")
     print(f"  CSV rows with no matching property URL in DB: {skipped}")
 
 
 if __name__ == "__main__":
     main()
-
 

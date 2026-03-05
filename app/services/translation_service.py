@@ -23,6 +23,63 @@ DEFAULT_LANGUAGE = "en"
 _LANG_TO_GOOGLE = {"en": "en", "ar": "ar", "esp": "es", "fr": "fr"}
 
 
+def _find_translation_for_lang(
+    translations: list[PropertyTranslation],
+    language_code: str,
+) -> Optional[PropertyTranslation]:
+    return next((t for t in translations if t.language_code == language_code), None)
+
+
+def _resolve_translation_sources(
+    db: Session,
+    property_id,
+    source_lang: str,
+    source_title: Optional[str],
+    source_description: Optional[str],
+    source_address: Optional[str],
+) -> Optional[tuple[str, str, str]]:
+    if source_title is not None and source_description is not None and source_address is not None:
+        return source_title, source_description, source_address
+
+    prop = db.get(PropertyNormalized, property_id)
+    if not prop:
+        return None
+
+    translations = getattr(prop, "translations", None) or []
+    trans = _find_translation_for_lang(translations, source_lang)
+
+    resolved_title = source_title if source_title is not None else (trans and trans.title) or prop.title or ""
+    resolved_description = (
+        source_description
+        if source_description is not None
+        else (trans and trans.description) or (prop.description or "") or ""
+    )
+    resolved_address = (
+        source_address
+        if source_address is not None
+        else (trans and trans.address) or (getattr(prop, "location_name", None) or "") or ""
+    )
+    return resolved_title, resolved_description, resolved_address
+
+
+def _normalize_supported_lang(lang: Optional[str]) -> str:
+    lang_normalized = (lang or DEFAULT_LANGUAGE).strip().lower()
+    if lang_normalized not in SUPPORTED_LANGUAGE_CODES:
+        return DEFAULT_LANGUAGE
+    return lang_normalized
+
+
+def _translation_title_description(
+    trans: PropertyTranslation,
+    prop: PropertyNormalized,
+) -> Optional[tuple[str, Optional[str]]]:
+    title = (trans.title or "").strip()
+    desc = (trans.description or "").strip()
+    if not title and not desc:
+        return None
+    return (title or prop.title or "", desc or prop.description)
+
+
 def translate_text(
     text: str,
     target_lang: str,
@@ -150,18 +207,17 @@ def translate_property_to_language(
     if target_lang not in SUPPORTED_LANGUAGE_CODES or target_lang == source_lang:
         return None
 
-    if source_title is None or source_description is None or source_address is None:
-        prop = db.get(PropertyNormalized, property_id)
-        if not prop:
-            return None
-        translations = getattr(prop, "translations", None) or []
-        trans = next((t for t in translations if t.language_code == source_lang), None)
-        if source_title is None:
-            source_title = (trans and trans.title) or prop.title or ""
-        if source_description is None:
-            source_description = (trans and trans.description) or (prop.description or "") or ""
-        if source_address is None:
-            source_address = (trans and trans.address) or (getattr(prop, "location_name", None) or "") or ""
+    sources = _resolve_translation_sources(
+        db,
+        property_id,
+        source_lang,
+        source_title,
+        source_description,
+        source_address,
+    )
+    if not sources:
+        return None
+    source_title, source_description, source_address = sources
 
     translated_title = translate_text(source_title, target_lang, source_lang)
     translated_description = translate_text(source_description, target_lang, source_lang)
@@ -193,17 +249,14 @@ def get_title_description_for_language(
     Returns:
         (title, description) for the requested language.
     """
-    lang = (lang or DEFAULT_LANGUAGE).strip().lower()
-    if lang not in SUPPORTED_LANGUAGE_CODES:
-        lang = DEFAULT_LANGUAGE
+    lang = _normalize_supported_lang(lang)
 
     translations = getattr(prop, "translations", None) or []
-    trans = next((t for t in translations if t.language_code == lang), None)
+    trans = _find_translation_for_lang(translations, lang)
     if trans:
-        title = (trans.title or "").strip() or None
-        desc = (trans.description or "").strip() or None
-        if title is not None or desc is not None:
-            return (title or prop.title or "", desc if desc is not None else prop.description)
+        translated = _translation_title_description(trans, prop)
+        if translated:
+            return translated
 
     return (prop.title or "", prop.description)
 

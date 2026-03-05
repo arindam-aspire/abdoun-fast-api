@@ -359,7 +359,6 @@ def create_property_normalized_from_row(
     rent_amount: float | None,
     rent_currency: str | None,
     images: list[str],
-    features_list: list[str],
     more_features_json: dict | None = None,
 ) -> PropertyNormalized:
     """Create a PropertyNormalized object from a CSV row."""
@@ -675,7 +674,6 @@ def import_properties_normalized_from_dataframe(
                 rent_amount=rent_amount,
                 rent_currency=rent_currency,
                 images=images,
-                features_list=amenities_only,
                 more_features_json=more_features_json,
             )
             
