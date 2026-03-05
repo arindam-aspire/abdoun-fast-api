@@ -21,14 +21,13 @@ from app.schemas.property import (
     PropertySearchResponse,
     uuid_to_int_hash,
 )
-from app.utils.constants import ErrorMessages
+from app.utils.constants import ErrorMessages, Defaults
 from app.utils.status_codes import STATUS_NOT_FOUND
 from sqlalchemy.orm import joinedload
- 
+
 router = APIRouter()
 
 DBSessionDep = Annotated[Session, Depends(get_db)]
-LANG_QUERY_DESCRIPTION = "Language code for title/description: en, ar, esp, fr"
 
 
 def _append_status_filter(filters: list[Any], status_lower: Optional[str]) -> None:
@@ -283,7 +282,7 @@ def get_property_search_params(
     exclusive: Optional[str] = Query(None, description="Filter by exclusive status (true/1 for exclusive only, false/0 for non-exclusive only)"),
     page: int = Query(1, ge=1, description="Page number, 1-based"),
     page_size: int = Query(12, alias="pageSize", ge=1, le=100, description="Items per page"),
-    lang: Optional[str] = Query(None, description=LANG_QUERY_DESCRIPTION),
+    lang: Optional[str] = Query(None, description=Defaults.LANG_QUERY_DESCRIPTION),
 ) -> PropertySearchParams:
     return PropertySearchParams(
         status=status,
@@ -314,7 +313,7 @@ def get_exclusive_property_search_params(
     max_price: Optional[str] = Query(None, alias="maxPrice", description="Alias for budgetMax (for hero search compatibility)"),
     page: int = Query(1, ge=1, description="Page number, 1-based"),
     page_size: int = Query(12, alias="pageSize", ge=1, le=100, description="Items per page"),
-    lang: Optional[str] = Query(None, description=LANG_QUERY_DESCRIPTION),
+    lang: Optional[str] = Query(None, description=Defaults.LANG_QUERY_DESCRIPTION),
 ) -> PropertySearchParams:
     return PropertySearchParams(
         status=status,
@@ -402,7 +401,7 @@ def get_similar_properties(
     property_id: str,  # FastAPI path params are always strings
     db: DBSessionDep,
     limit: int = Query(20, ge=1, le=50, description="Maximum number of similar properties to return"),
-    lang: Optional[str] = Query(None, description=LANG_QUERY_DESCRIPTION),
+    lang: Optional[str] = Query(None, description=Defaults.LANG_QUERY_DESCRIPTION),
 ) -> PropertySearchResponse:
     """
     Get similar properties based on the selected property.
@@ -473,7 +472,7 @@ def get_similar_properties(
 def get_property(
     property_id: str,  # FastAPI path params are always strings
     db: DBSessionDep,
-    lang: Optional[str] = Query(None, description=LANG_QUERY_DESCRIPTION),
+    lang: Optional[str] = Query(None, description=Defaults.LANG_QUERY_DESCRIPTION),
 ) -> PropertyDetail:
     """
     Get detailed information about a specific property.

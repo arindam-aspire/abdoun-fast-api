@@ -1,3 +1,4 @@
+from __future__ import annotations
 import io
 import re
 from typing import Any
@@ -398,17 +399,17 @@ def _insert_records_individually(
 
 
 def _print_import_summary(imported_count: int, updated_count: int, skipped_duplicates: int) -> None:
-    """Log import summary message."""
-    summary_parts = []
-    if imported_count > 0:
-        summary_parts.append(f"imported {imported_count} new properties")
-    if updated_count > 0:
-        summary_parts.append(f"updated {updated_count} existing properties")
-    if skipped_duplicates > 0:
-        summary_parts.append(f"skipped {skipped_duplicates} duplicates")
-    if summary_parts:
-        msg = format_log_message(LogMessages.CSVImport.IMPORTED_UPDATED_SKIPPED, summary="; ".join(summary_parts))
-        logger.info(msg)
+    """Log import summary message using utils messages."""
+    if imported_count == 0 and updated_count == 0 and skipped_duplicates == 0:
+        return
+    summary = format_log_message(
+        CSVImportMessages.IMPORTED_UPDATED_SKIPPED,
+        imported=imported_count,
+        updated=updated_count,
+        skipped=skipped_duplicates,
+    )
+    msg = format_log_message(LogMessages.CSVImport.IMPORTED_UPDATED_SKIPPED, summary=summary)
+    logger.info(msg)
 
 
 def import_properties_from_dataframe(

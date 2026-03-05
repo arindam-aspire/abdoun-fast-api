@@ -1,7 +1,7 @@
 """
 API endpoints for cities and areas (locations)
 """
-from typing import Annotated, List, Optional
+from typing import Annotated, Optional
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import func, select

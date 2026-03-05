@@ -2,6 +2,7 @@
 CSV importer service for normalized property structure.
 Handles mapping CSV data to normalized database tables.
 """
+from __future__ import annotations
 import json
 import re
 from typing import Any, Optional
@@ -35,6 +36,7 @@ from app.services.csv_importer import (
     _parse_int,
     logger,
 )
+from app.utils.log_messages import LogMessages, format_log_message
 from app.utils.logger import get_logger
 
 # Re-define helper functions that might not be exported
@@ -708,9 +710,21 @@ def import_properties_normalized_from_dataframe(
                 
         except Exception as e:
             db.rollback()
-            logger.error(f"Error importing property {url}: {e}")
+            logger.error(
+                format_log_message(
+                    LogMessages.Property.IMPORT_PROPERTY_ERROR,
+                    url=url or "",
+                    error=e,
+                )
+            )
             skipped_duplicates += 1
             continue
     
-    logger.info(f"Imported {imported_count} properties, skipped {skipped_duplicates} duplicates")
+    logger.info(
+        format_log_message(
+            LogMessages.Property.IMPORTED_SKIPPED,
+            imported_count=imported_count,
+            skipped_duplicates=skipped_duplicates,
+        )
+    )
     return imported_count

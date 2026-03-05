@@ -8,7 +8,7 @@ including search results, property details, search requests, and responses.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional, Union
 import json
 import hashlib
 
@@ -1382,60 +1382,6 @@ class PropertySearchRequest(BaseModel):
     polygon: Optional[PolygonFilter] = None
     limit: int = Defaults.MAX_SEARCH_LIMIT
 
-    def execute(self, db: Session) -> list[PropertySearchResult]:
-        """
-        Execute the search query against the database.
-        
-        Performs a spatial query based on the search mode and filters,
-        returning properties that intersect with the specified area.
-        
-        Supports both old Property model and new PropertyNormalized model.
-        
-        Args:
-            db: SQLAlchemy database session
-            
-        Returns:
-            List of PropertySearchResult objects matching the search criteria
-            
-        Note:
-            Returns empty list if required filter is missing for the selected mode.
-        """
-        from sqlalchemy.orm import joinedload
-        from app.models.property_normalized import PropertyCategory, PropertyType, City, Area
-        
-        stmt = select(Property).options(
-            joinedload(Property.category),
-            joinedload(Property.type),
-            joinedload(Property.city),
-            joinedload(Property.area_rel),
-        )
-
-        if self.mode == "bounds":
-            if not self.bounds:
-                return []
-            b = self.bounds
-            envelope = func.ST_MakeEnvelope(
-                b.min_lng,
-                b.min_lat,
-                b.max_lng,
-                b.max_lat,
-                4326,
-            )
-            stmt = stmt.where(
-                func.ST_Intersects(Property.location, envelope)
-            )
-        elif self.mode == "polygon":
-            if not self.polygon:
-                return []
-            geojson_str = json.dumps(self.polygon.geojson)
-            geom = func.ST_GeomFromGeoJSON(geojson_str)
-            stmt = stmt.where(func.ST_Within(Property.location, geom))
-
-        stmt = stmt.limit(self.limit)
-
-        results = db.execute(stmt).unique().scalars().all()
-        return [PropertySearchResult.from_orm_obj(p) for p in results]
-
 
 class PropertyListResponse(BaseModel):
     """
@@ -1448,7 +1394,7 @@ class PropertyListResponse(BaseModel):
         items: List of property search results
         total: Total number of properties in the result set
     """
-    items: list[PropertySearchResult]
+    items: List[PropertySearchResult]
     total: int
 
 
@@ -1460,7 +1406,7 @@ class PropertyListResponseExtended(BaseModel):
         items: List of extended property search results
         total: Total number of properties in the result set
     """
-    items: list[PropertySearchResultExtended]
+    items: List[PropertySearchResultExtended]
     total: int
 
 
@@ -1474,7 +1420,7 @@ class PropertySearchResponse(BaseModel):
         page: Current page number (1-based)
         pageSize: Number of items per page
     """
-    data: list[PropertySearchResultExtended]
+    data: List[PropertySearchResultExtended]
     total: int
     page: int
     pageSize: int

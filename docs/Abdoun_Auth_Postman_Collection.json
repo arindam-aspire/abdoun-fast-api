@@ -1,0 +1,469 @@
+{
+  "info": {
+    "name": "Abdoun Auth API",
+    "description": "Full authentication flow for Abdoun FastAPI. Set base_url = http://localhost:8000/api/v1 in collection variables.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "base_url", "value": "http://localhost:8000/api/v1" },
+    { "key": "access_token", "value": "" },
+    { "key": "refresh_token", "value": "" },
+    { "key": "username", "value": "testuser@example.com", "description": "Email/sub for refresh when Cognito has client secret" },
+    { "key": "otp_session", "value": "" },
+    { "key": "invite_token", "value": "" },
+    { "key": "agent_id", "value": "" },
+    { "key": "user_id", "value": "", "description": "User ID for user management endpoints" }
+  ],
+  "item": [
+    {
+      "name": "1. Sign Up",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"full_name\": \"Test User\",\n  \"email\": \"testuser@example.com\",\n  \"phone_number\": \"+962791234567\",\n  \"password\": \"Test@1234\"\n}"
+        },
+        "url": "{{base_url}}/auth/signup"
+      }
+    },
+    {
+      "name": "2. Confirm Sign Up",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"email\": \"testuser@example.com\",\n  \"code\": \"123456\"\n}"
+        },
+        "url": "{{base_url}}/auth/confirm-signup"
+      }
+    },
+    {
+      "name": "3. Resend Confirmation",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"email\": \"testuser@example.com\"\n}"
+        },
+        "url": "{{base_url}}/auth/resend-confirmation"
+      }
+    },
+    {
+      "name": "4. Login (Password)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "if (pm.response.code === 200) {",
+              "  const json = pm.response.json();",
+              "  if (json.data && json.data.access_token) {",
+              "    pm.collectionVariables.set('access_token', json.data.access_token);",
+              "    if (json.data.refresh_token) pm.collectionVariables.set('refresh_token', json.data.refresh_token);",
+              "  }",
+              "}"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"username\": \"testuser@example.com\",\n  \"password\": \"Test@1234\"\n}"
+        },
+        "url": "{{base_url}}/auth/login/password"
+      }
+    },
+    {
+      "name": "5. Get Me (Current User)",
+      "request": {
+        "method": "GET",
+        "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }],
+        "url": "{{base_url}}/auth/me"
+      }
+    },
+    {
+      "name": "6. Refresh Token",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "if (pm.response.code === 200) {",
+              "  const json = pm.response.json();",
+              "  if (json.data && json.data.access_token) {",
+              "    pm.collectionVariables.set('access_token', json.data.access_token);",
+              "  }",
+              "}"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"refresh_token\": \"{{refresh_token}}\",\n  \"username\": \"{{username}}\"\n}"
+        },
+        "url": "{{base_url}}/auth/refresh"
+      }
+    },
+    {
+      "name": "7. Logout",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }],
+        "url": "{{base_url}}/auth/logout"
+      }
+    },
+    {
+      "name": "8. Forgot Password Request",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"email\": \"testuser@example.com\"\n}"
+        },
+        "url": "{{base_url}}/auth/forgot-password/request"
+      }
+    },
+    {
+      "name": "9. Forgot Password Confirm",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"email\": \"testuser@example.com\",\n  \"code\": \"123456\",\n  \"new_password\": \"NewPass@1234\"\n}"
+        },
+        "url": "{{base_url}}/auth/forgot-password/confirm"
+      }
+    },
+    {
+      "name": "10. OTP Request",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "if (pm.response.code === 200) {",
+              "  const json = pm.response.json();",
+              "  if (json.data && json.data.session) {",
+              "    pm.collectionVariables.set('otp_session', json.data.session);",
+              "  }",
+              "}"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"username\": \"testuser@example.com\"\n}"
+        },
+        "url": "{{base_url}}/auth/login/otp/request"
+      }
+    },
+    {
+      "name": "11. OTP Verify",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "if (pm.response.code === 200) {",
+              "  const json = pm.response.json();",
+              "  if (json.data && json.data.access_token) {",
+              "    pm.collectionVariables.set('access_token', json.data.access_token);",
+              "    if (json.data.refresh_token) pm.collectionVariables.set('refresh_token', json.data.refresh_token);",
+              "  }",
+              "}"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"username\": \"testuser@example.com\",\n  \"code\": \"123456\",\n  \"session\": \"{{otp_session}}\"\n}"
+        },
+        "url": "{{base_url}}/auth/login/otp/verify"
+      }
+    },
+    {
+      "name": "12. Admin Sign Up",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"full_name\": \"Admin User\",\n  \"email\": \"admin@example.com\",\n  \"phone_number\": \"+962797654321\",\n  \"password\": \"Admin@1234\"\n}"
+        },
+        "url": "{{base_url}}/auth/signup/admin"
+      }
+    },
+    {
+      "name": "13. Social Login URL",
+      "request": {
+        "method": "GET",
+        "url": "{{base_url}}/auth/social-login?provider=Google"
+      }
+    },
+    {
+      "name": "14. Social Callback",
+      "request": {
+        "method": "GET",
+        "url": "{{base_url}}/auth/callback?code=PASTE_CODE_FROM_BROWSER_REDIRECT"
+      }
+    },
+    {
+      "name": "15. Get Me Permissions",
+      "request": {
+        "method": "GET",
+        "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }],
+        "url": "{{base_url}}/auth/me/permissions"
+      }
+    },
+    {
+      "name": "Agent Onboarding",
+      "item": [
+        {
+          "name": "1. Invite Agent (Admin)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.data && json.data.token) {",
+                  "    pm.collectionVariables.set('invite_token', json.data.token);",
+                  "  }",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{access_token}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"agent1@example.com\"\n}"
+            },
+            "url": "{{base_url}}/agents/invite"
+          }
+        },
+        {
+          "name": "2. Validate Invite Token",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/agents/invite/validate?token={{invite_token}}"
+          }
+        },
+        {
+          "name": "3. Agent Register via Invite",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.data && json.data.id) {",
+                  "    pm.collectionVariables.set('agent_id', json.data.id);",
+                  "  }",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"full_name\": \"Agent One\",\n  \"phone_number\": \"+962790000001\",\n  \"service_area\": \"Amman\",\n  \"token\": \"{{invite_token}}\"\n}"
+            },
+            "url": "{{base_url}}/agents/register"
+          }
+        },
+        {
+          "name": "4. Approve Agent (Admin)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{access_token}}" }
+            ],
+            "url": "{{base_url}}/agents/{{agent_id}}/approve"
+          }
+        },
+        {
+          "name": "5. Reject Agent (Admin)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{access_token}}" }
+            ],
+            "url": "{{base_url}}/agents/{{agent_id}}/reject"
+          }
+        },
+        {
+          "name": "6. List Pending Agents (Admin)",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{access_token}}" }
+            ],
+            "url": "{{base_url}}/agents/pending"
+          }
+        },
+        {
+          "name": "7. List Invites (Admin)",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{access_token}}" }
+            ],
+            "url": "{{base_url}}/agents/invites"
+          }
+        },
+        {
+          "name": "8. Assign Agent to Admin",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{access_token}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"admin_id\": \"PASTE_ADMIN_UUID\",\n  \"agent_id\": \"{{agent_id}}\",\n  \"can_inherit_privileges\": true\n}"
+            },
+            "url": "{{base_url}}/agents/assign-agent"
+          }
+        },
+        {
+          "name": "9. Unassign Agent",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{access_token}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"admin_id\": \"PASTE_ADMIN_UUID\",\n  \"agent_id\": \"{{agent_id}}\"\n}"
+            },
+            "url": "{{base_url}}/agents/unassign-agent"
+          }
+        }
+      ]
+    },
+    {
+      "name": "User Management",
+      "item": [
+        {
+          "name": "1. List Users",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }],
+            "url": "{{base_url}}/users?limit=50&offset=0"
+          }
+        },
+        {
+          "name": "2. List Roles",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }],
+            "url": "{{base_url}}/users/roles/list"
+          }
+        },
+        {
+          "name": "3. List Permissions",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }],
+            "url": "{{base_url}}/users/permissions/list"
+          }
+        },
+        {
+          "name": "4. Get User by ID",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }],
+            "url": "{{base_url}}/users/{{user_id}}"
+          }
+        },
+        {
+          "name": "5. Update User",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{access_token}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"full_name\": \"Updated Name\",\n  \"is_active\": true\n}"
+            },
+            "url": "{{base_url}}/users/{{user_id}}"
+          }
+        },
+        {
+          "name": "6. Assign Role to User",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{access_token}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"role_id\": \"PASTE_ROLE_UUID\"\n}"
+            },
+            "url": "{{base_url}}/users/{{user_id}}/roles"
+          }
+        },
+        {
+          "name": "7. Remove Role from User",
+          "request": {
+            "method": "DELETE",
+            "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }],
+            "url": "{{base_url}}/users/{{user_id}}/roles/PASTE_ROLE_UUID"
+          }
+        },
+        {
+          "name": "8. Delete User (Soft)",
+          "request": {
+            "method": "DELETE",
+            "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }],
+            "url": "{{base_url}}/users/{{user_id}}"
+          }
+        }
+      ]
+    }
+  ]
+}

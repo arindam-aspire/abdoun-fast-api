@@ -2,6 +2,8 @@
 Security utilities for input validation and ReDoS prevention.
 """
 
+from app.utils.constants import ErrorMessages
+
 # Maximum input lengths to prevent ReDoS attacks
 MAX_INPUT_LENGTH = 1000  # General input limit
 MAX_CURRENCY_INPUT_LENGTH = 100  # Currency/price input limit
@@ -24,7 +26,7 @@ def validate_input_length(value: str, max_length: int) -> str:
         ValueError: If input is None or invalid
     """
     if value is None:
-        raise ValueError("Input cannot be None")
+        raise ValueError(ErrorMessages.INPUT_CANNOT_BE_NONE)
     
     text = str(value).strip()
     if len(text) > max_length:

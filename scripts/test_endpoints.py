@@ -385,9 +385,9 @@ def test_list_areas():
 
 
 def test_import_csv():
-    """Test POST /api/v1/import-csv"""
+    """Test POST /api/v1/properties/import-csv (requires auth + property:create)"""
     print("\n" + "="*60)
-    print("TEST 6: Import CSV (POST /api/v1/import-csv)")
+    print("TEST 10: Import CSV (POST /api/v1/properties/import-csv)")
     print("="*60)
     
     csv_path = Path("data/abdoun_merged_properties.csv")
@@ -400,7 +400,7 @@ def test_import_csv():
     with open(csv_path, "rb") as f:
         files = {"file": (csv_path.name, f, "text/csv")}
         response = requests.post(
-            f"{BASE_URL}/import-csv?geocode_missing=false",
+            f"{BASE_URL}/properties/import-csv?geocode_missing=false",
             files=files
         )
     

@@ -12,6 +12,12 @@ python-multipart==0.0.9
 requests==2.31.0
 openai==0.28.1  # Azure OpenAI compatible version
 deep-translator==1.11.4  # Optional: for property title/description translation (ar, esp, fr)
+boto3>=1.34.0
+python-jose[cryptography]>=3.3.0
+email-validator>=2.0.0
+
+pytest>=8.0.0
+httpx>=0.27.0  # Required by FastAPI TestClient
 
 
 

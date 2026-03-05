@@ -24,6 +24,63 @@ class ErrorMessages:
     FAILED_TO_PARSE_AZURE_RESPONSE = "Failed to parse Azure OpenAI response"
     AZURE_OPENAI_GEOCODING_ERROR = "Azure OpenAI geocoding error"
     AZURE_OPENAI_COULD_NOT_GEOCODE = "Azure OpenAI could not geocode"
+    
+    # Auth Errors
+    USER_EXISTS = "User with this email or phone number already exists"
+    INVALID_CREDENTIALS = "Invalid email/phone or password"
+    INVALID_OTP = "Invalid or expired OTP"
+    OTP_NOT_CONFIGURED = "OTP login is not configured. Configure Cognito custom auth Lambda triggers (Define Auth Challenge, Create Auth Challenge, Verify Auth Challenge) for this user pool, or use password login: POST /api/v1/auth/login/password"
+    INVALID_TOKEN = "Invalid or expired token"
+    USER_NOT_FOUND = "User not found"
+    USER_NOT_CONFIRMED = "User is not confirmed. Please verify your account using the confirmation code."
+    USER_INACTIVE = "User account is inactive"
+    MISSING_PERMISSION = "Missing required permission: {permission}"
+    INVITE_EXPIRED = "Invitation has expired or already been used"
+    INVALID_INVITE_TOKEN = "Invalid invitation token"
+    REGISTRATION_FAILED = "Agent registration failed"
+    COGNITO_ERROR = "Authentication service error: {error}"
+    
+    # RBAC/Agent Errors
+    INVITE_FAILED = "Failed to create agent invitation"
+    EMAIL_MISMATCH = "Email does not match invitation"
+    NOT_AN_AGENT = "User is not an agent"
+    APPROVAL_FAILED = "Agent approval failed"
+    ASSIGNMENT_FAILED = "Agent assignment failed"
+    LOGOUT_FAILED = "Logout failed"
+    INVALID_INVITE = "Invalid or expired invitation"
+    MISSING_SUB = "Token payload is missing 'sub' claim"
+    SOCIAL_AUTH_FAILED = "Social authentication failed"
+    REVOCATION_FAILED = "Failed to revoke agent privileges"
+    UNAUTHORIZED_ACCESS = "You are not authorized to perform this action"
+    AGENT_REJECT_FAILED = "Failed to reject agent"
+    REFRESH_USERNAME_REQUIRED = "username (sub or email) is required when Cognito app client uses a secret. Include it from your login response."
+    AGENT_NOT_PENDING = "Agent is not pending approval"
+    ASSIGNMENT_NOT_FOUND = "Active assignment not found"
+    ROLE_NOT_FOUND = "Role not found"
+    USER_ALREADY_HAS_ROLE = "User already has this role"
+    USER_DOES_NOT_HAVE_ROLE = "User does not have this role"
+    CANNOT_DEACTIVATE_SELF = "Cannot deactivate your own account"
+
+    # Generic / HTTP (exception handlers, fallbacks)
+    REQUEST_FAILED = "Request failed"
+    VALIDATION_ERROR = "Validation error"
+    INTERNAL_SERVER_ERROR = "Internal server error"
+    UNEXPECTED_ERROR_OCCURRED = "An unexpected error occurred."
+    INPUT_CANNOT_BE_NONE = "Input cannot be None"
+
+
+# Validation messages (Pydantic/schema validators — shown to API clients on validation failure)
+class ValidationMessages:
+    """Validation error messages used in request schemas"""
+    PHONE_E164 = "Phone number must be in E.164 format (e.g., +1234567890)"
+    PASSWORD_MIN_LENGTH = "Password must be at least 8 characters long"
+    PASSWORD_UPPERCASE = "Password must have at least one uppercase letter"
+    PASSWORD_LOWERCASE = "Password must have at least one lowercase letter"
+    PASSWORD_NUMBER = "Password must have at least one number"
+    PASSWORD_SPECIAL = "Password must have at least one special character"
+    INVALID_EMAIL_FORMAT = "Invalid email format"
+    USERNAME_EMAIL_OR_PHONE = "Username must be a valid email or phone number (+1234567890)"
+    USERNAME_EMAIL_OR_E164 = "Username must be a valid email or E.164 phone (e.g. +1234567890)"
 
 
 # Success Messages
@@ -41,6 +98,29 @@ class SuccessMessages:
     FOUND_COORDINATES_COMBINED = "Found coordinates for '{location}' using combined parts: '{combined}'"
     FOUND_COORDINATES_MAIN = "Found coordinates for '{location}' using main location: '{main_location}'"
     FOUND_COORDINATES_FALLBACK = "Found coordinates for '{location}' using fallback: '{suffix_location}'"
+    
+    # Auth Success
+    USER_REGISTERED = "User registered successfully"
+    LOGIN_SUCCESSFUL = "Login successful"
+    LOGOUT_SUCCESSFUL = "Logged out successfully"
+    PASSWORD_RESET_SUCCESS = "Password reset successfully"
+    OTP_SENT = "OTP has been sent"
+    CONFIRMATION_CODE_SENT = "Confirmation code has been sent"
+    ACCOUNT_CONFIRMED = "Account confirmed successfully"
+    AGENT_INVITED = "Agent invitation sent successfully"
+    AGENT_REGISTERED = "Agent registered successfully"
+    AGENT_APPROVED = "Agent approved successfully"
+    AGENT_ASSIGNED = "Agent assigned successfully"
+    INVITE_VALID = "Invitation token is valid"
+    REGISTRATION_PENDING = "Registration successful, pending admin approval"
+    SOCIAL_LOGIN_SUCCESSFUL = "Social login successful"
+    AGENT_REVOKED = "Agent privileges revoked successfully"
+    ADMIN_REGISTERED = "Admin registered successfully"
+    AGENT_REJECTED = "Agent application rejected"
+    USER_UPDATED = "User updated successfully"
+    USER_DELETED = "User deactivated successfully"
+    ROLE_ASSIGNED_TO_USER = "Role assigned to user successfully"
+    ROLE_REMOVED_FROM_USER = "Role removed from user successfully"
 
 
 # Info Messages
@@ -74,9 +154,11 @@ class WarningMessages:
 class Defaults:
     """Default values used throughout the application"""
     UNTITLED_PROPERTY = "Untitled"
+    SOCIAL_USER_DEFAULT_NAME = "Social User"  # Default name when social provider omits it
     DEFAULT_LIMIT = 50
     DEFAULT_OFFSET = 0
     MAX_SEARCH_LIMIT = 200
+    LANG_QUERY_DESCRIPTION = "Language code for title/description: en, ar, esp, fr"
 
 
 # Geocoding Constants
@@ -107,4 +189,38 @@ class SystemMessages:
     """System-level messages"""
     APP_NAME = "Real Estate Map API"
     API_V1_PREFIX = "/api/v1"
+    HEALTHY = "healthy"
+    SERVICE_NAME = "realestate-api"
 
+
+# RBAC Roles
+class UserRoles:
+    ADMIN = "admin"
+    AGENT = "agent"
+    REGISTERED_USER = "registered_user"
+
+
+# Agent Statuses
+class AgentStatus:
+    PENDING = "pending"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+
+
+# RBAC Permissions
+class UserPermissions:
+    # User management
+    USER_CREATE = "user:create"
+    USER_DELETE = "user:delete"
+    
+    # Agent management
+    AGENT_APPROVE = "agent:approve"
+    AGENT_ASSIGN = "agent:assign"
+    
+    # Role management
+    ROLE_ASSIGN = "role:assign"
+    
+    # Property management
+    PROPERTY_CREATE = "property:create"
+    PROPERTY_UPDATE = "property:update"
+    PROPERTY_DELETE = "property:delete"

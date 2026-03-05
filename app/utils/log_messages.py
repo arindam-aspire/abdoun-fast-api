@@ -61,6 +61,91 @@ class LogMessages:
         AZURE_OPENAI_COULD_NOT_GEOCODE = "    🤖 ❌ Azure OpenAI could not geocode '{location}'"
         TRYING_AZURE_OPENAI_FALLBACK = "    🤖 Trying Azure OpenAI as final fallback for: '{location}'"
 
+    # Authentication Log Messages
+    class Auth:
+        """Authentication-related log messages"""
+        SIGNUP_SUCCESS = "👤 User signup successful: {email}"
+        SIGNUP_FAILED = "❌ User signup failed for {email}: {error}"
+        LOGIN_SUCCESS = "🔑 User login successful: {email}"
+        LOGIN_FAILED = "❌ User login failed for {email}: {error}"
+        LOGOUT_SUCCESS = "🚪 User logout successful: {email}"
+        LOGOUT_SUCCESS_GENERIC = "🚪 User logout successful"
+        LOGOUT_FAILED = "❌ User logout failed: {error}"
+        ADMIN_CONFIRM_FAILED = "❌ Failed to confirm user {email}: {error}"
+        TOKEN_REFRESH_SUCCESS = "🔄 Token refresh successful"
+        TOKEN_REFRESH_FAILED = "❌ Token refresh failed: {error}"
+        OTP_REQUEST_SUCCESS = "📲 OTP request successful for: {username}"
+        OTP_REQUEST_FAILED = "❌ OTP request failed for {username}: {error}"
+        PASSWORD_RESET_REQUEST = "📧 Password reset requested for: {email}"
+        PASSWORD_RESET_SUCCESS = "✅ Password reset successful for: {email}"
+        PASSWORD_RESET_FAILED = "❌ Password reset failed for {email}: {error}"
+        TOKEN_VERIFICATION_FAILED = "⚠️ Token verification failed: {error}"
+        JWKS_FETCH_FAILED = "❌ Failed to fetch JWKS from Cognito: {error}"
+        JWKS_KEY_NOT_FOUND = "⚠️ Public key {kid} not found in JWKS."
+        SIGNUP_ATTEMPT_EXISTING = "⚠️ Signup attempt with existing email/phone: {email}"
+        TOKEN_PAYLOAD_MISSING_SUB = "⚠️ Token payload missing 'sub' claim"
+        TOKEN_VERIFICATION_FAILED_DEP = "⚠️ Token verification failed in security dependency"
+        USER_NOT_FOUND_SUB = "⚠️ User not found for sub: {sub}"
+        INACTIVE_USER_ATTEMPT = "⚠️ Inactive user attempt: {email}"
+        SOCIAL_LOGIN_SUCCESS = "🌐 Social login successful: {email}"
+        SOCIAL_AUTH_FAILED_LOG = "❌ Social authentication failed for {email}: {error}"
+        UNKNOWN_EMAIL = "Unknown"  # Placeholder when email is not available in error context
+
+    # RBAC Log Messages
+    class RBAC:
+        """RBAC-related log messages"""
+        PERMISSION_DENIED = "🚫 Permission denied for user {user_id}: missing {permission}"
+        ROLE_ASSIGNED = "🛡️ Role '{role}' assigned to user {user_id} by {assigned_by}"
+        AGENT_INVITED = "✉️ Agent invited: {email} by {invited_by}"
+        AGENT_APPROVED = "✅ Agent approved: {agent_id} by {approver_id}"
+        AGENT_ASSIGNED = "🔗 Agent {agent_id} assigned to admin {admin_id}"
+        INHERITANCE_TRIGGERED = "🎭 User {user_id} inheriting permissions from admin {admin_id}"
+        INVITE_ATTEMPT_EXISTING = "⚠️ Invite attempt for existing user: {email}"
+        INVALID_INVITE_TOKEN_USED = "⚠️ Invalid or expired invite token used: {token}"
+        INVALID_REGISTRATION_TOKEN = "⚠️ Invalid or expired agent registration token used"
+        REGISTRATION_PENDING = "⏳ Agent registration pending approval: {email}"
+        INVITE_FAILED_LOG = "❌ Failed to create agent invite: {error}"
+        REGISTRATION_FAILED_LOG = "❌ Agent registration failed: {error}"
+        APPROVAL_FAILED_LOG = "❌ Failed to approve agent {agent_id}: {error}"
+        ASSIGNMENT_FAILED_LOG = "❌ Failed to assign agent: {error}"
+        AGENT_REVOKED = "🔓 Agent {agent_id} privileges revoked by admin {admin_id}"
+        REVOCATION_FAILED_LOG = "❌ Failed to revoke agent privileges: {error}"
+        AGENT_REJECTED = "🚫 Agent {agent_id} rejected by {rejector_id}"
+        AGENT_REJECT_FAILED_LOG = "❌ Failed to reject agent {agent_id}: {error}"
+        NOTIFICATION_FAILED = "⚠️ Notification ({context}) failed: {error}"
+        USER_UPDATED_LOG = "✅ User {user_id} updated by {admin_email}"
+        USER_DELETED_LOG = "🗑️ User {user_id} deactivated by {admin_email}"
+        USER_DELETE_FAILED_LOG = "❌ Failed to deactivate user: {error}"
+        ROLE_ASSIGNED_LOG = "🛡️ Role {role_name} assigned to user {user_id} by {admin_email}"
+        ROLE_REMOVED_LOG = "🔓 Role {role_name} removed from user {user_id} by {admin_email}"
+        ROLE_ASSIGN_FAILED_LOG = "❌ Failed to assign role: {error}"
+        ROLE_REMOVED_FAILED_LOG = "❌ Failed to remove role from user: {error}"
+
+    # Exception handlers (main.py)
+    class AppException:
+        HTTP_EXCEPTION = "HTTPException: {status_code} {detail} path={path}"
+        VALIDATION_ERROR = "Validation error: {errors} path={path}"
+        UNHANDLED_EXCEPTION = "Unhandled exception: {exc} path={path}"
+
+    # Notification service (agent approved/rejected/invite)
+    class Notification:
+        AGENT_APPROVED = "Notification: agent approved — email={email} name={name} (wire to SES/email in production)"
+        AGENT_REJECTED = "Notification: agent rejected — email={email} name={name} (wire to SES/email in production)"
+        INVITE_SENT = "Notification: agent invite sent — to={to_email} link={link} by={by_email} (wire to SES/email in production)"
+
+    # Property route (lookup by hash, etc.)
+    class Property:
+        LOOKUP_HASH = "Looking up property with hash: {target_hash}"
+        FOUND_N_PROPERTIES = "Found {count} properties in database"
+        NO_PROPERTIES_FOR_HASH = "No properties found in database when searching for hash {target_hash}"
+        FOUND_MATCHING = "Found matching property! UUID: {uuid}, hash: {prop_hash}"
+        LOADED_PROPERTY = "Successfully loaded property {uuid} with relationships"
+        PARSE_PROPERTY_ID_ERROR = "Could not parse property_id '{property_id}' as UUID or int: {error}"
+        LOOKUP_ERROR = "Error in property lookup for hash {target_hash}: {error}"
+        HASH_NOT_FOUND_AFTER_CHECK = "Property with hash {target_hash} not found after checking {checked} properties. Sample hashes: {sample_hashes}"
+        IMPORT_PROPERTY_ERROR = "Error importing property {url}: {error}"
+        IMPORTED_SKIPPED = "Imported {imported_count} properties, skipped {skipped_duplicates} duplicates"
+
 
 def format_log_message(template: str, **kwargs) -> str:
     """Helper function to format log messages with variables"""

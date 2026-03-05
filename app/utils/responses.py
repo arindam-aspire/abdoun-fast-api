@@ -3,54 +3,54 @@ Standard response formats for the API.
 All API response structures should be defined here.
 """
 
-from typing import Any, TypeVar
+from typing import Any, List, TypeVar, Generic, Optional
 from pydantic import BaseModel
 
 T = TypeVar('T')
 
 
-class StandardResponse[T](BaseModel):
+class StandardResponse(BaseModel, Generic[T]):
     """Standard API response wrapper"""
     success: bool = True
-    data: T | None = None
-    message: str | None = None
-    error: str | None = None
+    data: Optional[T] = None
+    message: Optional[str] = None
+    error: Optional[str] = None
 
 
 class ErrorResponse(BaseModel):
     """Standard error response format"""
     success: bool = False
     error: str
-    detail: str | None = None
-    status_code: int | None = None
+    detail: Optional[str] = None
+    status_code: Optional[int] = None
 
 
-class SuccessResponse[T](BaseModel):
+class SuccessResponse(BaseModel, Generic[T]):
     """Standard success response format"""
     success: bool = True
     data: T
-    message: str | None = None
+    message: Optional[str] = None
 
 
-class PaginatedResponse[T](BaseModel):
+class PaginatedResponse(BaseModel, Generic[T]):
     """Standard paginated response format"""
-    items: list[T]
+    items: List[T]
     total: int
-    limit: int | None = None
-    offset: int | None = None
+    limit: Optional[int] = None
+    offset: Optional[int] = None
 
 
 class ImportResponse(BaseModel):
     """Response format for CSV import operations"""
     created: int
-    updated: int | None = None
-    skipped: int | None = None
+    updated: Optional[int] = None
+    skipped: Optional[int] = None
 
 
 def create_error_response(
     error: str,
-    detail: str | None = None,
-    status_code: int | None = None
+    detail: Optional[str] = None,
+    status_code: Optional[int] = None
 ) -> ErrorResponse:
     """Helper function to create standardized error responses"""
     return ErrorResponse(
@@ -63,7 +63,7 @@ def create_error_response(
 
 def create_success_response(
     data: Any,
-    message: str | None = None
+    message: Optional[str] = None
 ) -> SuccessResponse:
     """Helper function to create standardized success responses"""
     return SuccessResponse(

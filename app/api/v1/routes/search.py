@@ -4,6 +4,8 @@ from fastapi import APIRouter, Depends, UploadFile, File, Query
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
+from app.api.v1.deps.security import get_current_user, require_permission
+from app.models.user import User
 from app.schemas.property import (
     PropertySearchRequest,
     PropertyListResponse,
@@ -11,6 +13,9 @@ from app.schemas.property import (
 from app.services.csv_importer import import_properties_from_csv_file
 from app.utils.status_codes import STATUS_CREATED
 from app.utils.responses import ImportResponse
+from app.utils.constants import UserPermissions
+
+from app.services.property import search_properties_service
 
 router = APIRouter()
 
@@ -22,13 +27,19 @@ def search_properties(
     payload: PropertySearchRequest,
     db: DBSessionDep,
 ) -> PropertyListResponse:
-    items = payload.execute(db)
+    items = search_properties_service(db, payload)
     return PropertyListResponse(items=items, total=len(items))
 
 
-@router.post("/import-csv", status_code=STATUS_CREATED, response_model=ImportResponse)
+@router.post(
+    "/import-csv",
+    status_code=STATUS_CREATED,
+    response_model=ImportResponse,
+    dependencies=[require_permission(UserPermissions.PROPERTY_CREATE)],
+)
 async def import_csv(
     db: DBSessionDep,
+    current_user: User = Depends(get_current_user),
     file: UploadFile = File(...),
     geocode_missing: bool = Query(
         False,
@@ -44,10 +55,6 @@ async def import_csv(
     """
     created_count = await import_properties_from_csv_file(db, file, geocode_missing=geocode_missing)
     return ImportResponse(created=created_count)
-
-
-
-
 
 
 
