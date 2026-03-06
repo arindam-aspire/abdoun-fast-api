@@ -181,6 +181,146 @@ class AdminAgentAssignmentRequest(BaseModel):
     can_inherit_privileges: bool = True
 
 
+# --- Agent Onboarding Schemas ---
+
+class AgentInviteRequest(BaseModel):
+    """Request to invite an agent (admin endpoint)"""
+    email: EmailStr
+
+
+class AgentInviteResponse(BaseModel):
+    """Response after inviting an agent"""
+    id: uuid.UUID
+    email: str
+    status: str
+    inviteLink: str
+    invitedAt: datetime
+    invitedBy: uuid.UUID
+
+    model_config = {"from_attributes": True}
+
+
+class AgentOnboardingFormRequest(BaseModel):
+    """Request to submit agent onboarding form"""
+    fullName: str = Field(..., min_length=1)
+    phone: str
+    serviceArea: str = Field(..., min_length=1)
+
+    @field_validator("phone")
+    @classmethod
+    def validate_phone(cls, v: str) -> str:
+        if not re.match(PHONE_E164_REGEX, v):
+            raise ValueError(ValidationMessages.PHONE_E164)
+        return v
+
+
+class AgentOnboardingFormResponse(BaseModel):
+    """Response after submitting onboarding form"""
+    email: str
+    status: str
+    formSubmittedAt: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class AgentValidateInviteResponse(BaseModel):
+    """Response when validating invite token"""
+    email: str
+    status: str
+    alreadySubmitted: bool
+
+
+class AgentListResponse(BaseModel):
+    """Agent list item response"""
+    id: uuid.UUID
+    email: str
+    fullName: Optional[str] = None
+    phone: Optional[str] = None
+    serviceArea: Optional[str] = None
+    status: str
+    invitedAt: Optional[datetime] = None
+    invitedBy: Optional[uuid.UUID] = None
+    formSubmittedAt: Optional[datetime] = None
+    reviewedAt: Optional[datetime] = None
+    declineReason: Optional[str] = None
+
+    model_config = {"from_attributes": True}
+
+
+class AgentDetailResponse(BaseModel):
+    """Detailed agent response"""
+    id: uuid.UUID
+    email: str
+    fullName: Optional[str] = None
+    phone: Optional[str] = None
+    serviceArea: Optional[str] = None
+    status: str
+    invitedAt: Optional[datetime] = None
+    invitedBy: Optional[uuid.UUID] = None
+    formSubmittedAt: Optional[datetime] = None
+    reviewedAt: Optional[datetime] = None
+    reviewedBy: Optional[uuid.UUID] = None
+    declineReason: Optional[str] = None
+    passwordSetAt: Optional[datetime] = None
+
+    model_config = {"from_attributes": True}
+
+
+class AgentAcceptRequest(BaseModel):
+    """Request to accept an agent (empty body)"""
+    pass
+
+
+class AgentAcceptResponse(BaseModel):
+    """Response after accepting an agent"""
+    id: uuid.UUID
+    status: str
+    reviewedAt: datetime
+    reviewedBy: uuid.UUID
+
+    model_config = {"from_attributes": True}
+
+
+class AgentDeclineRequest(BaseModel):
+    """Request to decline an agent"""
+    reason: str = Field(..., min_length=1)
+
+
+class AgentDeclineResponse(BaseModel):
+    """Response after declining an agent"""
+    id: uuid.UUID
+    status: str
+    declineReason: str
+    reviewedAt: datetime
+    reviewedBy: uuid.UUID
+
+    model_config = {"from_attributes": True}
+
+
+class AgentDeleteResponse(BaseModel):
+    """Response after soft deleting an agent"""
+    id: uuid.UUID
+    status: str
+    deletedAt: datetime
+    deletedBy: uuid.UUID
+
+    model_config = {"from_attributes": True}
+
+
+class PaginationInfo(BaseModel):
+    """Pagination metadata"""
+    page: int
+    limit: int
+    totalItems: int
+    totalPages: int
+
+
+class AgentListPaginatedResponse(BaseModel):
+    """Paginated agent list response"""
+    agents: List[AgentListResponse]
+    pagination: PaginationInfo
+
+
 # --- User Management (Admin) ---
 
 class UserUpdate(BaseModel):
@@ -205,3 +345,138 @@ class RoleAssignmentRequest(BaseModel):
 class PermissionsResponse(BaseModel):
     """List of permission codes for the current user."""
     permissions: List[str]
+
+
+# --- Agent Onboarding Schemas (New API) ---
+
+class AgentOnboardingFormRequest(BaseModel):
+    """Request to submit agent onboarding form"""
+    fullName: str = Field(..., min_length=1)
+    phone: str
+    serviceArea: str = Field(..., min_length=1)
+
+    @field_validator("phone")
+    @classmethod
+    def validate_phone(cls, v: str) -> str:
+        if not re.match(PHONE_E164_REGEX, v):
+            raise ValueError(ValidationMessages.PHONE_E164)
+        return v
+
+
+class AgentOnboardingFormResponse(BaseModel):
+    """Response after submitting onboarding form"""
+    email: str
+    status: str
+    formSubmittedAt: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class AgentValidateInviteResponse(BaseModel):
+    """Response when validating invite token"""
+    email: str
+    status: str
+    alreadySubmitted: bool
+
+
+class AgentListResponse(BaseModel):
+    """Agent list item response"""
+    id: uuid.UUID
+    email: str
+    fullName: Optional[str] = None
+    phone: Optional[str] = None
+    serviceArea: Optional[str] = None
+    status: str
+    invitedAt: Optional[datetime] = None
+    invitedBy: Optional[uuid.UUID] = None
+    formSubmittedAt: Optional[datetime] = None
+    reviewedAt: Optional[datetime] = None
+    declineReason: Optional[str] = None
+
+    model_config = {"from_attributes": True}
+
+
+class AgentDetailResponse(BaseModel):
+    """Detailed agent response"""
+    id: uuid.UUID
+    email: str
+    fullName: Optional[str] = None
+    phone: Optional[str] = None
+    serviceArea: Optional[str] = None
+    status: str
+    invitedAt: Optional[datetime] = None
+    invitedBy: Optional[uuid.UUID] = None
+    formSubmittedAt: Optional[datetime] = None
+    reviewedAt: Optional[datetime] = None
+    reviewedBy: Optional[uuid.UUID] = None
+    declineReason: Optional[str] = None
+    passwordSetAt: Optional[datetime] = None
+
+    model_config = {"from_attributes": True}
+
+
+class AgentInviteResponse(BaseModel):
+    """Response after inviting an agent"""
+    id: uuid.UUID
+    email: str
+    status: str
+    inviteLink: str
+    invitedAt: datetime
+    invitedBy: uuid.UUID
+
+    model_config = {"from_attributes": True}
+
+
+class AgentAcceptRequest(BaseModel):
+    """Request to accept an agent (empty body)"""
+    pass
+
+
+class AgentAcceptResponse(BaseModel):
+    """Response after accepting an agent"""
+    id: uuid.UUID
+    status: str
+    reviewedAt: datetime
+    reviewedBy: uuid.UUID
+
+    model_config = {"from_attributes": True}
+
+
+class AgentDeclineRequest(BaseModel):
+    """Request to decline an agent"""
+    reason: str = Field(..., min_length=1)
+
+
+class AgentDeclineResponse(BaseModel):
+    """Response after declining an agent"""
+    id: uuid.UUID
+    status: str
+    declineReason: str
+    reviewedAt: datetime
+    reviewedBy: uuid.UUID
+
+    model_config = {"from_attributes": True}
+
+
+class AgentDeleteResponse(BaseModel):
+    """Response after soft deleting an agent"""
+    id: uuid.UUID
+    status: str
+    deletedAt: datetime
+    deletedBy: uuid.UUID
+
+    model_config = {"from_attributes": True}
+
+
+class PaginationInfo(BaseModel):
+    """Pagination metadata"""
+    page: int
+    limit: int
+    totalItems: int
+    totalPages: int
+
+
+class AgentListPaginatedResponse(BaseModel):
+    """Paginated agent list response"""
+    agents: List[AgentListResponse]
+    pagination: PaginationInfo

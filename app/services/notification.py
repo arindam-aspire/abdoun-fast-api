@@ -3,6 +3,8 @@ Notification service: agent onboarding (approved/rejected), invite emails, etc.
 Production: wire to SES/SNS or email provider. For now: log and optional placeholder.
 """
 
+from typing import Optional
+
 from app.utils.logger import api_logger
 from app.utils.log_messages import LogMessages, format_log_message
 
@@ -19,8 +21,8 @@ def notify_agent_approved(agent_email: str, agent_full_name: str) -> None:
     # TODO: e.g. ses_client.send_email(Source=..., Destinations=[agent_email], ...)
 
 
-def notify_agent_rejected(agent_email: str, agent_full_name: str) -> None:
-    """Notify agent that their application was rejected. In production: send email."""
+def notify_agent_rejected(agent_email: str, agent_full_name: str, decline_reason: Optional[str] = None) -> None:
+    """Notify agent that their application was rejected. In production: send email with reason."""
     api_logger.info(
         format_log_message(
             LogMessages.Notification.AGENT_REJECTED,
@@ -28,7 +30,9 @@ def notify_agent_rejected(agent_email: str, agent_full_name: str) -> None:
             name=agent_full_name,
         )
     )
-    # TODO: send email
+    if decline_reason:
+        api_logger.info(f"Decline reason: {decline_reason}")
+    # TODO: send email with decline_reason
 
 
 def notify_agent_invite_sent(invite_email: str, invite_link: str, invited_by_email: str) -> None:

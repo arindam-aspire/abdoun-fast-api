@@ -60,6 +60,15 @@ class ErrorMessages:
     USER_ALREADY_HAS_ROLE = "User already has this role"
     USER_DOES_NOT_HAVE_ROLE = "User does not have this role"
     CANNOT_DEACTIVATE_SELF = "Cannot deactivate your own account"
+    AGENT_ALREADY_EXISTS = "An agent with this email already exists"
+    INVALID_EMAIL = "Please enter a valid email address"
+    INVITE_NOT_FOUND = "Invitation not found or expired"
+    ALREADY_SUBMITTED = "You have already submitted your application"
+    INVALID_STATUS_TRANSITION = "Agent must be in PENDING_REVIEW status to accept"
+    REASON_REQUIRED = "A decline reason is required"
+    AGENT_NOT_FOUND = "Agent not found"
+    ALREADY_DELETED = "This agent has already been deleted"
+    DEV_AUTH_INIT_FAILED = "Failed to initialize development auth user"
 
     # Generic / HTTP (exception handlers, fallbacks)
     REQUEST_FAILED = "Request failed"
@@ -121,6 +130,9 @@ class SuccessMessages:
     USER_DELETED = "User deactivated successfully"
     ROLE_ASSIGNED_TO_USER = "Role assigned to user successfully"
     ROLE_REMOVED_FROM_USER = "Role removed from user successfully"
+    AGENT_DELETED = "Agent has been deleted"
+    AGENT_ACCEPTED = "Agent accepted. Approval email sent."
+    AGENT_DECLINED = "Agent declined. Rejection email sent with the reason."
 
 
 # Info Messages
@@ -134,6 +146,7 @@ class InfoMessages:
     RATE_LIMITING = "Rate limiting: sleeping for {sleep_time:.2f}s"
     GEOCODING_REQUEST = "Geocoding request for: '{location}'"
     NO_RESULTS_FOUND = "No results found for location: '{location}'"
+    AGENT_ALREADY_SUBMITTED = "You have already submitted your application."
 
 
 # Warning Messages
@@ -159,6 +172,15 @@ class Defaults:
     DEFAULT_OFFSET = 0
     MAX_SEARCH_LIMIT = 200
     LANG_QUERY_DESCRIPTION = "Language code for title/description: en, ar, esp, fr"
+
+
+# Development Auth Defaults
+class DevAuthDefaults:
+    """Defaults for local development auth bypass."""
+    USER_ID = "00000000-0000-0000-0000-000000000001"
+    FULL_NAME = "Dev Agent Admin"
+    EMAIL = "dev-agent-admin@local.test"
+    PHONE_NUMBER = "+10000000001"
 
 
 # Geocoding Constants
@@ -202,8 +224,14 @@ class UserRoles:
 
 # Agent Statuses
 class AgentStatus:
+    INVITED = "INVITED"
+    PENDING_REVIEW = "PENDING_REVIEW"
+    APPROVED = "APPROVED"
+    DECLINED = "DECLINED"
+    ACTIVE = "ACTIVE"
+    SUSPENDED = "SUSPENDED"
+    # Legacy statuses for backward compatibility
     PENDING = "pending"
-    APPROVED = "approved"
     REJECTED = "rejected"
 
 
