@@ -192,6 +192,12 @@ class CognitoService:
             api_logger.info(LogMessages.Auth.LOGOUT_SUCCESS_GENERIC)
             return True
         except ClientError as e:
+            error_code = e.response.get("Error", {}).get("Code", "")
+            error_msg = str(e).lower()
+            # Token already revoked (e.g. double logout) → treat as success
+            if error_code == "NotAuthorizedException" and "revoked" in error_msg:
+                api_logger.info(LogMessages.Auth.LOGOUT_SUCCESS_GENERIC)
+                return True
             api_logger.error(format_log_message(LogMessages.Auth.LOGOUT_FAILED, error=str(e)))
             raise e
 

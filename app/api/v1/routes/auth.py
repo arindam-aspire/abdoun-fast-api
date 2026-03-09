@@ -66,13 +66,9 @@ def signup(user_in: UserCreate, db: Session = Depends(get_db)):
         server_error = format_log_message(ErrorMessages.COGNITO_ERROR, error=str(e))
         raise HTTPException(status_code=HTTPStatus.BAD_REQUEST, detail=server_error)
         
-@router.post("/signup/admin", response_model=StandardResponse[UserResponse], dependencies=[require_permission(UserPermissions.USER_CREATE)])
-def signup_admin(
-    user_in: UserCreate,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    """Onboard an Admin user. Same payload as normal signup; assigns Admin role. Requires user:create (admin only)."""
+@router.post("/signup/admin", response_model=StandardResponse[UserResponse])
+def signup_admin(user_in: UserCreate, db: Session = Depends(get_db)):
+    """Register a new Admin user. Same payload as normal signup; assigns Admin role. No authentication required."""
     # Check if user exists
     stmt = select(User).where((User.email == user_in.email) | (User.phone_number == user_in.phone_number))
     if db.execute(stmt).first():
