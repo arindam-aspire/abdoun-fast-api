@@ -251,6 +251,18 @@ def get_public_tables_in_dependency_order(conn: PgConnection) -> list[str]:
         "property_features",
         "property_translations",
         "property_media",
+
+        # Auth/RBAC base tables
+        "users",
+        "roles",
+        "permissions",
+
+        # Auth/RBAC relation tables (depend on users/roles/permissions)
+        "agent_profiles",
+        "agent_invites",
+        "admin_agent_assignments",
+        "role_permissions",
+        "user_roles",
     ]
 
     with conn.cursor() as cur:
@@ -307,10 +319,19 @@ def copy_table_from_to(
     return row_count
 
 
-def truncate_table(conn: PgConnection, table: str, dry_run: bool) -> None:
-    """Truncate a single table (no CASCADE). Call in reverse dependency order if needed."""
+def truncate_tables(conn: PgConnection, tables: list[str], dry_run: bool) -> None:
+    """
+    Truncate all sync tables in one statement.
+
+    PostgreSQL requires truncating FK-related tables together (or using CASCADE),
+    so truncating one-by-one can fail even with reverse ordering.
+    """
+    if not tables:
+        return
     with conn.cursor() as cur:
-        stmt = sql.SQL("TRUNCATE TABLE {}").format(sql.Identifier(table))
+        stmt = sql.SQL("TRUNCATE TABLE {}").format(
+            sql.SQL(", ").join(sql.Identifier(t) for t in tables)
+        )
         if dry_run:
             log.info("[DRY_RUN] Would run: %s", stmt.as_string(cur))
             return
@@ -354,12 +375,8 @@ def run_sync() -> None:
         tables = get_public_tables_in_dependency_order(local_conn)
         log.info("Tables to consider (in COPY order): %s", tables)
 
-        # Truncation order on production: reverse of COPY order (children first)
-        truncate_order = list(reversed(tables))
-
         if not SAFE_MODE and not DRY_RUN:
-            for table in truncate_order:
-                truncate_table(prod_conn, table, dry_run=DRY_RUN)
+            truncate_tables(prod_conn, tables, dry_run=DRY_RUN)
             prod_conn.commit()
             log.info("Truncated all data tables on production (SAFE_MODE=False)")
 

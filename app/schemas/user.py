@@ -158,6 +158,26 @@ class ForgotPasswordConfirm(BaseModel):
             raise ValueError(ValidationMessages.PASSWORD_SPECIAL)
         return v
 
+class SetPasswordRequest(BaseModel):
+    """Request schema for setting initial password (for agents without password)."""
+    password: str = Field(..., min_length=8)
+    previous_password: Optional[str] = Field(None, description="Required only if user already has a password")
+
+    @field_validator("password")
+    @classmethod
+    def validate_password(cls, v: str) -> str:
+        if len(v) < 8:
+            raise ValueError(ValidationMessages.PASSWORD_MIN_LENGTH)
+        if not any(c.isupper() for c in v):
+            raise ValueError(ValidationMessages.PASSWORD_UPPERCASE)
+        if not any(c.islower() for c in v):
+            raise ValueError(ValidationMessages.PASSWORD_LOWERCASE)
+        if not any(c.isdigit() for c in v):
+            raise ValueError(ValidationMessages.PASSWORD_NUMBER)
+        if not any(c in "!@#$%^&*()-_=+[]{}|;:,.<>?" for c in v):
+            raise ValueError(ValidationMessages.PASSWORD_SPECIAL)
+        return v
+
 class AgentInviteRequest(BaseModel):
     email: EmailStr
 
@@ -176,9 +196,27 @@ class AgentRegister(BaseModel):
 
 
 class AdminAgentAssignmentRequest(BaseModel):
-    admin_id: uuid.UUID
+    """Request to assign an agent to the current authenticated admin."""
     agent_id: uuid.UUID
     can_inherit_privileges: bool = True
+
+
+class AdminAgentAssignmentResponse(BaseModel):
+    """Response model for admin-agent assignment details."""
+    id: uuid.UUID
+    admin_id: uuid.UUID
+    admin_email: str
+    admin_name: str
+    agent_id: uuid.UUID
+    agent_email: str
+    agent_name: str
+    is_active: bool
+    can_inherit_privileges: bool
+    assigned_at: datetime
+    revoked_at: Optional[datetime] = None
+    status: str  # "ACTIVE ✓" or "INACTIVE/REVOKED ✗"
+
+    model_config = {"from_attributes": True}
 
 
 # --- Agent Onboarding Schemas ---

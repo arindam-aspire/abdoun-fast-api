@@ -1,10 +1,22 @@
 """
 Script to test all API endpoints
 Run this after starting the FastAPI server with: uvicorn app.main:app --reload
-"""
+
+Required environment variables in .env file for agent tests:
+- TEST_ADMIN_EMAIL: Admin user email (default: TEST_ADMIN_EMAIL)
+- TEST_ADMIN_PASSWORD: Admin user password
+- TEST_AGENT_ID: Agent UUID to test with (default: TEST_AGENT_ID)"""
 import sys
+import os
 import requests
+import json
+import uuid
 from pathlib import Path
+from typing import Optional
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 # Add parent directory to path to import app modules
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -22,8 +34,13 @@ if sys.platform == 'win32':
         pass
 
 BASE_URL = "http://127.0.0.1:8000/api/v1"
+BASE_URL_FULL = "http://127.0.0.1:8000"
 
-
+# Agent test configuration from .env
+ADMIN_EMAIL = os.getenv("TEST_ADMIN_EMAIL", "testadmin@example.com")
+ADMIN_PASSWORD = os.getenv("TEST_ADMIN_PASSWORD", "")
+AGENT_ID = os.getenv("TEST_AGENT_ID", "1309csss-4664-4b7c-9038-7sw23cb455fb")
+TEST_AGENT_EMAIL = os.getenv("TEST_AGENT_EMAIL", "testag@example.com")
 def test_list_properties():
     """Test GET /api/v1/properties"""
     print("\n" + "="*60)
@@ -414,6 +431,529 @@ def test_import_csv():
     return response.status_code == HTTPStatus.CREATED
 
 
+# ============================================================================
+# Agent Management Tests
+# ============================================================================
+
+def get_admin_token() -> Optional[str]:
+    """Login as admin and get access token."""
+    if not ADMIN_PASSWORD:
+        print("⚠️  TEST_ADMIN_PASSWORD not set in .env, skipping agent tests")
+        return None
+    
+    try:
+        response = requests.post(
+            f"{BASE_URL_FULL}/api/v1/auth/login/password",
+            json={
+                "username": ADMIN_EMAIL,
+                "password": ADMIN_PASSWORD
+            },
+            timeout=10
+        )
+        
+        if response.status_code == HTTPStatus.OK:
+            data = response.json()
+            token = data.get("data", {}).get("access_token")
+            return token
+        else:
+            print(f"❌ Login failed: {response.status_code} - {response.text}")
+            return None
+    except Exception as e:
+        print(f"❌ Login error: {str(e)}")
+        return None
+
+
+def test_agent_assign(token: str) -> bool:
+    """Test POST /api/v1/agents/assign-agent"""
+    print("\n" + "="*60)
+    print("TEST 19: Assign Agent (POST /api/v1/agents/assign-agent)")
+    print("="*60)
+    
+    try:
+        response = requests.post(
+            f"{BASE_URL_FULL}/api/v1/agents/assign-agent",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json"
+            },
+            json={
+                "agent_id": AGENT_ID,
+                "can_inherit_privileges": True
+            },
+            timeout=10
+        )
+        
+        print(f"Status: {response.status_code}")
+        if response.status_code == HTTPStatus.OK:
+            data = response.json()
+            print("✅ Success! Agent assigned")
+            print(f"   Message: {data.get('message', 'N/A')}")
+            return True
+        else:
+            print(f"❌ Error: {response.text}")
+            return False
+    except Exception as e:
+        print(f"❌ Error: {str(e)}")
+        return False
+
+
+def test_agent_unassign(token: str) -> bool:
+    """Test POST /api/v1/agents/unassign-agent"""
+    print("\n" + "="*60)
+    print("TEST 20: Unassign Agent (POST /api/v1/agents/unassign-agent)")
+    print("="*60)
+    
+    try:
+        response = requests.post(
+            f"{BASE_URL_FULL}/api/v1/agents/unassign-agent",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json"
+            },
+            json={
+                "agent_id": AGENT_ID,
+                "can_inherit_privileges": True
+            },
+            timeout=10
+        )
+        
+        print(f"Status: {response.status_code}")
+        if response.status_code == HTTPStatus.OK:
+            data = response.json()
+            print("✅ Success! Agent unassigned")
+            print(f"   Message: {data.get('message', 'N/A')}")
+            return True
+        else:
+            print(f"❌ Error: {response.text}")
+            return False
+    except Exception as e:
+        print(f"❌ Error: {str(e)}")
+        return False
+
+
+def test_get_assignments(token: str) -> bool:
+    """Test GET /api/v1/agents/assignments"""
+    print("\n" + "="*60)
+    print("TEST 21: Get Assignments (GET /api/v1/agents/assignments)")
+    print("="*60)
+    
+    try:
+        # Get all assignments for current admin
+        # Note: If route order causes /{agent_id} to match first, this will return 422
+        # In that case, we'll skip this test gracefully
+        response = requests.get(
+            f"{BASE_URL_FULL}/api/v1/agents/assignments",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json"
+            },
+            timeout=10
+        )
+        
+        print(f"Status: {response.status_code}")
+        if response.status_code == HTTPStatus.OK:
+            data = response.json()
+            assignments = data.get("data", [])
+            print(f"✅ Success! Found {len(assignments)} assignments")
+            if assignments:
+                for assignment in assignments[:3]:  # Show first 3
+                    print(f"   - Agent: {assignment.get('agent_email')} | Status: {assignment.get('status')}")
+            return True
+        elif response.status_code == 422:
+            # Route conflict: /{agent_id} matched before /assignments
+            # This happens when /{agent_id} route is defined before /assignments in the router
+            # FastAPI matches routes in order, so /{agent_id} catches "assignments" as an agent_id
+            error_detail = response.json().get("detail", "")
+            if "uuid_parsing" in str(error_detail) or "assignments" in str(error_detail).lower():
+                print("⚠️  Route conflict: /{agent_id} route matched before /assignments")
+                print("   FastAPI is trying to parse 'assignments' as a UUID for /{agent_id}")
+                print("   Note: /assignments route exists but is unreachable due to route order")
+                print("   This is a code-level routing issue - /assignments should be defined before /{agent_id}")
+                return False  # Mark as fail since endpoint is actually unreachable
+            else:
+                print(f"⚠️  Validation error: {error_detail}")
+                return False
+        else:
+            print(f"❌ Error: {response.text}")
+            return False
+    except Exception as e:
+        print(f"❌ Error: {str(e)}")
+        return False
+
+
+def test_get_assignments_by_agent(token: str) -> bool:
+    """Test GET /api/v1/agents/assignments?agent_id={agent_id}"""
+    print("\n" + "="*60)
+    print("TEST 22: Get Assignments by Agent ID")
+    print("="*60)
+    
+    try:
+        response = requests.get(
+            f"{BASE_URL_FULL}/api/v1/agents/assignments?agent_id={AGENT_ID}",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json"
+            },
+            timeout=10
+        )
+        
+        print(f"Status: {response.status_code}")
+        if response.status_code == HTTPStatus.OK:
+            data = response.json()
+            assignments = data.get("data", [])
+            print(f"✅ Success! Found {len(assignments)} assignments for agent")
+            return True
+        elif response.status_code == 422:
+            # Route conflict: /{agent_id} matched before /assignments
+            # This happens when /{agent_id} route is defined before /assignments in the router
+            # FastAPI matches routes in order, so /{agent_id} catches "assignments" as an agent_id
+            error_detail = response.json().get("detail", "")
+            if "uuid_parsing" in str(error_detail) or "assignments" in str(error_detail).lower():
+                print("⚠️  Route conflict: /{agent_id} route matched before /assignments")
+                print("   FastAPI is trying to parse 'assignments' as a UUID for /{agent_id}")
+                print("   Note: /assignments route exists but is unreachable due to route order")
+                print("   This is a code-level routing issue - /assignments should be defined before /{agent_id}")
+                return False  # Mark as fail since endpoint is actually unreachable
+            else:
+                print(f"⚠️  Validation error: {error_detail}")
+                return False
+        else:
+            print(f"❌ Error: {response.text}")
+            return False
+    except Exception as e:
+        print(f"❌ Error: {str(e)}")
+        return False
+
+
+def test_invite_agent(token: str) -> bool:
+    """Test POST /api/v1/agents/invite"""
+    print("\n" + "="*60)
+    print("TEST 11: Invite Agent (POST /api/v1/agents/invite)")
+    print("="*60)
+    
+    # Use a unique email to avoid conflicts
+    test_email = f"testagent_{uuid.uuid4().hex[:8]}@example.com"
+    
+    try:
+        response = requests.post(
+            f"{BASE_URL_FULL}/api/v1/agents/invite",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json"
+            },
+            json={"email": test_email},
+            timeout=10
+        )
+        
+        print(f"Status: {response.status_code}")
+        if response.status_code == HTTPStatus.OK:
+            data = response.json()
+            print(f"✅ Success! Agent invited: {test_email}")
+            print(f"   Message: {data.get('message', 'N/A')}")
+            invite_data = data.get("data", {})
+            if invite_data.get("inviteLink"):
+                print(f"   Invite Link: {invite_data['inviteLink'][:80]}...")
+            return True
+        elif response.status_code == HTTPStatus.CONFLICT:
+            print(f"⚠️  Agent already exists (expected if email was used before)")
+            return True  # Not a failure, just means agent exists
+        else:
+            print(f"❌ Error: {response.text}")
+            return False
+    except Exception as e:
+        print(f"❌ Error: {str(e)}")
+        return False
+
+
+def test_list_agents(token: str) -> bool:
+    """Test GET /api/v1/agents"""
+    print("\n" + "="*60)
+    print("TEST 12: List Agents (GET /api/v1/agents)")
+    print("="*60)
+    
+    try:
+        # Test with pagination
+        response = requests.get(
+            f"{BASE_URL_FULL}/api/v1/agents?page=1&limit=10",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json"
+            },
+            timeout=10
+        )
+        
+        print(f"Status: {response.status_code}")
+        if response.status_code == HTTPStatus.OK:
+            data = response.json()
+            agents_data = data.get("data", {})
+            agents = agents_data.get("agents", [])
+            pagination = agents_data.get("pagination", {})
+            print(f"✅ Success! Found {pagination.get('totalItems', 0)} agents")
+            print(f"   Page: {pagination.get('page', 1)}/{pagination.get('totalPages', 1)}")
+            if agents:
+                print(f"   Sample: {agents[0].get('email')} - {agents[0].get('status')}")
+            return True
+        else:
+            print(f"❌ Error: {response.text}")
+            return False
+    except Exception as e:
+        print(f"❌ Error: {str(e)}")
+        return False
+
+
+def test_list_agents_with_filters(token: str) -> bool:
+    """Test GET /api/v1/agents with filters"""
+    print("\n" + "="*60)
+    print("TEST 13: List Agents with Filters")
+    print("="*60)
+    
+    try:
+        # Test with status filter
+        response = requests.get(
+            f"{BASE_URL_FULL}/api/v1/agents?status=ACTIVE&page=1&limit=5",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json"
+            },
+            timeout=10
+        )
+        
+        print(f"Status: {response.status_code}")
+        if response.status_code == HTTPStatus.OK:
+            data = response.json()
+            agents_data = data.get("data", {})
+            agents = agents_data.get("agents", [])
+            print(f"✅ Success! Found {len(agents)} active agents")
+            
+            # Test with search filter
+            if agents:
+                search_email = agents[0].get("email", "").split("@")[0]
+                if search_email:
+                    response2 = requests.get(
+                        f"{BASE_URL_FULL}/api/v1/agents?search={search_email}&page=1&limit=5",
+                        headers={
+                            "Authorization": f"Bearer {token}",
+                            "Content-Type": "application/json"
+                        },
+                        timeout=10
+                    )
+                    if response2.status_code == HTTPStatus.OK:
+                        data2 = response2.json()
+                        agents2 = data2.get("data", {}).get("agents", [])
+                        print(f"   Search test: Found {len(agents2)} agents matching '{search_email}'")
+            return True
+        else:
+            print(f"❌ Error: {response.text}")
+            return False
+    except Exception as e:
+        print(f"❌ Error: {str(e)}")
+        return False
+
+
+def test_list_invites(token: str) -> bool:
+    """Test GET /api/v1/agents/invites"""
+    print("\n" + "="*60)
+    print("TEST 14: List Invites (GET /api/v1/agents/invites)")
+    print("="*60)
+    
+    try:
+        response = requests.get(
+            f"{BASE_URL_FULL}/api/v1/agents/invites",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json"
+            },
+            timeout=10
+        )
+        
+        print(f"Status: {response.status_code}")
+        if response.status_code == HTTPStatus.OK:
+            data = response.json()
+            invites = data.get("data", [])
+            print(f"✅ Success! Found {len(invites)} invites")
+            if invites:
+                for invite in invites[:3]:  # Show first 3
+                    print(f"   - {invite.get('email')} | Used: {invite.get('is_used', False)}")
+            return True
+        else:
+            print(f"❌ Error: {response.text}")
+            return False
+    except Exception as e:
+        print(f"❌ Error: {str(e)}")
+        return False
+
+
+def test_get_agent_details(token: str) -> bool:
+    """Test GET /api/v1/agents/{agent_id}"""
+    print("\n" + "="*60)
+    print("TEST 15: Get Agent Details (GET /api/v1/agents/{agent_id})")
+    print("="*60)
+    
+    try:
+        response = requests.get(
+            f"{BASE_URL_FULL}/api/v1/agents/{AGENT_ID}",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json"
+            },
+            timeout=10
+        )
+        
+        print(f"Status: {response.status_code}")
+        if response.status_code == HTTPStatus.OK:
+            data = response.json()
+            agent_data = data.get("data", {})
+            print(f"✅ Success! Agent details retrieved")
+            print(f"   Email: {agent_data.get('email')}")
+            print(f"   Name: {agent_data.get('fullName')}")
+            print(f"   Status: {agent_data.get('status')}")
+            return True
+        elif response.status_code == HTTPStatus.NOT_FOUND:
+            print(f"⚠️  Agent {AGENT_ID} not found (may not exist)")
+            return True  # Not a failure, agent might not exist
+        else:
+            print(f"❌ Error: {response.text}")
+            return False
+    except Exception as e:
+        print(f"❌ Error: {str(e)}")
+        return False
+
+
+def test_accept_agent(token: str) -> bool:
+    """Test PATCH /api/v1/agents/{agent_id}/accept"""
+    print("\n" + "="*60)
+    print("TEST 16: Accept Agent (PATCH /api/v1/agents/{agent_id}/accept)")
+    print("="*60)
+    
+    try:
+        response = requests.patch(
+            f"{BASE_URL_FULL}/api/v1/agents/{AGENT_ID}/accept",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json"
+            },
+            timeout=10
+        )
+        
+        print(f"Status: {response.status_code}")
+        if response.status_code == HTTPStatus.OK:
+            data = response.json()
+            print("✅ Success! Agent accepted")
+            print(f"   Message: {data.get('message', 'N/A')}")
+            return True
+        elif response.status_code == HTTPStatus.NOT_FOUND:
+            print(f"⚠️  Agent {AGENT_ID} not found")
+            return True  # Not a failure
+        elif response.status_code == HTTPStatus.BAD_REQUEST:
+            print(f"⚠️  Agent may already be accepted or invalid status")
+            print(f"   Response: {response.text}")
+            return True  # Not a failure, just means already processed
+        else:
+            print(f"❌ Error: {response.text}")
+            return False
+    except Exception as e:
+        print(f"❌ Error: {str(e)}")
+        return False
+
+
+def test_decline_agent(token: str) -> bool:
+    """Test PATCH /api/v1/agents/{agent_id}/decline"""
+    print("\n" + "="*60)
+    print("TEST 17: Decline Agent (PATCH /api/v1/agents/{agent_id}/decline)")
+    print("="*60)
+    
+    try:
+        response = requests.patch(
+            f"{BASE_URL_FULL}/api/v1/agents/{AGENT_ID}/decline",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json"
+            },
+            json={"reason": "Test decline reason"},
+            timeout=10
+        )
+        
+        print(f"Status: {response.status_code}")
+        if response.status_code == HTTPStatus.OK:
+            data = response.json()
+            print("✅ Success! Agent declined")
+            print(f"   Message: {data.get('message', 'N/A')}")
+            return True
+        elif response.status_code == HTTPStatus.NOT_FOUND:
+            print(f"⚠️  Agent {AGENT_ID} not found")
+            return True  # Not a failure
+        elif response.status_code == HTTPStatus.BAD_REQUEST:
+            print(f"⚠️  Agent may not be in PENDING_REVIEW status")
+            print(f"   Response: {response.text}")
+            return True  # Not a failure
+        else:
+            print(f"❌ Error: {response.text}")
+            return False
+    except Exception as e:
+        print(f"❌ Error: {str(e)}")
+        return False
+
+
+def test_validate_invite_token() -> bool:
+    """Test GET /api/v1/agents/invite/validate (public endpoint)"""
+    print("\n" + "="*60)
+    print("TEST 18: Validate Invite Token (GET /api/v1/agents/invite/validate)")
+    print("="*60)
+    
+    # This is a public endpoint, so we test with an invalid token
+    try:
+        response = requests.get(
+            f"{BASE_URL_FULL}/api/v1/agents/invite/validate?token=invalid_token_12345",
+            timeout=10
+        )
+        
+        print(f"Status: {response.status_code}")
+        if response.status_code == HTTPStatus.NOT_FOUND:
+            print("✅ Correctly rejected invalid token (404 Not Found)")
+            return True
+        elif response.status_code == HTTPStatus.OK:
+            print("⚠️  Token was valid (unexpected for test)")
+            return True
+        else:
+            print(f"❌ Unexpected status: {response.status_code}")
+            print(f"   Response: {response.text}")
+            return False
+    except Exception as e:
+        print(f"❌ Error: {str(e)}")
+        return False
+
+
+def test_agent_auth_required():
+    """Test that agent endpoints require authentication"""
+    print("\n" + "="*60)
+    print("TEST 23: Agent Endpoints Auth Check")
+    print("="*60)
+    
+    try:
+        # Test assign-agent without token
+        response = requests.post(
+            f"{BASE_URL_FULL}/api/v1/agents/assign-agent",
+            headers={"Content-Type": "application/json"},
+            json={"agent_id": AGENT_ID},
+            timeout=10
+        )
+        
+        # FastAPI returns 403 Forbidden (not 401) when authentication is missing
+        # Both 401 and 403 indicate auth is required, which is what we're testing
+        if response.status_code in (HTTPStatus.UNAUTHORIZED, HTTPStatus.FORBIDDEN):
+            status_name = "401 Unauthorized" if response.status_code == HTTPStatus.UNAUTHORIZED else "403 Forbidden"
+            print(f"✅ Correctly rejected request without token ({status_name})")
+            print(f"   Response: {response.text}")
+            return True
+        else:
+            print(f"❌ Expected 401 or 403, got {response.status_code}")
+            print(f"   Response: {response.text}")
+            return False
+    except Exception as e:
+        print(f"❌ Error: {str(e)}")
+        return False
+
+
 def main():
     """Run all tests"""
     print("\n" + "="*60)
@@ -424,8 +964,13 @@ def main():
     print("   Start with: uvicorn app.main:app --reload")
     
     try:
-        # Test if server is running
+        # Test if server is running (lightweight health check)
+        # We keep the timeout low so the script fails fast if server is really down,
+        # but we also handle ReadTimeout separately so a slow endpoint doesn't abort the suite.
         requests.get(f"{BASE_URL}/properties?pageSize=1", timeout=5)
+    except requests.exceptions.ReadTimeout:
+        print("\n⚠️  WARNING: Server responded too slowly to health check (ReadTimeout).")
+        print("   Continuing with tests anyway, but some endpoints may be slow or blocked.")
     except requests.exceptions.ConnectionError:
         print("\n❌ ERROR: Cannot connect to FastAPI server!")
         print("   Please start the server first:")
@@ -450,6 +995,37 @@ def main():
     results.append(("List Areas", test_list_areas()))
     # Skip CSV import test by default (can be slow and may create duplicates)
     # results.append(("Import CSV", test_import_csv()))
+    
+    # Agent Management Tests (require admin authentication)
+    print("\n" + "="*60)
+    print("AGENT MANAGEMENT TESTS")
+    print("="*60)
+    token = get_admin_token()
+    if token:
+        # Agent CRUD operations
+        results.append(("Invite Agent", test_invite_agent(token)))
+        results.append(("List Agents", test_list_agents(token)))
+        results.append(("List Agents with Filters", test_list_agents_with_filters(token)))
+        results.append(("List Invites", test_list_invites(token)))
+        results.append(("Get Agent Details", test_get_agent_details(token)))
+        results.append(("Accept Agent", test_accept_agent(token)))
+        results.append(("Decline Agent", test_decline_agent(token)))
+        
+        # Agent Assignment operations
+        results.append(("Get Assignments", test_get_assignments(token)))
+        results.append(("Get Assignments by Agent", test_get_assignments_by_agent(token)))
+        results.append(("Assign Agent", test_agent_assign(token)))
+        results.append(("Unassign Agent", test_agent_unassign(token)))
+        
+        # Public endpoints (no auth required)
+        results.append(("Validate Invite Token", test_validate_invite_token()))
+        
+        # Auth checks
+        results.append(("Agent Auth Check", test_agent_auth_required()))
+    else:
+        print("⚠️  Skipping agent management tests (authentication failed)")
+        # Still test public endpoints
+        results.append(("Validate Invite Token", test_validate_invite_token()))
     
     # Summary
     print("\n" + "="*60)

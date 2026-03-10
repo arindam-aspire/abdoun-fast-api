@@ -87,6 +87,10 @@ class Settings(BaseModel):
     cognito_region: str = _get_env_str("COGNITO_REGION", default="us-east-1")
     cognito_domain: str = _get_env_str("COGNITO_DOMAIN")
     social_redirect_uri: str = os.getenv("SOCIAL_REDIRECT_URI", "http://localhost:8000/api/v1/auth/callback")
+    
+    # AWS Credentials (optional - boto3 will also check environment variables and ~/.aws/credentials)
+    aws_access_key_id: Optional[str] = _get_env_optional_str("AWS_ACCESS_KEY_ID")
+    aws_secret_access_key: Optional[str] = _get_env_optional_str("AWS_SECRET_ACCESS_KEY")
 
     # Base URL for invite links (e.g. https://app.example.com)
     app_base_url: str = _get_env_str("APP_BASE_URL", default="http://localhost:3000")

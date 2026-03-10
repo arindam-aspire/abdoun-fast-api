@@ -835,6 +835,144 @@ python scripts/update_exclusive_properties.py --dry-run
 python scripts/update_exclusive_properties.py
 ```
 
+
+## Step 1: Get Admin User's Cognito Access Token
+
+### Option A: Login via Password (if admin has password)
+
+**Endpoint:** `POST /api/v1/auth/login/password`
+
+**Request:**
+```json
+{
+  "username": "admin@example.com",
+  "password": "AdminPassword123!"
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "access_token": "eyJraWQiOi...",
+    "refresh_token": "...",
+    "id_token": "...",
+    "expires_in": 3600
+  },
+  "message": "Login successful"
+}
+```
+
+**Copy the `access_token` value** - you'll need it for subsequent requests.
+
+### Option B: Login via OTP (if admin uses OTP)
+
+1. **Request OTP:** `POST /api/v1/auth/login/otp/request`
+   ```json
+   {
+     "username": "admin@example.com"
+   }
+   ```
+
+2. **Verify OTP:** `POST /api/v1/auth/login/otp/verify`
+   ```json
+   {
+     "username": "admin@example.com",
+     "session": "session-from-step-1",
+     "code": "123456"
+   }
+   ```
+
+3. **Copy the `access_token` from the response**
+
+---
+
+## Step 2: Test Agent Assignment Endpoint
+
+### Endpoint: `POST /api/v1/agents/assign-agent`
+
+**Headers:**
+```
+Authorization: Bearer <access_token_from_step_1>
+Content-Type: application/json
+```
+
+**Request Body:**
+```json
+{
+  "agent_id": "1309c768-4664-4b7c-9038-b9668ca033fb",
+  "can_inherit_privileges": true
+}
+```
+
+**Note:** The `admin_id` is automatically extracted from the authenticated user's JWT token. You don't need to (and cannot) specify it in the request body. This ensures admins can only assign agents to themselves, not to other admins.
+
+**Expected Success Response (200 OK):**
+```json
+{
+  "success": true,
+  "data": true,
+  "message": "Agent assigned successfully"
+}
+```
+
+**Expected Error Responses:**
+
+1. **401 Unauthorized** - Missing or invalid token:
+   ```json
+   {
+     "detail": "Invalid or expired token"
+   }
+   ```
+
+2. **403 Forbidden** - User doesn't have admin role:
+   ```json
+   {
+     "detail": "Missing required role: admin"
+   }
+   ```
+
+3. **404 Not Found** - Agent not found:
+   ```json
+   {
+     "detail": "User not found"
+   }
+   ```
+
+4. **400 Bad Request** - Self-assignment attempt:
+   ```json
+   {
+     "detail": "An admin cannot assign themselves as an agent"
+   }
+   ```
+
+ after this endpoint 
+ http://localhost:8000/api/v1/agents/assign-agent
+
+-- Verify the specific assignment you just made
+SELECT 
+    aaa.id AS assignment_id,
+    aaa.admin_id,
+    admin_user.email AS admin_email,
+    admin_user.full_name AS admin_name,
+    aaa.agent_id,
+    agent_user.email AS agent_email,
+    agent_user.full_name AS agent_name,
+    aaa.is_active,
+    aaa.can_inherit_privileges,
+    aaa.assigned_at,
+    aaa.revoked_at,
+    CASE 
+        WHEN aaa.is_active = true AND aaa.revoked_at IS NULL THEN 'ACTIVE ✓'
+        ELSE 'INACTIVE/REVOKED ✗'
+    END AS status
+FROM admin_agent_assignments aaa
+LEFT JOIN users admin_user ON aaa.admin_id = admin_user.id
+LEFT JOIN users agent_user ON aaa.agent_id = agent_user.id
+WHERE aaa.agent_id = 'agent_id'
+ORDER BY aaa.assigned_at DESC;
+
 The script analyzes all properties and marks them as exclusive based on the approved criteria. It can be run multiple times safely.
 
 ## License

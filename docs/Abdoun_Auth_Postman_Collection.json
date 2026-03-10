@@ -232,8 +232,41 @@
         {
           "name": "Invite Agent",
           "request": {
-            "method": "GET",
-            "header": []
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "eyJraWQiOiJSdEMyWUdwMm5ONWFhOVI1RVQrNGRqVlJzQjA2N2k2aUJKVlUxRkJhU1BFPSIsImFsZyI6IlJTMjU2In0.eyJzdWIiOiJiMWQwODU3MC00MGQxLTcwNzYtYTFiMi0wY2FjMTUyOTYyZmIiLCJpc3MiOiJodHRwczpcL1wvY29nbml0by1pZHAubWUtc291dGgtMS5hbWF6b25hd3MuY29tXC9tZS1zb3V0aC0xX3J2eTNQUjZZcSIsImNsaWVudF9pZCI6IjczNjk2YjZkNzUzcHRwcHAwMmJuY3B0NTRsIiwib3JpZ2luX2p0aSI6IjJhMjdhNjFiLTYzODYtNGY2Yy1hZDE1LTVkNTcxMmE0ZTNjMSIsImV2ZW50X2lkIjoiNmZmNTlkNzQtNjI0Zi00ZmZmLThkNzEtNzg5OWMzYWI4ZmFjIiwidG9rZW5fdXNlIjoiYWNjZXNzIiwic2NvcGUiOiJhd3MuY29nbml0by5zaWduaW4udXNlci5hZG1pbiIsImF1dGhfdGltZSI6MTc3MzEyMzI2NywiZXhwIjoxNzczMTI2ODY3LCJpYXQiOjE3NzMxMjMyNjcsImp0aSI6Ijc5MGNmOGZlLTA1NWEtNDNmMC1iZWJlLWQ2YTQ0MjcxZTc2ZiIsInVzZXJuYW1lIjoiYjFkMDg1NzAtNDBkMS03MDc2LWExYjItMGNhYzE1Mjk2MmZiIn0.r9MOI7ZrycNOCGhlxU4j-I25q979K28-1d7Z_uJBC2uze0uDkyJ0CBkvdnwqjRH5M-3mGqJz4HzZWQ0687BCRAFFysGVE-mtyjXADgUflQguDsemwwYyJH6y6wWmqcUY2cA99-Mc0VeHQd-8HYpgXcIq0-IOhXbISIiQQgXZYvqiMs2BasU7qeRVZdeXbY7fDR5xvoKoaU8L9aS-v-nkjL7jnQbYJwVMtfjSQw3gUQx12hjn2TUILRfY5psNM7-VTTJ4BoC5-O0RYJQCrgCRKFDreO0Y-ubPwWOasm7bHa3U96GLdvdQsSpDEbvT-xjmWjrX50D5RM9ruC18YALLhg",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\r\n  \"email\": \"decline@yopmail.com\"\r\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "http://localhost:8000/api/v1/agents/invite",
+              "protocol": "http",
+              "host": [
+                "localhost"
+              ],
+              "port": "8000",
+              "path": [
+                "api",
+                "v1",
+                "agents",
+                "invite"
+              ]
+            }
           },
           "response": [
             {
@@ -271,7 +304,7 @@
               "header": [
                 {
                   "key": "date",
-                  "value": "Fri, 06 Mar 2026 04:18:01 GMT"
+                  "value": "Mon, 09 Mar 2026 10:38:04 GMT"
                 },
                 {
                   "key": "server",
@@ -279,7 +312,7 @@
                 },
                 {
                   "key": "content-length",
-                  "value": "375"
+                  "value": "370"
                 },
                 {
                   "key": "content-type",
@@ -287,7 +320,7 @@
                 }
               ],
               "cookie": [],
-              "body": "{\n    \"success\": true,\n    \"data\": {\n        \"id\": \"25ca810b-db8b-454e-9ef4-cb5a6ad6d819\",\n        \"email\": \"agent@email.com\",\n        \"status\": \"INVITED\",\n        \"inviteLink\": \"http://localhost:3000/en/agent-invite?token=5FeY5E800YDftFgkOCx_0WWdP7xQX9x0oSS6X7Y7-tU\",\n        \"invitedAt\": \"2026-03-06T09:48:01.997709+05:30\",\n        \"invitedBy\": \"00000000-0000-0000-0000-000000000001\"\n    },\n    \"message\": \"Invitation sent to agent@email.com\",\n    \"error\": null\n}"
+              "body": "{\n    \"success\": true,\n    \"data\": {\n        \"id\": \"1309c768-4664-4b7c-9038-b9668ca033fb\",\n        \"email\": \"agent@email.com\",\n        \"status\": \"INVITED\",\n        \"inviteLink\": \"http://localhost:3000/en/agent-invite?token=Bf2kWNbU-Z5ziUPwp3IyINdSFA9P_wJm14bqh-E6_Uc\",\n        \"invitedAt\": \"2026-03-09T16:08:11.259694Z\",\n        \"invitedBy\": \"28a1f4eb-dd80-4bdb-9d7a-349453699f56\"\n    },\n    \"message\": \"Invitation sent to agent@email.com\",\n    \"error\": null\n}"
             }
           ]
         },
@@ -295,60 +328,30 @@
           "name": "Validate Invite Token",
           "request": {
             "method": "GET",
-            "header": []
+            "header": [],
+            "url": {
+              "raw": "http://localhost:8000/api/v1/agents/invite/validate?token=Bf2kWNbU-Z5ziUPwp3IyINdSFA9P_wJm14bqh-E6_Uc",
+              "protocol": "http",
+              "host": [
+                "localhost"
+              ],
+              "port": "8000",
+              "path": [
+                "api",
+                "v1",
+                "agents",
+                "invite",
+                "validate"
+              ],
+              "query": [
+                {
+                  "key": "token",
+                  "value": "Bf2kWNbU-Z5ziUPwp3IyINdSFA9P_wJm14bqh-E6_Uc"
+                }
+              ]
+            }
           },
           "response": [
-            {
-              "name": "Validate Invite Token",
-              "originalRequest": {
-                "method": "GET",
-                "header": [],
-                "url": {
-                  "raw": "http://localhost:8000/api/v1/agents/invite/validate?token=5FeY5E800YDftFgkOCx_0WWdP7xQX9x0oSS6X7Y7-tU",
-                  "protocol": "http",
-                  "host": [
-                    "localhost"
-                  ],
-                  "port": "8000",
-                  "path": [
-                    "api",
-                    "v1",
-                    "agents",
-                    "invite",
-                    "validate"
-                  ],
-                  "query": [
-                    {
-                      "key": "token",
-                      "value": "5FeY5E800YDftFgkOCx_0WWdP7xQX9x0oSS6X7Y7-tU"
-                    }
-                  ]
-                }
-              },
-              "status": "OK",
-              "code": 200,
-              "_postman_previewlanguage": null,
-              "header": [
-                {
-                  "key": "date",
-                  "value": "Fri, 06 Mar 2026 04:34:28 GMT"
-                },
-                {
-                  "key": "server",
-                  "value": "uvicorn"
-                },
-                {
-                  "key": "content-length",
-                  "value": "123"
-                },
-                {
-                  "key": "content-type",
-                  "value": "application/json"
-                }
-              ],
-              "cookie": [],
-              "body": "{\n    \"success\": true,\n    \"data\": {\n        \"email\": \"agent@email.com\",\n        \"status\": \"INVITED\",\n        \"alreadySubmitted\": false\n    },\n    \"message\": null,\n    \"error\": null\n}"
-            },
             {
               "name": "Validate Invite Token for active agent",
               "originalRequest": {
@@ -399,6 +402,57 @@
               ],
               "cookie": [],
               "body": "{\n    \"success\": true,\n    \"data\": {\n        \"email\": \"agent@email.com\",\n        \"status\": \"ACTIVE\",\n        \"alreadySubmitted\": true\n    },\n    \"message\": \"You have already submitted your application.\",\n    \"error\": null\n}"
+            },
+            {
+              "name": "Validate Invite Token",
+              "originalRequest": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "http://localhost:8000/api/v1/agents/invite/validate?token=Bf2kWNbU-Z5ziUPwp3IyINdSFA9P_wJm14bqh-E6_Uc",
+                  "protocol": "http",
+                  "host": [
+                    "localhost"
+                  ],
+                  "port": "8000",
+                  "path": [
+                    "api",
+                    "v1",
+                    "agents",
+                    "invite",
+                    "validate"
+                  ],
+                  "query": [
+                    {
+                      "key": "token",
+                      "value": "Bf2kWNbU-Z5ziUPwp3IyINdSFA9P_wJm14bqh-E6_Uc"
+                    }
+                  ]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": null,
+              "header": [
+                {
+                  "key": "date",
+                  "value": "Mon, 09 Mar 2026 10:39:46 GMT"
+                },
+                {
+                  "key": "server",
+                  "value": "uvicorn"
+                },
+                {
+                  "key": "content-length",
+                  "value": "123"
+                },
+                {
+                  "key": "content-type",
+                  "value": "application/json"
+                }
+              ],
+              "cookie": [],
+              "body": "{\n    \"success\": true,\n    \"data\": {\n        \"email\": \"agent@email.com\",\n        \"status\": \"INVITED\",\n        \"alreadySubmitted\": false\n    },\n    \"message\": null,\n    \"error\": null\n}"
             }
           ]
         },
@@ -409,7 +463,7 @@
             "header": [],
             "body": {
               "mode": "raw",
-              "raw": "// {\r\n//   \"fullName\": \"John Doe\",\r\n//   \"phone\": \"+14155552671\",\r\n//   \"serviceArea\": \"Dubai Marina\"\r\n// }\r\n\r\n{\r\n  \"fullName\": \"reject agent\",\r\n  \"phone\": \"8976534347\",\r\n  \"serviceArea\": \"Dubai Marina\"\r\n}",
+              "raw": "// {\r\n//   \"fullName\": \"John Doe\",\r\n//   \"phone\": \"+14155552671\",\r\n//   \"serviceArea\": \"Dubai Marina\"\r\n// }\r\n\r\n{\r\n  \"fullName\": \"delete agent\",\r\n  \"phone\": \"6276534012\",\r\n  \"serviceArea\": \"Dubai Marina\"\r\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -417,7 +471,7 @@
               }
             },
             "url": {
-              "raw": "http://localhost:8000/api/v1/agents/onboarding?token=YeIm9satHaz8pcHuc7xxvfxSnfcVoO0IyH-KjUpPXvI",
+              "raw": "http://localhost:8000/api/v1/agents/onboarding?token=8IgByxfMHvwmuF1USkjM6B5cRGWHfHtu6jIBDiaUJD0",
               "protocol": "http",
               "host": [
                 "localhost"
@@ -432,7 +486,7 @@
               "query": [
                 {
                   "key": "token",
-                  "value": "YeIm9satHaz8pcHuc7xxvfxSnfcVoO0IyH-KjUpPXvI"
+                  "value": "8IgByxfMHvwmuF1USkjM6B5cRGWHfHtu6jIBDiaUJD0"
                 }
               ]
             }
@@ -445,7 +499,7 @@
                 "header": [],
                 "body": {
                   "mode": "raw",
-                  "raw": "{\r\n  \"fullName\": \"John Doe\",\r\n  \"phone\": \"+14155552671\",\r\n  \"serviceArea\": \"Dubai Marina\"\r\n}",
+                  "raw": "// {\r\n//   \"fullName\": \"John Doe\",\r\n//   \"phone\": \"+14155552671\",\r\n//   \"serviceArea\": \"Dubai Marina\"\r\n// }\r\n\r\n{\r\n  \"fullName\": \"delete agent\",\r\n  \"phone\": \"6276534012\",\r\n  \"serviceArea\": \"Dubai Marina\"\r\n}",
                   "options": {
                     "raw": {
                       "language": "json"
@@ -453,7 +507,7 @@
                   }
                 },
                 "url": {
-                  "raw": "http://localhost:8000/api/v1/agents/onboarding?token=5FeY5E800YDftFgkOCx_0WWdP7xQX9x0oSS6X7Y7-tU",
+                  "raw": "http://localhost:8000/api/v1/agents/onboarding?token=8IgByxfMHvwmuF1USkjM6B5cRGWHfHtu6jIBDiaUJD0",
                   "protocol": "http",
                   "host": [
                     "localhost"
@@ -468,7 +522,7 @@
                   "query": [
                     {
                       "key": "token",
-                      "value": "5FeY5E800YDftFgkOCx_0WWdP7xQX9x0oSS6X7Y7-tU"
+                      "value": "8IgByxfMHvwmuF1USkjM6B5cRGWHfHtu6jIBDiaUJD0"
                     }
                   ]
                 }
@@ -479,7 +533,7 @@
               "header": [
                 {
                   "key": "date",
-                  "value": "Fri, 06 Mar 2026 04:44:58 GMT"
+                  "value": "Tue, 10 Mar 2026 06:38:40 GMT"
                 },
                 {
                   "key": "server",
@@ -487,7 +541,7 @@
                 },
                 {
                   "key": "content-length",
-                  "value": "212"
+                  "value": "210"
                 },
                 {
                   "key": "content-type",
@@ -495,76 +549,27 @@
                 }
               ],
               "cookie": [],
-              "body": "{\n    \"success\": true,\n    \"data\": {\n        \"email\": \"agent@email.com\",\n        \"status\": \"PENDING_REVIEW\",\n        \"formSubmittedAt\": \"2026-03-06T10:14:59.850238+05:30\"\n    },\n    \"message\": \"Your application has been submitted and is under review.\",\n    \"error\": null\n}"
-            },
-            {
-              "name": "Submit Agent Onboarding Form",
-              "originalRequest": {
-                "method": "POST",
-                "header": [],
-                "body": {
-                  "mode": "raw",
-                  "raw": "// {\r\n//   \"fullName\": \"John Doe\",\r\n//   \"phone\": \"+14155552671\",\r\n//   \"serviceArea\": \"Dubai Marina\"\r\n// }\r\n\r\n{\r\n  \"fullName\": \"decline agent\",\r\n  \"phone\": \"8976534567\",\r\n  \"serviceArea\": \"Dubai Marina\"\r\n}",
-                  "options": {
-                    "raw": {
-                      "language": "json"
-                    }
-                  }
-                },
-                "url": {
-                  "raw": "http://localhost:8000/api/v1/agents/onboarding?token=oRu9q6foNGkU47nmDmliTsw15exuEblAfjhxVJfESCs",
-                  "protocol": "http",
-                  "host": [
-                    "localhost"
-                  ],
-                  "port": "8000",
-                  "path": [
-                    "api",
-                    "v1",
-                    "agents",
-                    "onboarding"
-                  ],
-                  "query": [
-                    {
-                      "key": "token",
-                      "value": "oRu9q6foNGkU47nmDmliTsw15exuEblAfjhxVJfESCs"
-                    }
-                  ]
-                }
-              },
-              "status": "OK",
-              "code": 200,
-              "_postman_previewlanguage": null,
-              "header": [
-                {
-                  "key": "date",
-                  "value": "Fri, 06 Mar 2026 07:38:25 GMT"
-                },
-                {
-                  "key": "server",
-                  "value": "uvicorn"
-                },
-                {
-                  "key": "content-length",
-                  "value": "215"
-                },
-                {
-                  "key": "content-type",
-                  "value": "application/json"
-                }
-              ],
-              "cookie": [],
-              "body": "{\n    \"success\": true,\n    \"data\": {\n        \"email\": \"agent2@yopmail.com\",\n        \"status\": \"PENDING_REVIEW\",\n        \"formSubmittedAt\": \"2026-03-06T13:08:26.049583+05:30\"\n    },\n    \"message\": \"Your application has been submitted and is under review.\",\n    \"error\": null\n}"
+              "body": "{\n    \"success\": true,\n    \"data\": {\n        \"email\": \"delete@yopmail.com\",\n        \"status\": \"PENDING_REVIEW\",\n        \"formSubmittedAt\": \"2026-03-10T12:08:41.893126Z\"\n    },\n    \"message\": \"Your application has been submitted and is under review.\",\n    \"error\": null\n}"
             }
           ]
         },
         {
           "name": "Get Agent Details",
           "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "eyJraWQiOiJSdEMyWUdwMm5ONWFhOVI1RVQrNGRqVlJzQjA2N2k2aUJKVlUxRkJhU1BFPSIsImFsZyI6IlJTMjU2In0.eyJzdWIiOiJiMWQwODU3MC00MGQxLTcwNzYtYTFiMi0wY2FjMTUyOTYyZmIiLCJpc3MiOiJodHRwczpcL1wvY29nbml0by1pZHAubWUtc291dGgtMS5hbWF6b25hd3MuY29tXC9tZS1zb3V0aC0xX3J2eTNQUjZZcSIsImNsaWVudF9pZCI6IjczNjk2YjZkNzUzcHRwcHAwMmJuY3B0NTRsIiwib3JpZ2luX2p0aSI6IjM5ZTY5Y2M0LTkzNzYtNGU2Mi05YzBjLTlhMDk4YzFhNjZiYyIsImV2ZW50X2lkIjoiMTk0YWQ0ODEtOWZkZS00YWFmLWI3NjktYmYyN2FmNmUxYzgzIiwidG9rZW5fdXNlIjoiYWNjZXNzIiwic2NvcGUiOiJhd3MuY29nbml0by5zaWduaW4udXNlci5hZG1pbiIsImF1dGhfdGltZSI6MTc3MzA2MDIzNywiZXhwIjoxNzczMDYzODM3LCJpYXQiOjE3NzMwNjAyMzcsImp0aSI6ImI1NDQ1ZDJlLTRkNmQtNGY0ZC04NTQ4LTU3NjFhZGFiYmQ2YiIsInVzZXJuYW1lIjoiYjFkMDg1NzAtNDBkMS03MDc2LWExYjItMGNhYzE1Mjk2MmZiIn0.b3iSgzCLM3IGmBzJl2vb05ta_X4LUybMtEfJzOg2WsH8j13Z0Axp2qDl7QtZNlqU4vPNDynbmSGtCkTOM5NCYSEcfu2kSAabG24F0jpYq3vT2sNwZuQy6J3hf2pwzz4G9Eu6VOLPwBbFDY-08GgGKWm26E_bweNx6p-tPI-dCKBQYneQpIzuqN1BX-GokuwjR-w4BkUCPPaZNVGFT13SKcIoa4QQA398Y_-hLtr6nSxMIH0rnmu9KWbvJEqQGkd1PqNcK5P5udQ0B4w82MjsbxbuGWamwe5rp_83mPEFbQbk0fZrsneg_tgJyVUP8kX4DxcgaGGSyqmKPzNfGNx5uA",
+                  "type": "string"
+                }
+              ]
+            },
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "http://localhost:8000/api/v1/agents/25ca810b-db8b-454e-9ef4-cb5a6ad6d819",
+              "raw": "http://localhost:8000/api/v1/agents/1309c768-4664-4b7c-9038-b9668ca033fb",
               "protocol": "http",
               "host": [
                 "localhost"
@@ -574,7 +579,7 @@
                 "api",
                 "v1",
                 "agents",
-                "25ca810b-db8b-454e-9ef4-cb5a6ad6d819"
+                "1309c768-4664-4b7c-9038-b9668ca033fb"
               ]
             }
           },
@@ -585,7 +590,7 @@
                 "method": "GET",
                 "header": [],
                 "url": {
-                  "raw": "http://localhost:8000/api/v1/agents/25ca810b-db8b-454e-9ef4-cb5a6ad6d819",
+                  "raw": "http://localhost:8000/api/v1/agents/1309c768-4664-4b7c-9038-b9668ca033fb",
                   "protocol": "http",
                   "host": [
                     "localhost"
@@ -595,7 +600,7 @@
                     "api",
                     "v1",
                     "agents",
-                    "25ca810b-db8b-454e-9ef4-cb5a6ad6d819"
+                    "1309c768-4664-4b7c-9038-b9668ca033fb"
                   ]
                 }
               },
@@ -605,7 +610,7 @@
               "header": [
                 {
                   "key": "date",
-                  "value": "Fri, 06 Mar 2026 10:38:34 GMT"
+                  "value": "Mon, 09 Mar 2026 12:44:18 GMT"
                 },
                 {
                   "key": "server",
@@ -613,7 +618,7 @@
                 },
                 {
                   "key": "content-length",
-                  "value": "508"
+                  "value": "447"
                 },
                 {
                   "key": "content-type",
@@ -621,7 +626,7 @@
                 }
               ],
               "cookie": [],
-              "body": "{\n    \"success\": true,\n    \"data\": {\n        \"id\": \"25ca810b-db8b-454e-9ef4-cb5a6ad6d819\",\n        \"email\": \"agent@email.com\",\n        \"fullName\": \"John Doe\",\n        \"phone\": \"+14155552671\",\n        \"serviceArea\": \"Dubai Marina\",\n        \"status\": \"ACTIVE\",\n        \"invitedAt\": \"2026-03-06T09:48:01.975513+05:30\",\n        \"invitedBy\": \"00000000-0000-0000-0000-000000000001\",\n        \"formSubmittedAt\": \"2026-03-06T10:14:59.850238+05:30\",\n        \"reviewedAt\": \"2026-03-06T10:37:01.926813+05:30\",\n        \"reviewedBy\": \"00000000-0000-0000-0000-000000000001\",\n        \"declineReason\": null,\n        \"passwordSetAt\": null\n    },\n    \"message\": null,\n    \"error\": null\n}"
+              "body": "{\n    \"success\": true,\n    \"data\": {\n        \"id\": \"1309c768-4664-4b7c-9038-b9668ca033fb\",\n        \"email\": \"agent@email.com\",\n        \"fullName\": \"reject agent\",\n        \"phone\": \"+918976534347\",\n        \"serviceArea\": \"Dubai Marina\",\n        \"status\": \"PENDING_REVIEW\",\n        \"invitedAt\": \"2026-03-09T10:38:10.584208Z\",\n        \"invitedBy\": \"28a1f4eb-dd80-4bdb-9d7a-349453699f56\",\n        \"formSubmittedAt\": \"2026-03-09T16:14:30.687437Z\",\n        \"reviewedAt\": null,\n        \"reviewedBy\": null,\n        \"declineReason\": null,\n        \"passwordSetAt\": null\n    },\n    \"message\": null,\n    \"error\": null\n}"
             }
           ]
         },
@@ -631,10 +636,13 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "http://localhost:8000/api/v1/agents?page=1&limit=20",
+              "raw": "http://15.185.100.98:8000/api/v1/agents?page=1&limit=20",
               "protocol": "http",
               "host": [
-                "localhost"
+                "15",
+                "185",
+                "100",
+                "98"
               ],
               "port": "8000",
               "path": [
@@ -823,12 +831,12 @@
               "body": "{\n    \"success\": true,\n    \"data\": {\n        \"agents\": [\n            {\n                \"id\": \"6e0f26df-5958-4c03-b0f9-b9c685a488d1\",\n                \"email\": \"agent2@yopmail.com\",\n                \"fullName\": \"decline agent\",\n                \"phone\": \"+918976534567\",\n                \"serviceArea\": \"Dubai Marina\",\n                \"status\": \"DECLINED\",\n                \"invitedAt\": \"2026-03-06T12:30:51.946158+05:30\",\n                \"invitedBy\": \"00000000-0000-0000-0000-000000000001\",\n                \"formSubmittedAt\": \"2026-03-06T13:08:26.049583+05:30\",\n                \"reviewedAt\": \"2026-03-06T13:11:46.505852+05:30\",\n                \"declineReason\": \"Application rejected by admin\"\n            }\n        ],\n        \"pagination\": {\n            \"page\": 1,\n            \"limit\": 20,\n            \"totalItems\": 1,\n            \"totalPages\": 1\n        }\n    },\n    \"message\": null,\n    \"error\": null\n}"
             },
             {
-              "name": "List Agents with status filter for INVITED",
+              "name": "List Agents",
               "originalRequest": {
                 "method": "GET",
                 "header": [],
                 "url": {
-                  "raw": "http://localhost:8000/api/v1/agents?status=INVITED&page=1&limit=20",
+                  "raw": "http://localhost:8000/api/v1/agents?page=1&limit=20",
                   "protocol": "http",
                   "host": [
                     "localhost"
@@ -840,10 +848,6 @@
                     "agents"
                   ],
                   "query": [
-                    {
-                      "key": "status",
-                      "value": "INVITED"
-                    },
                     {
                       "key": "page",
                       "value": "1"
@@ -861,7 +865,7 @@
               "header": [
                 {
                   "key": "date",
-                  "value": "Fri, 06 Mar 2026 11:20:02 GMT"
+                  "value": "Mon, 09 Mar 2026 12:41:51 GMT"
                 },
                 {
                   "key": "server",
@@ -869,7 +873,7 @@
                 },
                 {
                   "key": "content-length",
-                  "value": "442"
+                  "value": "486"
                 },
                 {
                   "key": "content-type",
@@ -877,74 +881,27 @@
                 }
               ],
               "cookie": [],
-              "body": "{\n    \"success\": true,\n    \"data\": {\n        \"agents\": [\n            {\n                \"id\": \"69e22d9f-7194-4e9b-bc46-a0ad978c4520\",\n                \"email\": \"agent4@yopmail.com\",\n                \"fullName\": null,\n                \"phone\": \"+199983293114\",\n                \"serviceArea\": null,\n                \"status\": \"INVITED\",\n                \"invitedAt\": \"2026-03-06T15:04:43.267803+05:30\",\n                \"invitedBy\": \"00000000-0000-0000-0000-000000000001\",\n                \"formSubmittedAt\": null,\n                \"reviewedAt\": null,\n                \"declineReason\": null\n            }\n        ],\n        \"pagination\": {\n            \"page\": 1,\n            \"limit\": 20,\n            \"totalItems\": 1,\n            \"totalPages\": 1\n        }\n    },\n    \"message\": null,\n    \"error\": null\n}"
-            },
-            {
-              "name": "List Agents with status filter for ACTIVE",
-              "originalRequest": {
-                "method": "GET",
-                "header": [],
-                "url": {
-                  "raw": "http://localhost:8000/api/v1/agents?status=ACTIVE&page=1&limit=20",
-                  "protocol": "http",
-                  "host": [
-                    "localhost"
-                  ],
-                  "port": "8000",
-                  "path": [
-                    "api",
-                    "v1",
-                    "agents"
-                  ],
-                  "query": [
-                    {
-                      "key": "status",
-                      "value": "ACTIVE"
-                    },
-                    {
-                      "key": "page",
-                      "value": "1"
-                    },
-                    {
-                      "key": "limit",
-                      "value": "20"
-                    }
-                  ]
-                }
-              },
-              "status": "OK",
-              "code": 200,
-              "_postman_previewlanguage": null,
-              "header": [
-                {
-                  "key": "date",
-                  "value": "Fri, 06 Mar 2026 11:22:14 GMT"
-                },
-                {
-                  "key": "server",
-                  "value": "uvicorn"
-                },
-                {
-                  "key": "content-length",
-                  "value": "513"
-                },
-                {
-                  "key": "content-type",
-                  "value": "application/json"
-                }
-              ],
-              "cookie": [],
-              "body": "{\n    \"success\": true,\n    \"data\": {\n        \"agents\": [\n            {\n                \"id\": \"25ca810b-db8b-454e-9ef4-cb5a6ad6d819\",\n                \"email\": \"agent@email.com\",\n                \"fullName\": \"John Doe\",\n                \"phone\": \"+14155552671\",\n                \"serviceArea\": \"Dubai Marina\",\n                \"status\": \"ACTIVE\",\n                \"invitedAt\": \"2026-03-06T09:48:01.975513+05:30\",\n                \"invitedBy\": \"00000000-0000-0000-0000-000000000001\",\n                \"formSubmittedAt\": \"2026-03-06T10:14:59.850238+05:30\",\n                \"reviewedAt\": \"2026-03-06T10:37:01.926813+05:30\",\n                \"declineReason\": null\n            }\n        ],\n        \"pagination\": {\n            \"page\": 1,\n            \"limit\": 20,\n            \"totalItems\": 1,\n            \"totalPages\": 1\n        }\n    },\n    \"message\": null,\n    \"error\": null\n}"
+              "body": "{\n    \"success\": true,\n    \"data\": {\n        \"agents\": [\n            {\n                \"id\": \"1309c768-4664-4b7c-9038-b9668ca033fb\",\n                \"email\": \"agent@email.com\",\n                \"fullName\": \"reject agent\",\n                \"phone\": \"+918976534347\",\n                \"serviceArea\": \"Dubai Marina\",\n                \"status\": \"PENDING_REVIEW\",\n                \"invitedAt\": \"2026-03-09T10:38:10.584208Z\",\n                \"invitedBy\": \"28a1f4eb-dd80-4bdb-9d7a-349453699f56\",\n                \"formSubmittedAt\": \"2026-03-09T16:14:30.687437Z\",\n                \"reviewedAt\": null,\n                \"declineReason\": null\n            }\n        ],\n        \"pagination\": {\n            \"page\": 1,\n            \"limit\": 20,\n            \"totalItems\": 1,\n            \"totalPages\": 1\n        }\n    },\n    \"message\": null,\n    \"error\": null\n}"
             }
           ]
         },
         {
           "name": "Accept Agent",
           "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "eyJraWQiOiJSdEMyWUdwMm5ONWFhOVI1RVQrNGRqVlJzQjA2N2k2aUJKVlUxRkJhU1BFPSIsImFsZyI6IlJTMjU2In0.eyJzdWIiOiJiMWQwODU3MC00MGQxLTcwNzYtYTFiMi0wY2FjMTUyOTYyZmIiLCJpc3MiOiJodHRwczpcL1wvY29nbml0by1pZHAubWUtc291dGgtMS5hbWF6b25hd3MuY29tXC9tZS1zb3V0aC0xX3J2eTNQUjZZcSIsImNsaWVudF9pZCI6IjczNjk2YjZkNzUzcHRwcHAwMmJuY3B0NTRsIiwib3JpZ2luX2p0aSI6IjA2MzBhZTlmLWY5MDYtNDM5OS1hMzRlLWQ5NGI0YjlhZGJjOCIsImV2ZW50X2lkIjoiMDNiYTM3MjctYzZhOC00ZDA2LTgzMTktNDVjOWJhZmQ5YWQyIiwidG9rZW5fdXNlIjoiYWNjZXNzIiwic2NvcGUiOiJhd3MuY29nbml0by5zaWduaW4udXNlci5hZG1pbiIsImF1dGhfdGltZSI6MTc3MzEyMTc1NCwiZXhwIjoxNzczMTI1MzU0LCJpYXQiOjE3NzMxMjE3NTQsImp0aSI6ImNhMjM1MmRmLWFjN2YtNDIzMS1hMTQ1LTZlNzZhZGFhNTk5MiIsInVzZXJuYW1lIjoiYjFkMDg1NzAtNDBkMS03MDc2LWExYjItMGNhYzE1Mjk2MmZiIn0.bEdO80ZeIS9LvC1txC4wbNFUKJZ2hu48N0blKbAEP8zPzXjDgunQyUWnKVQSvZQy0kZ9jiRGqCvhRDn-aRbjUf_NGMOu_yTNcJK3-tyh0WesE1NKptZRn-K585GFL6AzlWlNMQAstVlkHG-IoHGU4hkV3ZK1_MQqppJUsJ0rwQSxHG1tpHHRhqhMrqXN2UwaXFR-URIgs6e4C59PDP_PI8iUlWzPFzIdVkDxlKh16jIG9b6kH79sqnhXTuDDtlyCpYPDbbyxoFx_uMPnCUEJxMx0qfh9HxBo4_wA11z-b6-1VuqHUtXWd5Cj_62y0l-REtyTJ2srHnPBDC6GmXwqig",
+                  "type": "string"
+                }
+              ]
+            },
             "method": "PATCH",
             "header": [],
             "url": {
-              "raw": "http://localhost:8000/api/v1/agents/25ca810b-db8b-454e-9ef4-cb5a6ad6d819/accept",
+              "raw": "http://localhost:8000/api/v1/agents/23fc468c-1c8c-4ad0-970c-0a086e17f00f/accept",
               "protocol": "http",
               "host": [
                 "localhost"
@@ -954,7 +911,7 @@
                 "api",
                 "v1",
                 "agents",
-                "25ca810b-db8b-454e-9ef4-cb5a6ad6d819",
+                "23fc468c-1c8c-4ad0-970c-0a086e17f00f",
                 "accept"
               ]
             }
@@ -966,7 +923,7 @@
                 "method": "PATCH",
                 "header": [],
                 "url": {
-                  "raw": "http://localhost:8000/api/v1/agents/25ca810b-db8b-454e-9ef4-cb5a6ad6d819/accept",
+                  "raw": "http://localhost:8000/api/v1/agents/23fc468c-1c8c-4ad0-970c-0a086e17f00f/accept",
                   "protocol": "http",
                   "host": [
                     "localhost"
@@ -976,7 +933,7 @@
                     "api",
                     "v1",
                     "agents",
-                    "25ca810b-db8b-454e-9ef4-cb5a6ad6d819",
+                    "23fc468c-1c8c-4ad0-970c-0a086e17f00f",
                     "accept"
                   ]
                 }
@@ -987,7 +944,7 @@
               "header": [
                 {
                   "key": "date",
-                  "value": "Fri, 06 Mar 2026 05:07:01 GMT"
+                  "value": "Tue, 10 Mar 2026 06:39:35 GMT"
                 },
                 {
                   "key": "server",
@@ -995,7 +952,7 @@
                 },
                 {
                   "key": "content-length",
-                  "value": "249"
+                  "value": "244"
                 },
                 {
                   "key": "content-type",
@@ -1003,7 +960,7 @@
                 }
               ],
               "cookie": [],
-              "body": "{\n    \"success\": true,\n    \"data\": {\n        \"id\": \"25ca810b-db8b-454e-9ef4-cb5a6ad6d819\",\n        \"status\": \"ACTIVE\",\n        \"reviewedAt\": \"2026-03-06T10:37:01.926813+05:30\",\n        \"reviewedBy\": \"00000000-0000-0000-0000-000000000001\"\n    },\n    \"message\": \"Agent accepted. Approval email sent.\",\n    \"error\": null\n}"
+              "body": "{\n    \"success\": true,\n    \"data\": {\n        \"id\": \"23fc468c-1c8c-4ad0-970c-0a086e17f00f\",\n        \"status\": \"ACTIVE\",\n        \"reviewedAt\": \"2026-03-10T12:09:39.455911Z\",\n        \"reviewedBy\": \"28a1f4eb-dd80-4bdb-9d7a-349453699f56\"\n    },\n    \"message\": \"Agent accepted. Approval email sent.\",\n    \"error\": null\n}"
             }
           ]
         },
@@ -1079,6 +1036,16 @@
         {
           "name": "List invites",
           "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "eyJraWQiOiJSdEMyWUdwMm5ONWFhOVI1RVQrNGRqVlJzQjA2N2k2aUJKVlUxRkJhU1BFPSIsImFsZyI6IlJTMjU2In0.eyJzdWIiOiJiMWQwODU3MC00MGQxLTcwNzYtYTFiMi0wY2FjMTUyOTYyZmIiLCJpc3MiOiJodHRwczpcL1wvY29nbml0by1pZHAubWUtc291dGgtMS5hbWF6b25hd3MuY29tXC9tZS1zb3V0aC0xX3J2eTNQUjZZcSIsImNsaWVudF9pZCI6IjczNjk2YjZkNzUzcHRwcHAwMmJuY3B0NTRsIiwib3JpZ2luX2p0aSI6ImVmNzZmNTIxLTQxM2YtNDUzYi1hOGJkLTdiMDgzOGQzMDA4MCIsImV2ZW50X2lkIjoiNzM2ZTgxMDItNTJmYi00YjA4LWE5ZWMtOWJmMzU1MWMxMWJiIiwidG9rZW5fdXNlIjoiYWNjZXNzIiwic2NvcGUiOiJhd3MuY29nbml0by5zaWduaW4udXNlci5hZG1pbiIsImF1dGhfdGltZSI6MTc3MzEyNDU2OSwiZXhwIjoxNzczMTI4MTY5LCJpYXQiOjE3NzMxMjQ1NjksImp0aSI6ImIxNTczYjIzLTY4ZGYtNGM4Yi1hZmVhLWRlN2U4ZDIxMWUzNCIsInVzZXJuYW1lIjoiYjFkMDg1NzAtNDBkMS03MDc2LWExYjItMGNhYzE1Mjk2MmZiIn0.EUeL9JN9uyzQYt8OnTOTNSorBxsm4FY7Hwj1y7m0_WggpG3XAq2NpQEorHO_CIolDWH7DG-sbR8Bkm1uXOAKpfJXo_oj-qROlUi5r7UWjn_4s068vPJeswjrx1IxVkxfgYhqcF-_X0YXw9UOJKL-YDecOhq06TxylhBe680xgrp2xcITOLWiYwEZV3khsMDSfN0a1svhhpOUecOvwcQQ8Wx5uN_3jwjBmYDnTYx_j-1qYd1PKdsc6ggTRIt1wqM9-uBGbZtj47nw-aUjix2V-lsDZp2Upc29rPw4DJpnYjYL4Kdp4entjYlE4G_kf3YNwSsjnQ_nnO1gz6H1RRPnog",
+                  "type": "string"
+                }
+              ]
+            },
             "method": "GET",
             "header": [],
             "url": {
@@ -1123,7 +1090,7 @@
               "header": [
                 {
                   "key": "date",
-                  "value": "Fri, 06 Mar 2026 08:36:10 GMT"
+                  "value": "Tue, 10 Mar 2026 06:36:38 GMT"
                 },
                 {
                   "key": "server",
@@ -1131,7 +1098,7 @@
                 },
                 {
                   "key": "content-length",
-                  "value": "876"
+                  "value": "442"
                 },
                 {
                   "key": "content-type",
@@ -1139,17 +1106,27 @@
                 }
               ],
               "cookie": [],
-              "body": "{\n    \"success\": true,\n    \"data\": [\n        {\n            \"id\": \"642555eb-856c-4567-a863-794727d039ea\",\n            \"email\": \"agent2@yopmail.com\",\n            \"expires_at\": \"2026-03-13T12:30:51.965832+05:30\",\n            \"is_used\": true,\n            \"created_at\": \"2026-03-06T12:30:51.946158+05:30\",\n            \"status\": \"DECLINED\"\n        },\n        {\n            \"id\": \"7ca685d1-867d-498a-b088-7f22b1c390c8\",\n            \"email\": \"agent3@yopmail.com\",\n            \"expires_at\": \"2026-03-13T11:58:07.645655+05:30\",\n            \"is_used\": true,\n            \"created_at\": \"2026-03-06T11:58:07.642943+05:30\",\n            \"status\": \"PENDING_REVIEW\"\n        },\n        {\n            \"id\": \"9678fb9e-230d-4a83-be86-5c407cb6035f\",\n            \"email\": \"agent1@email.com\",\n            \"expires_at\": \"2026-03-13T11:24:12.666270+05:30\",\n            \"is_used\": false,\n            \"created_at\": \"2026-03-06T11:24:12.647188+05:30\",\n            \"status\": \"INVITED\"\n        },\n        {\n            \"id\": \"36426293-8b63-44f0-81c7-31c7898d02e4\",\n            \"email\": \"agent@email.com\",\n            \"expires_at\": \"2026-03-13T09:48:01.997709+05:30\",\n            \"is_used\": true,\n            \"created_at\": \"2026-03-06T09:48:01.975513+05:30\",\n            \"status\": \"ACTIVE\"\n        }\n    ],\n    \"message\": null,\n    \"error\": null\n}"
+              "body": "{\n    \"success\": true,\n    \"data\": [\n        {\n            \"id\": \"b68b15e6-eccf-480c-9db7-fe4405df0a08\",\n            \"email\": \"decline@yopmail.com\",\n            \"expires_at\": \"2026-03-17T11:44:48.281993Z\",\n            \"is_used\": true,\n            \"created_at\": \"2026-03-10T06:14:49.412115Z\",\n            \"status\": \"DECLINED\"\n        },\n        {\n            \"id\": \"864dab4e-9756-49be-a1e0-dc705db7122e\",\n            \"email\": \"agent@email.com\",\n            \"expires_at\": \"2026-03-16T16:08:11.259694Z\",\n            \"is_used\": true,\n            \"created_at\": \"2026-03-09T10:38:10.584208Z\",\n            \"status\": \"INVITED\"\n        }\n    ],\n    \"message\": null,\n    \"error\": null\n}"
             }
           ]
         },
         {
           "name": "Delete Agent",
           "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "eyJraWQiOiJSdEMyWUdwMm5ONWFhOVI1RVQrNGRqVlJzQjA2N2k2aUJKVlUxRkJhU1BFPSIsImFsZyI6IlJTMjU2In0.eyJzdWIiOiJiMWQwODU3MC00MGQxLTcwNzYtYTFiMi0wY2FjMTUyOTYyZmIiLCJpc3MiOiJodHRwczpcL1wvY29nbml0by1pZHAubWUtc291dGgtMS5hbWF6b25hd3MuY29tXC9tZS1zb3V0aC0xX3J2eTNQUjZZcSIsImNsaWVudF9pZCI6IjczNjk2YjZkNzUzcHRwcHAwMmJuY3B0NTRsIiwib3JpZ2luX2p0aSI6IjUzMzNhMjM4LTcxNDgtNDBiYi1iNzJlLWM3Njg4OGRkZTg5YiIsImV2ZW50X2lkIjoiOTUyZWNjNDItYzA5My00MTNiLTkzM2QtOGU1MzQyN2UzM2E0IiwidG9rZW5fdXNlIjoiYWNjZXNzIiwic2NvcGUiOiJhd3MuY29nbml0by5zaWduaW4udXNlci5hZG1pbiIsImF1dGhfdGltZSI6MTc3MzEyNDg2NSwiZXhwIjoxNzczMTI4NDY1LCJpYXQiOjE3NzMxMjQ4NjUsImp0aSI6IjRkMWIyNzU0LTQ4MmUtNDU5My1hZDJhLTAwZjk3MDE1ODkzYyIsInVzZXJuYW1lIjoiYjFkMDg1NzAtNDBkMS03MDc2LWExYjItMGNhYzE1Mjk2MmZiIn0.Nl8KNOqLkKlA8_UELWcB5r8t4IP1KExZjxoH8WhuQV_0Dkqj9ZhmcYhUzl5E4eO7o5cwfz83lJ25RMlZdcLHlaLvUIsgj29B16ZvLBmhr7OcuxbyPh-bTb3XG3zpROnYSgJhOPV_75V9OCEgDhqCoWL62NctU5iT4Hvb7OTcstVSmM_EJfbwjyMBPX3oCPGiFieLo4Kr3_xdWQL4ct8Hx_ePKBNuSSl7gy7jhzLQShWotUIPpEHu8X9wY11sYUp-BEMd7vyAOYOuxe557nYs0j8Rl65ZMaFZCPIqCuXEUGXO_WTFXRWjO6_WGtSa5FiyZux9t1Bz22ENYjE6LbLN3g",
+                  "type": "string"
+                }
+              ]
+            },
             "method": "DELETE",
             "header": [],
             "url": {
-              "raw": "http://localhost:8000/api/v1/agents/a1b2ec72-94be-4285-b48f-95ecd647bf09",
+              "raw": "http://localhost:8000/api/v1/agents/23fc468c-1c8c-4ad0-970c-0a086e17f00f",
               "protocol": "http",
               "host": [
                 "localhost"
@@ -1159,7 +1136,7 @@
                 "api",
                 "v1",
                 "agents",
-                "a1b2ec72-94be-4285-b48f-95ecd647bf09"
+                "23fc468c-1c8c-4ad0-970c-0a086e17f00f"
               ]
             }
           },
@@ -1170,7 +1147,7 @@
                 "method": "DELETE",
                 "header": [],
                 "url": {
-                  "raw": "http://localhost:8000/api/v1/agents/a1b2ec72-94be-4285-b48f-95ecd647bf09",
+                  "raw": "http://localhost:8000/api/v1/agents/23fc468c-1c8c-4ad0-970c-0a086e17f00f",
                   "protocol": "http",
                   "host": [
                     "localhost"
@@ -1180,7 +1157,7 @@
                     "api",
                     "v1",
                     "agents",
-                    "a1b2ec72-94be-4285-b48f-95ecd647bf09"
+                    "23fc468c-1c8c-4ad0-970c-0a086e17f00f"
                   ]
                 }
               },
@@ -1190,7 +1167,7 @@
               "header": [
                 {
                   "key": "date",
-                  "value": "Fri, 06 Mar 2026 09:32:09 GMT"
+                  "value": "Tue, 10 Mar 2026 06:41:26 GMT"
                 },
                 {
                   "key": "server",
@@ -1198,7 +1175,7 @@
                 },
                 {
                   "key": "content-length",
-                  "value": "234"
+                  "value": "229"
                 },
                 {
                   "key": "content-type",
@@ -1206,18 +1183,28 @@
                 }
               ],
               "cookie": [],
-              "body": "{\n    \"success\": true,\n    \"data\": {\n        \"id\": \"a1b2ec72-94be-4285-b48f-95ecd647bf09\",\n        \"status\": \"DELETED\",\n        \"deletedAt\": \"2026-03-06T15:02:09.533838+05:30\",\n        \"deletedBy\": \"00000000-0000-0000-0000-000000000001\"\n    },\n    \"message\": \"Agent has been deleted\",\n    \"error\": null\n}"
+              "body": "{\n    \"success\": true,\n    \"data\": {\n        \"id\": \"23fc468c-1c8c-4ad0-970c-0a086e17f00f\",\n        \"status\": \"DELETED\",\n        \"deletedAt\": \"2026-03-10T12:11:27.789122Z\",\n        \"deletedBy\": \"28a1f4eb-dd80-4bdb-9d7a-349453699f56\"\n    },\n    \"message\": \"Agent has been deleted\",\n    \"error\": null\n}"
             }
           ]
         },
         {
           "name": "Assign Agent to Admin",
           "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "eyJraWQiOiJSdEMyWUdwMm5ONWFhOVI1RVQrNGRqVlJzQjA2N2k2aUJKVlUxRkJhU1BFPSIsImFsZyI6IlJTMjU2In0.eyJzdWIiOiJiMWQwODU3MC00MGQxLTcwNzYtYTFiMi0wY2FjMTUyOTYyZmIiLCJpc3MiOiJodHRwczpcL1wvY29nbml0by1pZHAubWUtc291dGgtMS5hbWF6b25hd3MuY29tXC9tZS1zb3V0aC0xX3J2eTNQUjZZcSIsImNsaWVudF9pZCI6IjczNjk2YjZkNzUzcHRwcHAwMmJuY3B0NTRsIiwib3JpZ2luX2p0aSI6IjYwOTU3MjU3LTQ4ZmEtNGMyMi05MWVmLTU1MDM4NGI0OTAzOSIsImV2ZW50X2lkIjoiNjIzOGNkZmMtOGY1Ny00NTZiLTk3NWYtZTgyYWI2YWI2NmM4IiwidG9rZW5fdXNlIjoiYWNjZXNzIiwic2NvcGUiOiJhd3MuY29nbml0by5zaWduaW4udXNlci5hZG1pbiIsImF1dGhfdGltZSI6MTc3MzEzMDY4OSwiZXhwIjoxNzczMTM0Mjg5LCJpYXQiOjE3NzMxMzA2ODksImp0aSI6ImI4Nzg1YzI3LWI5Y2MtNGMxOC04OTUwLWYwOGJhYWJkMjJhMSIsInVzZXJuYW1lIjoiYjFkMDg1NzAtNDBkMS03MDc2LWExYjItMGNhYzE1Mjk2MmZiIn0.ag_C188MWlhznLcuutftI8SGA4We7BsUtI7dFVOYNnSYWM6J7w6xxezhznNMYMmxhVk7geCM4FjtduzKmiWAh1fRB9-J5jzpDnaVRjUFkcHRMSOHXWHmjCtGYlZXEf_G2-gnzM_qblMX_3-fYFfp1T7UB8qBfZGLedGGflVBTu9uW0zrUjfhoNIrtLM1dwISBmoA5PrXf-TGABd6SIQjlT28RUwU-YSbwoNOZ05M_LLdcFU3cQE1ITXpswTqMeAEx7ImGbTFeJ2CM8itxnxrHGxEf4aMKKGlT-R7pIFskjHvtPY9gfrxpGZTlnhWg4dxqXYs0yFhDWYumu17GRb71Q",
+                  "type": "string"
+                }
+              ]
+            },
             "method": "POST",
             "header": [],
             "body": {
               "mode": "raw",
-              "raw": "{\r\n  \"admin_id\": \"00000000-0000-0000-0000-000000000001\",\r\n  \"agent_id\": \"50be397a-53aa-4869-bbfb-08cfc297501f\",\r\n  \"can_inherit_privileges\": true\r\n}",
+              "raw": "// {\r\n//   \"admin_id\": \"00000000-0000-0000-0000-000000000001\",\r\n//   \"agent_id\": \"50be397a-53aa-4869-bbfb-08cfc297501f\",\r\n//   \"can_inherit_privileges\": true\r\n// }\r\n\r\n\r\n{\r\n  \"agent_id\": \"1309c768-4664-4b7c-9038-b9668ca033fb\",\r\n  \"can_inherit_privileges\": true\r\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -1247,7 +1234,7 @@
                 "header": [],
                 "body": {
                   "mode": "raw",
-                  "raw": "{\r\n  \"admin_id\": \"00000000-0000-0000-0000-000000000001\",\r\n  \"agent_id\": \"69e22d9f-7194-4e9b-bc46-a0ad978c4520\",\r\n  \"can_inherit_privileges\": true\r\n}",
+                  "raw": "// {\r\n//   \"admin_id\": \"00000000-0000-0000-0000-000000000001\",\r\n//   \"agent_id\": \"50be397a-53aa-4869-bbfb-08cfc297501f\",\r\n//   \"can_inherit_privileges\": true\r\n// }\r\n\r\n\r\n{\r\n  \"agent_id\": \"1309c768-4664-4b7c-9038-b9668ca033fb\",\r\n  \"can_inherit_privileges\": true\r\n}",
                   "options": {
                     "raw": {
                       "language": "json"
@@ -1275,7 +1262,7 @@
               "header": [
                 {
                   "key": "date",
-                  "value": "Fri, 06 Mar 2026 10:33:20 GMT"
+                  "value": "Tue, 10 Mar 2026 08:52:11 GMT"
                 },
                 {
                   "key": "server",
@@ -1298,11 +1285,21 @@
         {
           "name": "Unassign Agent",
           "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "eyJraWQiOiJSdEMyWUdwMm5ONWFhOVI1RVQrNGRqVlJzQjA2N2k2aUJKVlUxRkJhU1BFPSIsImFsZyI6IlJTMjU2In0.eyJzdWIiOiJiMWQwODU3MC00MGQxLTcwNzYtYTFiMi0wY2FjMTUyOTYyZmIiLCJpc3MiOiJodHRwczpcL1wvY29nbml0by1pZHAubWUtc291dGgtMS5hbWF6b25hd3MuY29tXC9tZS1zb3V0aC0xX3J2eTNQUjZZcSIsImNsaWVudF9pZCI6IjczNjk2YjZkNzUzcHRwcHAwMmJuY3B0NTRsIiwib3JpZ2luX2p0aSI6IjUyNDFkM2MwLWFiZWUtNDg1NC05OWQ3LWYyOGZkODdkZDc3MyIsImV2ZW50X2lkIjoiNDQ4NTcyYjktZjFhYy00M2RiLWFhZDItOTlhNzFjYzkxMjE3IiwidG9rZW5fdXNlIjoiYWNjZXNzIiwic2NvcGUiOiJhd3MuY29nbml0by5zaWduaW4udXNlci5hZG1pbiIsImF1dGhfdGltZSI6MTc3MzEzMzI3OSwiZXhwIjoxNzczMTM2ODc5LCJpYXQiOjE3NzMxMzMyNzksImp0aSI6IjI3OTJiYTllLWRlNzEtNGE1My04OGMzLTRkN2Y4OGRkYzNiNCIsInVzZXJuYW1lIjoiYjFkMDg1NzAtNDBkMS03MDc2LWExYjItMGNhYzE1Mjk2MmZiIn0.D5RBptzM6iZZem38t3iWTzlsmL1a5t20mreagVa5wqp5hCy3F3vmkpCQfpiHFFgqz6Ue3jdKsZT1wabwblwgXQ0pKFHN-9MZCr0mcWnpP79a5990L2nSSPvgcOnDmGWhQH1JDTOF3mXmY-xeUh9TpVo1C9EXvO1TEUYKj2o0ee3Lo2zKWnJjijFS1qCJsT383XCRwyDeWMPMttRUDCasnsh4RZROJxqlOMOskYk7RgZjhvr0P4ZLONWiNzOLUvaAka1WWHxV6_QrmlU129IyABJaGEJ6eT9zcGFpFlbl2l74pVS3jCndWBBuFi8HUWWbMA8aOKBlejQ43Gjd4gC39w",
+                  "type": "string"
+                }
+              ]
+            },
             "method": "POST",
             "header": [],
             "body": {
               "mode": "raw",
-              "raw": "{\r\n  \"admin_id\": \"00000000-0000-0000-0000-000000000001\",\r\n  \"agent_id\": \"69e22d9f-7194-4e9b-bc46-a0ad978c4520\"\r\n}",
+              "raw": "// {\r\n//   \"admin_id\": \"00000000-0000-0000-0000-000000000001\",\r\n//   \"agent_id\": \"69e22d9f-7194-4e9b-bc46-a0ad978c4520\"\r\n// }\r\n\r\n{\r\n    \"agent_id\":\"1309c768-4664-4b7c-9038-b9668ca033fb\"\r\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -1332,7 +1329,7 @@
                 "header": [],
                 "body": {
                   "mode": "raw",
-                  "raw": "{\r\n  \"admin_id\": \"00000000-0000-0000-0000-000000000001\",\r\n  \"agent_id\": \"69e22d9f-7194-4e9b-bc46-a0ad978c4520\"\r\n}",
+                  "raw": "// {\r\n//   \"admin_id\": \"00000000-0000-0000-0000-000000000001\",\r\n//   \"agent_id\": \"69e22d9f-7194-4e9b-bc46-a0ad978c4520\"\r\n// }\r\n\r\n{\r\n    \"agent_id\":\"1309c768-4664-4b7c-9038-b9668ca033fb\"\r\n}",
                   "options": {
                     "raw": {
                       "language": "json"
@@ -1360,7 +1357,7 @@
               "header": [
                 {
                   "key": "date",
-                  "value": "Fri, 06 Mar 2026 10:33:29 GMT"
+                  "value": "Tue, 10 Mar 2026 09:03:36 GMT"
                 },
                 {
                   "key": "server",
@@ -1377,6 +1374,130 @@
               ],
               "cookie": [],
               "body": "{\n    \"success\": true,\n    \"data\": true,\n    \"message\": \"Agent privileges revoked successfully\",\n    \"error\": null\n}"
+            }
+          ]
+        },
+        {
+          "name": "List Agents",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "eyJraWQiOiJSdEMyWUdwMm5ONWFhOVI1RVQrNGRqVlJzQjA2N2k2aUJKVlUxRkJhU1BFPSIsImFsZyI6IlJTMjU2In0.eyJzdWIiOiJiMWQwODU3MC00MGQxLTcwNzYtYTFiMi0wY2FjMTUyOTYyZmIiLCJpc3MiOiJodHRwczpcL1wvY29nbml0by1pZHAubWUtc291dGgtMS5hbWF6b25hd3MuY29tXC9tZS1zb3V0aC0xX3J2eTNQUjZZcSIsImNsaWVudF9pZCI6IjczNjk2YjZkNzUzcHRwcHAwMmJuY3B0NTRsIiwib3JpZ2luX2p0aSI6IjBmY2I3YjZlLWRjMDItNGMzZi1iNjkxLTdjMzgzNmE1NmNlZiIsImV2ZW50X2lkIjoiNWFlYTc1ZWUtZDk4Yy00OWZkLTk1ZWItOWI3MzlhMDZmODBhIiwidG9rZW5fdXNlIjoiYWNjZXNzIiwic2NvcGUiOiJhd3MuY29nbml0by5zaWduaW4udXNlci5hZG1pbiIsImF1dGhfdGltZSI6MTc3MzA2MDA5MCwiZXhwIjoxNzczMDYzNjkwLCJpYXQiOjE3NzMwNjAwOTAsImp0aSI6IjVmMDA5NTZhLTYyNjAtNDE0YS04NzE2LTdlZjg2MDlhMDUwNyIsInVzZXJuYW1lIjoiYjFkMDg1NzAtNDBkMS03MDc2LWExYjItMGNhYzE1Mjk2MmZiIn0.AOfFWpV7RKua8ZHlsWMnkPiTIvArxq2ioZMTNgpxVbWzfQRNp43VJOEIU8JxhJzOQWnlLPKvIC8O-ZnHKTxamCAsYwUOaexO3NuNkdQ3e3fDVbckV8AYq7VQpkMWmzFnct8DPPySH6y3D-LFxTF3oVqku_OS7rRlXs_eWeo7LiW5G_c9cdJauJ0NJa-9Y3F_owbhMA0n2Gu9u5GedXSigNg7ubiTcbPV7lI4TQpBmUkDSToPb-H6GRpEGMGooJnK9_pXC60JFMhZjjD950BorPJGmyy-NlQ-dbDcI_TfW3eDPXjM0u4VRB2pc9_S5IerM67FPo7Atk7iNIn2YwH6lQ",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:8000/api/v1/agents?status=DECLINED&page=1&limit=20",
+              "protocol": "http",
+              "host": [
+                "localhost"
+              ],
+              "port": "8000",
+              "path": [
+                "api",
+                "v1",
+                "agents"
+              ],
+              "query": [
+                {
+                  "key": "status",
+                  "value": "DECLINED"
+                },
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get assignments",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "eyJraWQiOiJSdEMyWUdwMm5ONWFhOVI1RVQrNGRqVlJzQjA2N2k2aUJKVlUxRkJhU1BFPSIsImFsZyI6IlJTMjU2In0.eyJzdWIiOiJiMWQwODU3MC00MGQxLTcwNzYtYTFiMi0wY2FjMTUyOTYyZmIiLCJpc3MiOiJodHRwczpcL1wvY29nbml0by1pZHAubWUtc291dGgtMS5hbWF6b25hd3MuY29tXC9tZS1zb3V0aC0xX3J2eTNQUjZZcSIsImNsaWVudF9pZCI6IjczNjk2YjZkNzUzcHRwcHAwMmJuY3B0NTRsIiwib3JpZ2luX2p0aSI6IjM2YjE3MzU3LTQyYzYtNDM1NS1hMzMwLTllMWMwZjI3YTQyYyIsImV2ZW50X2lkIjoiNDBlNDZmZGUtMjk2NS00OTdmLTgyZjAtMjgzMTY4ZTE5OGJlIiwidG9rZW5fdXNlIjoiYWNjZXNzIiwic2NvcGUiOiJhd3MuY29nbml0by5zaWduaW4udXNlci5hZG1pbiIsImF1dGhfdGltZSI6MTc3MzE0MjY2MiwiZXhwIjoxNzczMTQ2MjYyLCJpYXQiOjE3NzMxNDI2NjIsImp0aSI6IjlhNjAxZjNlLTg5NDMtNDI3Ni05YzUxLWI5MWE3OTc3ZWQxZSIsInVzZXJuYW1lIjoiYjFkMDg1NzAtNDBkMS03MDc2LWExYjItMGNhYzE1Mjk2MmZiIn0.RN29rKbmS2mY8bUlcBllFE_6qdAc8iQWVh7WoBg4viwTPNliuaNQ1--YALXXqwjjLQ2911nl0GyX281uT0f3W47zDfNsHWkEx9UICgMKrs5f9opgwUtcfxTnAHRL_ing6wOBfxndGzcwJ_wvQ8SZuIm_KT_bLHXU-WSf9TkapMqIWOXYn28aw8-dA5wfhN6uB6d__aGbgsmqxNzix4WQpTrfXiejpwhae8IVOHrBy6r-ji72KjSVUawo6WQhh8MJNSm-sHllt8Q7JUx1-ArCXDC1IcirhOsvRxVk5Mf5tRA9vIfs6g95urXYcOOgFb-KTK0-h3GezTMLDF99yVPQXw",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/agents/assignments",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "agents",
+                "assignments"
+              ]
+            }
+          },
+          "response": [
+            {
+              "name": "Get assignments",
+              "originalRequest": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/agents/assignments",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "agents",
+                    "assignments"
+                  ]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": null,
+              "header": [
+                {
+                  "key": "date",
+                  "value": "Tue, 10 Mar 2026 11:50:02 GMT"
+                },
+                {
+                  "key": "server",
+                  "value": "uvicorn"
+                },
+                {
+                  "key": "content-length",
+                  "value": "862"
+                },
+                {
+                  "key": "content-type",
+                  "value": "application/json"
+                }
+              ],
+              "cookie": [],
+              "body": "{\n    \"success\": true,\n    \"data\": [\n        {\n            \"id\": \"b7e10450-3fe9-4e9f-9b44-7ad41d499f73\",\n            \"admin_id\": \"28a1f4eb-dd80-4bdb-9d7a-349453699f56\",\n            \"admin_email\": \"rameshadmin@yopmail.com\",\n            \"admin_name\": \"Ramesh Dey\",\n            \"agent_id\": \"ec20bb73-e4a8-461c-90df-84236cabc94f\",\n            \"agent_email\": \"swati@yopmail.com\",\n            \"agent_name\": \"Swati agent\",\n            \"is_active\": true,\n            \"can_inherit_privileges\": true,\n            \"assigned_at\": \"2026-03-10T11:49:47.885222Z\",\n            \"revoked_at\": null,\n            \"status\": \"ACTIVE ✓\"\n        },\n        {\n            \"id\": \"5cbe169e-74c5-48c8-9023-8c54f75e730f\",\n            \"admin_id\": \"28a1f4eb-dd80-4bdb-9d7a-349453699f56\",\n            \"admin_email\": \"rameshadmin@yopmail.com\",\n            \"admin_name\": \"Ramesh Dey\",\n            \"agent_id\": \"1309c768-4664-4b7c-9038-b9668ca033fb\",\n            \"agent_email\": \"agent@yopmail.com\",\n            \"agent_name\": \"accept agent\",\n            \"is_active\": true,\n            \"can_inherit_privileges\": true,\n            \"assigned_at\": \"2026-03-10T07:11:42.507870Z\",\n            \"revoked_at\": null,\n            \"status\": \"ACTIVE ✓\"\n        }\n    ],\n    \"message\": null,\n    \"error\": null\n}"
             }
           ]
         }
@@ -2709,7 +2830,9 @@
               "  }",
               "}"
             ],
-            "type": "text/javascript"
+            "type": "text/javascript",
+            "packages": {},
+            "requests": {}
           }
         }
       ],
@@ -2723,7 +2846,7 @@
         ],
         "body": {
           "mode": "raw",
-          "raw": "{\n  \"username\": \"testuser@example.com\",\n  \"password\": \"Test@1234\"\n}"
+          "raw": "// {\n//   \"username\": \"testuser@example.com\",\n//   \"password\": \"Test@1234\"\n// }\n\n// {\n//   \"username\": \"rameshadmin@yopmail.com\",\n//   \"password\": \"Spring@2026\"\n// }\n\n\n \n{\n  \"username\": \"agent@yopmail.com\",\n  \"password\": \"Spring@2026\"\n}"
         },
         "url": {
           "raw": "{{base_url}}/auth/login/password",
@@ -2737,7 +2860,58 @@
           ]
         }
       },
-      "response": []
+      "response": [
+        {
+          "name": "4. Login (Password)",
+          "originalRequest": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "// {\n//   \"username\": \"testuser@example.com\",\n//   \"password\": \"Test@1234\"\n// }\n\n// {\n//   \"username\": \"rameshadmin@yopmail.com\",\n//   \"password\": \"Spring@2026\"\n// }\n\n\n \n{\n  \"username\": \"agent@yopmail.com\",\n  \"password\": \"Spring@2026\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/auth/login/password",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "auth",
+                "login",
+                "password"
+              ]
+            }
+          },
+          "status": "OK",
+          "code": 200,
+          "_postman_previewlanguage": null,
+          "header": [
+            {
+              "key": "date",
+              "value": "Tue, 10 Mar 2026 11:28:19 GMT"
+            },
+            {
+              "key": "server",
+              "value": "uvicorn"
+            },
+            {
+              "key": "content-length",
+              "value": "4215"
+            },
+            {
+              "key": "content-type",
+              "value": "application/json"
+            }
+          ],
+          "cookie": [],
+          "body": "{\n    \"success\": true,\n    \"data\": {\n        \"access_token\": \"eyJraWQiOiJSdEMyWUdwMm5ONWFhOVI1RVQrNGRqVlJzQjA2N2k2aUJKVlUxRkJhU1BFPSIsImFsZyI6IlJTMjU2In0.eyJzdWIiOiJhMWYwYjU1MC03MDAxLTcwNjQtYWVkZS03YTBkMDNlY2Q4ZmYiLCJpc3MiOiJodHRwczpcL1wvY29nbml0by1pZHAubWUtc291dGgtMS5hbWF6b25hd3MuY29tXC9tZS1zb3V0aC0xX3J2eTNQUjZZcSIsImNsaWVudF9pZCI6IjczNjk2YjZkNzUzcHRwcHAwMmJuY3B0NTRsIiwib3JpZ2luX2p0aSI6IjY2NWRlZjk4LThkOTQtNGM2ZC05OTFjLTI3YzViMjAwMzRlOCIsImV2ZW50X2lkIjoiMjFiMGI1ODctMGY1Yi00ZjNjLTlmMjQtNDBiOWYwOGRhNTUzIiwidG9rZW5fdXNlIjoiYWNjZXNzIiwic2NvcGUiOiJhd3MuY29nbml0by5zaWduaW4udXNlci5hZG1pbiIsImF1dGhfdGltZSI6MTc3MzE0MjEwMSwiZXhwIjoxNzczMTQ1NzAxLCJpYXQiOjE3NzMxNDIxMDEsImp0aSI6IjgzNzYzZTkxLTEyZDQtNGM2Yi1hZmE5LWYwODk0YWZiZGM5MyIsInVzZXJuYW1lIjoiYTFmMGI1NTAtNzAwMS03MDY0LWFlZGUtN2EwZDAzZWNkOGZmIn0.uqe_xDPp1fYjcWW_9zOq4TZGp_HRG8XtnQKqp5FT901yhbwyHTEQYbaQRbixrSaEDqEBsp-jXg2ZK2wHxG83CP76EbNmzAmaDYhhp8MiMwNdGnNxfNrI4G0wfl0apXMWv8R10uzytyLsiTUwxV2s-VmgUhgyko8U3CdNU9sUc0nmqrZGjTRIZCRzmBpL4lcT0WA7r7lwUlbXKR2eIG6o-foh5srW7uIflFKHmlNYRiYrqaUhQPlUpRnCidZhQKobCBjooJRVsFeGGOHO8Hnu0EtGwGJwfYHPR9yqa6DJOyPM9YPRLgDfMKX_czyYdFuye_G6QG6K60z_cRqQkTNk3A\",\n        \"refresh_token\": \"eyJjdHkiOiJKV1QiLCJlbmMiOiJBMjU2R0NNIiwiYWxnIjoiUlNBLU9BRVAifQ.apdwfOIKtzrEpMlWgokfradJDxeOBbb4SnSBZKl8xXqBr67j3NKDoiA3UjUDWxaDkQSDYWs8jAuwVopR6-vKHQdF2-SFWzzn170Ow7fDGCMItjGVGeISxMO2AXVgjOG0TLCArI3mvt8-p-WLSMk8RmI2C-JEU2LZmvR3ENNsklxlpvnZKaoM7LYQKhCArdGH2-GXVT92WOGZws3QE7n-_Hj_ziwyNFZ4LhxMBLN_ldtFPplRfihtzWAEJw8Gl6my1hsYzWr8yn_SHoeVyJw3QUeMvQt6pkNVv9c2ju3Y8UVktTtGG7C4-iUA0x6MigV9MaB9fDqqlXxMMLCIUvO3lw.zKGdImyV-jp6ANnn.cWzs0_xaGjf-nFxHNT7ie7CZAATG8GnDvcyqpKx0ZaoHULvVx8pLNopWSCFLlK96d38WGlmbMF6XF0yVKWw3Kxo4AssHvRMiZrJAsR-PUW111gb78Em2UgYnmjxf8syAr9x1M9OwxGQxlAZ8sGPEjaHsqYJab4vXnv4X_QkaJGPYkzof0bOzcO-z3KhhLb_PXceD_mOph79WRkdUn-k9YIkYZag3e7mmcnPPjVCGRGWpj5xD2Dzjx73ccKnMrwn1fW9lruoBcKDF-cdtP6Y6GD9cLduIleQOLdQwcytmCDzH_7qtkZVe284f4aJE3P5z-hU0V5ioYzKAHQIMmhjATnWxfUBC-uvMO2U0Zq9GKjkUsYzfj_eGhKClk73-vFXu9Z6ICra0xGacJEL7tcPgdC14-pA2PS6m1-0cFn0TUDfXbYCwZsIkG7P4aJ1NPvsuX2krIFumFzuvE66WtKwlcBzc2NuVxRaleEIq7qlfzj0_Vgb_4dpXRX7nlERTSRnmfA-j4lIe46FUFgTMmlFQlNb2qeXOxCAwwtkRYASOOqKYArc679j0Ww_IOvu1wBH-3yPc802GXnRDQ3ndISMcxf-CXm_-qzeKYFYyBouSlJRlq7eOW9tOGQz_xwedYP683IqaLKXQXdi1_MTv3Jq-YFJzR9EcUWtfpkE3jz_dXlY_DylZb9KC2Jx-ebWfPiyLW0cMeD5P61Uot8A9Ied9bGY6kozZqOiL3mOTocj1vCMqda8ULgtUVOER7TVMUIx-MVLQ3bbr76ae0l3id9vGC5a5leoPQdtC7p3dFVeiq8XENyVhXnYYP2L7NmSy5hPzgBRMBTZ9dKuX337gcbnCQaKWiA_J9Bw4UG9-fx11q-2zrvMiahDln9C1-E32X7JY-f1hBU35uVpB8It488G-t7fIheS0pAt--ucaYfd6BCj_0UwZChTDNYfHQtDV20S8Qg11noVe_4uhW20V4-2aWU111vKiJyn5uoOy4vtN1dE6BvneLkxcK92GsvYfag86_nHUi_aep4CXds2qeH9vZTRtSHLGWGWQhdoJXagZ-NEo0-cTQviggQPlEvx5Y6XP1SXkUU8wuxDPB_5fZ93fGI-0KpydASueM7-reURtRlu1EOOjG5AIyW5BdvY4nTQD_mU0X_-UeQOj6hEh7Tql2c-PkbcwbjbUDXLhwZtRvrTZNuHAluxvMAy6j5GyPAOQLxKAOJIwfe1NV2uetqEX20o62qKfl8N2oqDXIYLDXGlTUXUDalFe945ZqT2N8868hI9erMjkBgWrN8bo4GuV0F9XKbdrMoT-MA5-2-qyR1YrSYgcPwyI3acVXtgybVA.oAs_e0aie2Src1kStuPA0A\",\n        \"id_token\": \"eyJraWQiOiJkRDErSHZvK3RzN2NRZEtzeHBYVHBOaTBlbG5xamVEdlpnTjFSdWNRdk1JPSIsImFsZyI6IlJTMjU2In0.eyJzdWIiOiJhMWYwYjU1MC03MDAxLTcwNjQtYWVkZS03YTBkMDNlY2Q4ZmYiLCJlbWFpbF92ZXJpZmllZCI6dHJ1ZSwiaXNzIjoiaHR0cHM6XC9cL2NvZ25pdG8taWRwLm1lLXNvdXRoLTEuYW1hem9uYXdzLmNvbVwvbWUtc291dGgtMV9ydnkzUFI2WXEiLCJwaG9uZV9udW1iZXJfdmVyaWZpZWQiOnRydWUsImNvZ25pdG86dXNlcm5hbWUiOiJhMWYwYjU1MC03MDAxLTcwNjQtYWVkZS03YTBkMDNlY2Q4ZmYiLCJvcmlnaW5fanRpIjoiNjY1ZGVmOTgtOGQ5NC00YzZkLTk5MWMtMjdjNWIyMDAzNGU4IiwiYXVkIjoiNzM2OTZiNmQ3NTNwdHBwcDAyYm5jcHQ1NGwiLCJldmVudF9pZCI6IjIxYjBiNTg3LTBmNWItNGYzYy05ZjI0LTQwYjlmMDhkYTU1MyIsInRva2VuX3VzZSI6ImlkIiwiYXV0aF90aW1lIjoxNzczMTQyMTAxLCJuYW1lIjoicmVqZWN0IGFnZW50IiwicGhvbmVfbnVtYmVyIjoiKzkxODk3NjUzNDM0NyIsImV4cCI6MTc3MzE0NTcwMSwiaWF0IjoxNzczMTQyMTAxLCJqdGkiOiIxOTgyYTg1Ny0xZTY5LTRkZGMtYTA3Ny1mYTQ4YWE2NjAzNmIiLCJlbWFpbCI6ImFnZW50QHlvcG1haWwuY29tIn0.hOk2wpFoPWp91UFBT_s6yYTmutIF63fACLU8b3JBWpDtLoUNbfe5T16-lH4IQ44hpAvCZbVaKeqkYzcTA6nTlO2Iu7CdsEGIUgxbDbUHB1JdSCJP5tHe_2jRFAGU_vbytZ0OS8Nr1t4OEeMTo6rOJhp_GiHuK_lt1DtvlNPLTKERP8J8hCcFy7Q64GESdPMy46PlWWd5v4YOxmeh5gC0-y_MlW1Zpwp2lLjdKCGaa3z8kBGkPyFRb6xbWr9ZboYxrd_bCvouztSxgWJOY-11F0zPvbIJvK4QmijfqRtqZkX3jQHy4Izl43O8DN2zcJtgN0XUMxqqxNF1XBVKmYDh6Q\",\n        \"token_type\": \"Bearer\",\n        \"expires_in\": 3600\n    },\n    \"message\": \"Login successful\",\n    \"error\": null\n}"
+        }
+      ]
     },
     {
       "name": "5. Get Me (Current User)",
@@ -2898,7 +3072,9 @@
               "  }",
               "}"
             ],
-            "type": "text/javascript"
+            "type": "text/javascript",
+            "packages": {},
+            "requests": {}
           }
         }
       ],
@@ -2912,7 +3088,7 @@
         ],
         "body": {
           "mode": "raw",
-          "raw": "{\n  \"username\": \"testuser@example.com\"\n}"
+          "raw": "{\n  \"username\": \"agent@yopmail.com\"\n}"
         },
         "url": {
           "raw": "{{base_url}}/auth/login/otp/request",
@@ -2927,7 +3103,59 @@
           ]
         }
       },
-      "response": []
+      "response": [
+        {
+          "name": "10. OTP Request",
+          "originalRequest": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"agent@yopmail.com\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/auth/login/otp/request",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "auth",
+                "login",
+                "otp",
+                "request"
+              ]
+            }
+          },
+          "status": "OK",
+          "code": 200,
+          "_postman_previewlanguage": null,
+          "header": [
+            {
+              "key": "date",
+              "value": "Tue, 10 Mar 2026 10:59:59 GMT"
+            },
+            {
+              "key": "server",
+              "value": "uvicorn"
+            },
+            {
+              "key": "content-length",
+              "value": "1017"
+            },
+            {
+              "key": "content-type",
+              "value": "application/json"
+            }
+          ],
+          "cookie": [],
+          "body": "{\n    \"success\": true,\n    \"data\": {\n        \"session\": \"AYABeMLEPOJRdACMtUU3jVWdxscAHQABAAdTZXJ2aWNlABBDb2duaXRvVXNlclBvb2xzAAEAB2F3cy1rbXMATGFybjphd3M6a21zOm1lLXNvdXRoLTE6MzQ1ODYxNDYyMzM1OmtleS9iNGRiYmJkZS0xYmVhLTRmMjMtOWYyMC04NjQ3NzY4MmI0NTAAuAECAQB4xRf342oy4Vtxlcx_IdyXIzYIlQZ3Ko4fyJZeRYY_KE0BeB6Au9g8IJRT5Wz82W660gAAAH4wfAYJKoZIhvcNAQcGoG8wbQIBADBoBgkqhkiG9w0BBwEwHgYJYIZIAWUDBAEuMBEEDGIYFsjN2zm5z1Iz5AIBEIA7VWX-jwn6WBmDnIRA8mMdeQtw0k71aJUymULhp8ow5asGchE6J822ePkQCHGmuPmvmzNCee2PnZC-0IsCAAAAAAwAABAAAAAAAAAAAAAAAAAA1kXMq5HwVuxN5U0Wgd_yF_____8AAAABAAAAAAAAAAAAAAABAAABKgKpCU1Ix0huo11E5J56xEh5F0JewJPVi4k_sRXb15A6_JWdbB8n1RFrM8PW631VfzL_b4NKDRF_Q7xWi5kPvivK1BpQqNfkOqMN1RaewxXmbI1ftHbVcYKJIM-v_G2QFH2vItEgv-0r375J6DA37wJj-0j1Unmo71rTe-z0zdR9Cn1_nzJ4aH0INfOXojQfap5cEZOCvBwkPdroZJx-Z6ygjMbraB2Mzem4wF78n5NYoDKjTsTolRty6d__7WzEJWSb-UP6UB5ZyWRDm8VtA8FjiYWjHfW1lNh9JztVuCD3iPhCSBKRa2ozCJXWMYrIcZecWwzDZ880b790td9nuecWb1V7hBuZ0qo8FNi6z5VOdcrj4PtQ1mPgEDwA59JjC6lwpulkw7AOruJLFxDLNOHiSvQ2DgOT-m72\"\n    },\n    \"message\": \"OTP has been sent\",\n    \"error\": null\n}"
+        }
+      ]
     },
     {
       "name": "11. OTP Verify",
@@ -2973,7 +3201,59 @@
           ]
         }
       },
-      "response": []
+      "response": [
+        {
+          "name": "11. OTP Verify",
+          "originalRequest": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"agent@yopmail.com\",\n  \"code\": \"910148\",\n  \"session\": \"{{otp_session}}\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/auth/login/otp/verify",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "auth",
+                "login",
+                "otp",
+                "verify"
+              ]
+            }
+          },
+          "status": "OK",
+          "code": 200,
+          "_postman_previewlanguage": null,
+          "header": [
+            {
+              "key": "date",
+              "value": "Tue, 10 Mar 2026 11:00:57 GMT"
+            },
+            {
+              "key": "server",
+              "value": "uvicorn"
+            },
+            {
+              "key": "content-length",
+              "value": "4215"
+            },
+            {
+              "key": "content-type",
+              "value": "application/json"
+            }
+          ],
+          "cookie": [],
+          "body": "{\n    \"success\": true,\n    \"data\": {\n        \"access_token\": \"eyJraWQiOiJSdEMyWUdwMm5ONWFhOVI1RVQrNGRqVlJzQjA2N2k2aUJKVlUxRkJhU1BFPSIsImFsZyI6IlJTMjU2In0.eyJzdWIiOiJhMWYwYjU1MC03MDAxLTcwNjQtYWVkZS03YTBkMDNlY2Q4ZmYiLCJpc3MiOiJodHRwczpcL1wvY29nbml0by1pZHAubWUtc291dGgtMS5hbWF6b25hd3MuY29tXC9tZS1zb3V0aC0xX3J2eTNQUjZZcSIsImNsaWVudF9pZCI6IjczNjk2YjZkNzUzcHRwcHAwMmJuY3B0NTRsIiwib3JpZ2luX2p0aSI6IjY3ZjhjOGQwLTA0MTMtNDUxMi04ZmEzLTNkN2E4ZTZiZTg1NyIsImV2ZW50X2lkIjoiMmViNzU4MDctZjg1NC00M2U2LTg4OWMtZDA3YmU5NjdlNmVhIiwidG9rZW5fdXNlIjoiYWNjZXNzIiwic2NvcGUiOiJhd3MuY29nbml0by5zaWduaW4udXNlci5hZG1pbiIsImF1dGhfdGltZSI6MTc3MzE0MDQ1OCwiZXhwIjoxNzczMTQ0MDU4LCJpYXQiOjE3NzMxNDA0NTgsImp0aSI6IjBiMzllODNmLTZhN2MtNDA3Zi04NGM4LTk2YzA2MTliMjlhMyIsInVzZXJuYW1lIjoiYTFmMGI1NTAtNzAwMS03MDY0LWFlZGUtN2EwZDAzZWNkOGZmIn0.lT6mzcUJjSuqXgaNbkzaO5KYGc6i1I5zdH4ggY6vIzQWEwlbrwNmy1FSpZv6L0zGadWyeNo_NQTE1v6ugEN35LNR73pJe4fRzxuNRREt6vLysOB4eXD6iAILYqH4bpTo7n3R-1ce7qFyi5hNNulBA2DSoqyIgJZFrYnX8JeOkPP8qcGxaCGXIyrIsHHu6rVVqZNLRV34C1JFbyX9CTjNo_JIf-e3nTXOoaazFvXxn8B4XcEAOspOVHRdSlyDX8nhgh3hgGCNCw--oTTzWVg0KRP8Y9wmzI0nsC5_xsdvybSUIY5U1jvWS2KnCw9JgbRNvE72q2w7woW5WAMpEvuLcw\",\n        \"refresh_token\": \"eyJjdHkiOiJKV1QiLCJlbmMiOiJBMjU2R0NNIiwiYWxnIjoiUlNBLU9BRVAifQ.JEYtNg95Mn7UdqWpYfzZP3TTww_Q6gDqVn5ak6Fk18_E2aF_XyVJcmI7WSpMLzpXZHsajdp1BksXTYtPBWkmmEOkYzMygCZI-kvi84NZXUMzhMuYhUdnQ_v5l1Wj5ATaIW7dXutAEmAk--gc4onP2fizvJPHlZJLtLMYohHIpOdMn37YByPNmJjlo1oSqfRyNoDhrYoq0xC3X3x7L4GzsnpryyAZwdH9ue87WqWGg7LtvoeHwfOoAVyWh6nf_NGRUcrtduLrUx1f8SPtmykvXwDGjJSkQVKbdt7AP5ZSqcfp4xq1u8q5hziqbHv6l8clhbuGDDC_xNklLyVcKIcC2g.5bnD1uUe0ZKwVXvK.wXLgLkRVo5XVNBePSZPQwo2LU_sBHXLCHP9Yj4T3_RNIg-k6678AWmHEO9iT7v3_z3OtqAYh_pG3Gok6h2fBRrDZPBKTUmWNl0gfM8qDzM8IDzrRXUJloknsZ_kqiWRa1UQgBEwlDdlnxBdj_5stNndeCrhi3UQ9UXXAGOqkc2JBje2tBg7rJ6IDTzBdS5JsKyol6_l5PFuWrXtl9P24k1U_nQn8FfrxNzGFkWypTW7w7DG7KpgzPqpdtzCk0ITKZsN3q8DK1QTP7D8ULjHq6A3BqtZb0wR-6EIjT_1NzUoDswqzmoLIFhGaEgG5Lk63uE43_TxW7t_0yWuukop-v016VciMX5baoK8e8pRQqYoUlalkyyeJtZHftGGPtyW7amlMCBqh6o_AxpRmkpn0kelhnQfpnYZgzG0XtXXrVd8kVndGgGYbi6QD2g-SSED4vmjwDapPcnhL90ywbKuMB8Ty1jwdDLflS_YQzBr1YNQo339SFqEcZbQVGlenPx3RLKSMPrF9pScDXpJjYeOpvGNub_xfeZHolHlHD3Mzu9JExqDXl3ZCVgP0BKQFS_TW3cGZ6GIbzILjFKHz3hBlHEgjoYinRRvfvUMs5KMOpjQLeJvSLttvQCPkGIJLfD5bs9NbUPXVEiG2qP7crhC_dfmhenlGiJko-LVLFLO09iwSGTm22iS2cA37AQyRXLwrwC_vFtu9cbPZ7EX2DYNp8Qx25PKkG3Fw2qqUhP05zJTYsel7CHPcAfKJbpTlrszPjYc-VNaQp06yie7JBhHlEGSMu0KWiEEGTL8FRj0n1dM1uFdYlGt-5PzQC2lNMlWfiVOOVXVKUBcyjt1jaN6FsKZuyVUIjM8yOEkwMlobf0LAaQCbZJO33TmFcP2p0v1aVhMGZvdrFh6S53MTCgHAuwT7cGEKDnP2PdyT0XygVHc5h0fqeMvyHKcv1QfHdorhM6Oy1H1nEd8Zl67FRSLZtOOv-Boqnv--urs3ZCCIyuDgzWasqhCj7iVFUtuOY74AcKVM9woV4bmKRfajJnbO_if8tQJscHasQ4zKOJEadHi2_zoGB9ZH6fR706jfEE7G0txN_I-vMQe52mEr0UgdFusW-59sC4ZLcKP5_3F51p847mkZzPS1eyf7-hkpG9-YWbWC8spN5qti5-V-IuHNTx-jInV6w2eTVcnpgT61HdltkxdXr7yspx6AkT_l_uv1PvJ8aDXd2UHOzKNs1GpmKl4VjZK6d41nojXd0qilLtZNn21M3AwySVkMeGIoRwRjSwz8QkhAuZBUusCaxVUmINvaCkOX_CgDbKf0te1gOzi6V8jlcGyVZTsO_F93cLI.6Kj7lMpN3vQXxICRNNjnpg\",\n        \"id_token\": \"eyJraWQiOiJkRDErSHZvK3RzN2NRZEtzeHBYVHBOaTBlbG5xamVEdlpnTjFSdWNRdk1JPSIsImFsZyI6IlJTMjU2In0.eyJzdWIiOiJhMWYwYjU1MC03MDAxLTcwNjQtYWVkZS03YTBkMDNlY2Q4ZmYiLCJlbWFpbF92ZXJpZmllZCI6dHJ1ZSwiaXNzIjoiaHR0cHM6XC9cL2NvZ25pdG8taWRwLm1lLXNvdXRoLTEuYW1hem9uYXdzLmNvbVwvbWUtc291dGgtMV9ydnkzUFI2WXEiLCJwaG9uZV9udW1iZXJfdmVyaWZpZWQiOnRydWUsImNvZ25pdG86dXNlcm5hbWUiOiJhMWYwYjU1MC03MDAxLTcwNjQtYWVkZS03YTBkMDNlY2Q4ZmYiLCJvcmlnaW5fanRpIjoiNjdmOGM4ZDAtMDQxMy00NTEyLThmYTMtM2Q3YThlNmJlODU3IiwiYXVkIjoiNzM2OTZiNmQ3NTNwdHBwcDAyYm5jcHQ1NGwiLCJldmVudF9pZCI6IjJlYjc1ODA3LWY4NTQtNDNlNi04ODljLWQwN2JlOTY3ZTZlYSIsInRva2VuX3VzZSI6ImlkIiwiYXV0aF90aW1lIjoxNzczMTQwNDU4LCJuYW1lIjoicmVqZWN0IGFnZW50IiwicGhvbmVfbnVtYmVyIjoiKzkxODk3NjUzNDM0NyIsImV4cCI6MTc3MzE0NDA1OCwiaWF0IjoxNzczMTQwNDU4LCJqdGkiOiI2ZGY5ZTkxZC1lN2MzLTQ2YTktYWVmMS1mN2RkZDYyMjI4ODYiLCJlbWFpbCI6ImFnZW50QHlvcG1haWwuY29tIn0.FGgtE_j-HF9Av7BzVs6P0f3JkjmNtcj9VxSG5wp3tPvcv8VejA9-RjcoLL106K0ipgqNIWUX46V89mQNQOE0HGTF1HkACCtMPSKGogCgzl-2c5qJKYIfygJI8Um80SjbYPtp9RdiS1Jzax4L4sssWPUVs4sbrWCAc0YTqAYyIBsXJd0MKt3ayYGYl1fXY646cFkB6hGPqXqVz1KMJroXwO7GW4LRQlNoheCW5EvS14Rp62G-Dt4dsgrVGFXOvwk_SyhZqVGKa75ICeDGBGgSDsDqt_ovkiNiFTC4IFzxMwClVEREm1-7UgPNZ53FwMMyqs_1KAklPQdLeEhCnKqMyA\",\n        \"token_type\": \"Bearer\",\n        \"expires_in\": 3600\n    },\n    \"message\": \"Login successful\",\n    \"error\": null\n}"
+        }
+      ]
     },
     {
       "name": "12. Admin Sign Up",
@@ -3074,6 +3354,142 @@
         }
       },
       "response": []
+    },
+    {
+      "name": "set password",
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "eyJraWQiOiJSdEMyWUdwMm5ONWFhOVI1RVQrNGRqVlJzQjA2N2k2aUJKVlUxRkJhU1BFPSIsImFsZyI6IlJTMjU2In0.eyJzdWIiOiJhMWYwYjU1MC03MDAxLTcwNjQtYWVkZS03YTBkMDNlY2Q4ZmYiLCJpc3MiOiJodHRwczpcL1wvY29nbml0by1pZHAubWUtc291dGgtMS5hbWF6b25hd3MuY29tXC9tZS1zb3V0aC0xX3J2eTNQUjZZcSIsImNsaWVudF9pZCI6IjczNjk2YjZkNzUzcHRwcHAwMmJuY3B0NTRsIiwib3JpZ2luX2p0aSI6ImQzYjA5MTcxLTdlZTEtNDFiYS04ZTkyLTMwOTNjZDliNWM5NCIsImV2ZW50X2lkIjoiMmUyNGUxMzctYjc3Zi00MTY5LThiZjItMGI5ZTIyMjRhNjAyIiwidG9rZW5fdXNlIjoiYWNjZXNzIiwic2NvcGUiOiJhd3MuY29nbml0by5zaWduaW4udXNlci5hZG1pbiIsImF1dGhfdGltZSI6MTc3MzE0MTk1MiwiZXhwIjoxNzczMTQ1NTUyLCJpYXQiOjE3NzMxNDE5NTIsImp0aSI6Ijk3NzVlNDAxLTZkZWUtNDZiYi04MjkzLTM2ZTIxODFiMDI1OCIsInVzZXJuYW1lIjoiYTFmMGI1NTAtNzAwMS03MDY0LWFlZGUtN2EwZDAzZWNkOGZmIn0.Em78_69MxYW_WgpQevx4VGwpOUeSuuHWTYnFlxZS33pPLcUYBlKsO8h3uqhf7Fm27J51O51Anyw-KJyCsx7xQzvQtzaq_q5pKvgIzhH4Uihn1BMtLoQ69JxW3NBS5-mtd-jK_S1Qzg2Vzie_c8ixGrFtV4U5HIsR1xM_J2rI4u1rtTyFIs0yCebp_wnziEExwjV7vRgZ4_Wygbv0K8jxR18KXDKkMjXxLSVFItm6U_gz7hiOyAIWWimZfG3SZiRcLzZxiVL6WxQcQPK1vShZXMAGtf9eXNPhAQ1OaQe-F7pHvB5XOE45RCtkEL01plGLwUHz-j5nQRRri8rwtaex2Q",
+              "type": "string"
+            }
+          ]
+        },
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "// {\n//   \"password\": \"Spring@2026\"\n// }\n\n{\n  \"password\": \"Spring@2026\",\n  \"previous_password\": \"Spring@2025\"\n}\n"
+        },
+        "url": {
+          "raw": "{{base_url}}/auth/set-password",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "auth",
+            "set-password"
+          ]
+        }
+      },
+      "response": [
+        {
+          "name": "Agent created without password (OTP login first)",
+          "originalRequest": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"password\": \"Spring@2026\"\n}\n"
+            },
+            "url": {
+              "raw": "{{base_url}}/auth/set-password",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "auth",
+                "set-password"
+              ]
+            }
+          },
+          "status": "OK",
+          "code": 200,
+          "_postman_previewlanguage": null,
+          "header": [
+            {
+              "key": "date",
+              "value": "Tue, 10 Mar 2026 11:19:26 GMT"
+            },
+            {
+              "key": "server",
+              "value": "uvicorn"
+            },
+            {
+              "key": "content-length",
+              "value": "81"
+            },
+            {
+              "key": "content-type",
+              "value": "application/json"
+            }
+          ],
+          "cookie": [],
+          "body": "{\n    \"success\": true,\n    \"data\": true,\n    \"message\": \"Password reset successfully\",\n    \"error\": null\n}"
+        },
+        {
+          "name": "User already has a password",
+          "originalRequest": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "// {\n//   \"password\": \"Spring@2026\"\n// }\n\n{\n  \"password\": \"Spring@2026\",\n  \"previous_password\": \"Spring@2025\"\n}\n"
+            },
+            "url": {
+              "raw": "{{base_url}}/auth/set-password",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "auth",
+                "set-password"
+              ]
+            }
+          },
+          "status": "OK",
+          "code": 200,
+          "_postman_previewlanguage": null,
+          "header": [
+            {
+              "key": "date",
+              "value": "Tue, 10 Mar 2026 11:26:47 GMT"
+            },
+            {
+              "key": "server",
+              "value": "uvicorn"
+            },
+            {
+              "key": "content-length",
+              "value": "81"
+            },
+            {
+              "key": "content-type",
+              "value": "application/json"
+            }
+          ],
+          "cookie": [],
+          "body": "{\n    \"success\": true,\n    \"data\": true,\n    \"message\": \"Password reset successfully\",\n    \"error\": null\n}"
+        }
+      ]
     }
   ],
   "variable": [

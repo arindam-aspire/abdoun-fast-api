@@ -5,7 +5,7 @@ from sqlalchemy import select
 from app.core.config import get_settings
 from app.db.session import get_db
 from app.services.cognito import cognito_service
-from app.schemas.user import UserCreate, LoginRequest, TokenResponse, OTPRequest, OTPVerify, RefreshRequest, ForgotPasswordRequest, ForgotPasswordConfirm, ConfirmSignupRequest, ResendConfirmationRequest, UserResponse, PermissionsResponse
+from app.schemas.user import UserCreate, LoginRequest, TokenResponse, OTPRequest, OTPVerify, RefreshRequest, ForgotPasswordRequest, ForgotPasswordConfirm, ConfirmSignupRequest, ResendConfirmationRequest, UserResponse, PermissionsResponse, SetPasswordRequest
 from app.models.user import User, Role
 from app.utils.responses import StandardResponse, create_success_response
 from app.api.v1.deps.security import get_current_user, get_user_permissions, require_permission, security
@@ -269,6 +269,63 @@ def forgot_password_confirm(fp_conf: ForgotPasswordConfirm):
     try:
         cognito_service.forgot_password_confirm(fp_conf.email, fp_conf.code, fp_conf.new_password)
         return create_success_response(data=True, message=SuccessMessages.PASSWORD_RESET_SUCCESS)
+    except Exception as e:
+        server_error = format_log_message(ErrorMessages.COGNITO_ERROR, error=str(e))
+        raise HTTPException(status_code=HTTPStatus.BAD_REQUEST, detail=server_error)
+
+@router.post("/set-password", response_model=StandardResponse[bool])
+def set_password(
+    password_req: SetPasswordRequest,
+    current_user: User = Depends(get_current_user),
+    auth: HTTPAuthorizationCredentials = Depends(security),
+    db: Session = Depends(get_db)
+):
+    """
+    Set or change password for the authenticated user.
+    
+    For agents created without a password (via admin approval), this sets their initial password.
+    For users with existing passwords, previous_password must be provided.
+    
+    Requires Bearer token in Authorization header.
+    """
+    try:
+        access_token = auth.credentials
+        previous_password = password_req.previous_password or ""
+        
+        cognito_service.change_password(
+            access_token=access_token,
+            previous_password=previous_password,
+            proposed_password=password_req.password
+        )
+        
+        # Update password_set_at in agent profile if user is an agent
+        if hasattr(current_user, 'profile') and current_user.profile:
+            from datetime import datetime
+            try:
+                # Refresh the profile to ensure we have the latest version
+                db.refresh(current_user.profile)
+                current_user.profile.password_set_at = datetime.now()
+                db.commit()
+            except Exception as db_error:
+                db.rollback()
+                api_logger.warning(f"Failed to update password_set_at: {str(db_error)}")
+        
+        api_logger.info(format_log_message(LogMessages.Auth.PASSWORD_RESET_SUCCESS, email=current_user.email))
+        return create_success_response(data=True, message=SuccessMessages.PASSWORD_RESET_SUCCESS)
+    except ClientError as e:
+        error_code = e.response.get("Error", {}).get("Code", "")
+        if error_code == "NotAuthorizedException":
+            raise HTTPException(
+                status_code=HTTPStatus.UNAUTHORIZED,
+                detail="Invalid previous password or insufficient permissions"
+            )
+        if error_code == "InvalidPasswordException":
+            raise HTTPException(
+                status_code=HTTPStatus.BAD_REQUEST,
+                detail="Password does not meet requirements"
+            )
+        server_error = format_log_message(ErrorMessages.COGNITO_ERROR, error=str(e))
+        raise HTTPException(status_code=HTTPStatus.BAD_REQUEST, detail=server_error)
     except Exception as e:
         server_error = format_log_message(ErrorMessages.COGNITO_ERROR, error=str(e))
         raise HTTPException(status_code=HTTPStatus.BAD_REQUEST, detail=server_error)

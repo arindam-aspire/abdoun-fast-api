@@ -5,7 +5,7 @@ import secrets
 import boto3
 import requests
 from jose import jwt
-from botocore.exceptions import ClientError
+from botocore.exceptions import ClientError, NoCredentialsError, BotoCoreError
 from typing import Optional, Dict, Any, List
 
 from app.core.config import get_settings
@@ -17,7 +17,15 @@ settings = get_settings()
 
 class CognitoService:
     def __init__(self):
-        self.client = boto3.client("cognito-idp", region_name=settings.cognito_region)
+        # Initialize boto3 client with credentials if provided, otherwise use default credential chain
+        client_kwargs = {"region_name": settings.cognito_region}
+        if settings.aws_access_key_id and settings.aws_secret_access_key:
+            client_kwargs.update({
+                "aws_access_key_id": settings.aws_access_key_id,
+                "aws_secret_access_key": settings.aws_secret_access_key
+            })
+        
+        self.client = boto3.client("cognito-idp", **client_kwargs)
         self.user_pool_id = settings.cognito_user_pool_id
         self.client_id = settings.cognito_client_id
         self.client_secret = settings.cognito_client_secret
@@ -58,9 +66,35 @@ class CognitoService:
             api_logger.error(format_log_message(LogMessages.Auth.SIGNUP_FAILED, email=email, error=str(e)))
             raise e
 
-    def admin_create_user(self, email: str, full_name: str, phone_number: str) -> Dict[str, Any]:
-        """Create a user with AdminPrivileges, useful for OTP-only users or pre-registering agents."""
+    def create_agent_user(self, email: str, full_name: str, phone_number: str) -> Dict[str, Any]:
+        """
+        Create a Cognito user for an agent without a password (OTP-only authentication).
+        
+        This is used when an admin approves an agent during the onboarding flow. The user is created with:
+        - No password (agents login via OTP)
+        - Email and phone verified
+        - MessageAction="SUPPRESS" to prevent Cognito from sending welcome emails
+        
+        Note: This uses admin_create_user which requires AWS credentials with admin permissions.
+        Unlike sign_up() which is a public API, this requires proper AWS IAM credentials.
+        
+        Args:
+            email: Agent's email address
+            full_name: Agent's full name
+            phone_number: Agent's phone number in E.164 format
+            
+        Returns:
+            Dict containing Cognito user creation response with "User" key containing "Username" (cognito_sub)
+            
+        Raises:
+            ClientError: If Cognito API call fails (except NoCredentialsError which is handled gracefully)
+            NoCredentialsError: If AWS credentials are not configured (allows agent approval to proceed)
+        """
         try:
+            # Verify we have the required configuration
+            if not self.user_pool_id or not self.user_pool_id.strip():
+                raise ValueError("COGNITO_USER_POOL_ID is not configured")
+            
             response = self.client.admin_create_user(
                 UserPoolId=self.user_pool_id,
                 Username=email,
@@ -75,7 +109,42 @@ class CognitoService:
             )
             api_logger.info(format_log_message(LogMessages.Auth.SIGNUP_SUCCESS, email=email))
             return response
+        except NoCredentialsError as e:
+            # AWS credentials not configured - allow agent approval to proceed
+            api_logger.warning(
+                format_log_message(
+                    LogMessages.Auth.SIGNUP_FAILED,
+                    email=email,
+                    error=f"AWS credentials not configured: {str(e)}"
+                ) + " - Agent approval will proceed but Cognito user not created. Note: admin_create_user requires AWS credentials, unlike sign_up() which is a public API."
+            )
+            raise e  # Re-raise to allow caller to handle gracefully
         except ClientError as e:
+            error_code = e.response.get("Error", {}).get("Code", "") if hasattr(e, 'response') else ""
+            if error_code == "UsernameExistsException":
+                # User already exists in Cognito - this is okay, we can still proceed
+                api_logger.warning(
+                    format_log_message(
+                        LogMessages.Auth.SIGNUP_FAILED,
+                        email=email,
+                        error=f"User already exists in Cognito: {str(e)}"
+                    ) + " - This is expected if user was created via signup. Agent approval will proceed."
+                )
+                # Try to get the existing user's username (sub)
+                try:
+                    user_info = self.client.admin_get_user(
+                        UserPoolId=self.user_pool_id,
+                        Username=email
+                    )
+                    # Return a response in the expected format
+                    return {
+                        "User": {
+                            "Username": user_info.get("Username", email)
+                        }
+                    }
+                except Exception:
+                    # If we can't get user info, still raise the original error
+                    raise e
             api_logger.error(format_log_message(LogMessages.Auth.SIGNUP_FAILED, email=email, error=str(e)))
             raise e
             
@@ -88,7 +157,11 @@ class CognitoService:
             )
             attrs = {a["Name"]: a["Value"] for a in response.get("UserAttributes", [])}
             return attrs
-        except ClientError as e:
+        except (ClientError, NoCredentialsError, BotoCoreError) as e:
+            api_logger.warning(format_log_message(LogMessages.Auth.TOKEN_VERIFICATION_FAILED, error=str(e)))
+            return None
+        except Exception as e:
+            # Catch any other unexpected exceptions
             api_logger.warning(format_log_message(LogMessages.Auth.TOKEN_VERIFICATION_FAILED, error=str(e)))
             return None
 
@@ -264,6 +337,66 @@ class CognitoService:
             return True
         except ClientError as e:
             api_logger.error(format_log_message(LogMessages.Auth.PASSWORD_RESET_FAILED, email=email, error=str(e)))
+            raise e
+
+    def change_password(self, access_token: str, previous_password: str, proposed_password: str) -> bool:
+        """
+        Change password for an authenticated user.
+        
+        Args:
+            access_token: The user's current access token (from Bearer header)
+            previous_password: Current password (can be empty string for users without password)
+            proposed_password: New password to set
+            
+        Returns:
+            bool: True if password change successful
+            
+        Raises:
+            ClientError: If Cognito API call fails
+        """
+        try:
+            # For users without a password (created via create_agent_user), previous_password can be empty
+            # Cognito's change_password requires previous_password, but for users without password,
+            # we need to use admin_set_user_password instead
+            # However, change_password works if the user has logged in via OTP and has a session
+            
+            # Try change_password first (for users who have a password)
+            if previous_password:
+                self.client.change_password(
+                    PreviousPassword=previous_password,
+                    ProposedPassword=proposed_password,
+                    AccessToken=access_token
+                )
+            else:
+                # For users without password, use admin_set_user_password
+                # Extract username from access token
+                from jose import jwt
+                try:
+                    # Decode without verification to get username/sub
+                    unverified = jwt.get_unverified_claims(access_token)
+                    # The 'sub' field in the token is the Cognito username
+                    username = unverified.get("sub") or unverified.get("username")
+                    
+                    if not username:
+                        raise ValueError("Cannot extract username from access token")
+                    
+                    self.client.admin_set_user_password(
+                        UserPoolId=self.user_pool_id,
+                        Username=username,
+                        Password=proposed_password,
+                        Permanent=True
+                    )
+                except (ValueError, KeyError, Exception) as decode_error:
+                    api_logger.error(f"Failed to extract username from token: {str(decode_error)}")
+                    raise ClientError(
+                        {"Error": {"Code": "InvalidParameterException", "Message": f"Cannot extract username from token: {str(decode_error)}"}},
+                        "change_password"
+                    )
+            
+            api_logger.info(format_log_message(LogMessages.Auth.PASSWORD_RESET_SUCCESS, email="user"))
+            return True
+        except ClientError as e:
+            api_logger.error(format_log_message(LogMessages.Auth.PASSWORD_RESET_FAILED, email="user", error=str(e)))
             raise e
 
     def get_social_login_url(self, provider: str) -> str:
