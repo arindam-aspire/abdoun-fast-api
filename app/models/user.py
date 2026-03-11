@@ -133,16 +133,16 @@ class AgentProfile(Base):
     form_submitted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     password_set_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     decline_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    status_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     deleted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     deleted_by: Mapped[Optional[uuid.UUID]] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
-    status: Mapped[str] = mapped_column(String(20), default="INVITED", index=True)  # INVITED, PENDING_REVIEW, APPROVED, DECLINED, ACTIVE, SUSPENDED
-
+    status: Mapped[str] = mapped_column(String(20), default="INVITED", index=True)  # INVITED, PENDING_REVIEW, APPROVED, DECLINED, ACTIVE,INACTIVE,DELETED
     user: Mapped["User"] = relationship("User", back_populates="profile", foreign_keys=[user_id])
-    approver: Mapped[Optional["User"]] = relationship("User", foreign_keys=[approved_by])
-    reviewer: Mapped[Optional["User"]] = relationship("User", foreign_keys=[reviewed_by])
-    deleter: Mapped[Optional["User"]] = relationship("User", foreign_keys=[deleted_by])
+    approved_by_user: Mapped[Optional["User"]] = relationship("User", foreign_keys=[approved_by])
+    reviewed_by_user: Mapped[Optional["User"]] = relationship("User", foreign_keys=[reviewed_by])
+    deleted_by_user: Mapped[Optional["User"]] = relationship("User", foreign_keys=[deleted_by])
 
 
 class AgentInvite(Base):

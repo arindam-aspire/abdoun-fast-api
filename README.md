@@ -964,8 +964,8 @@ SELECT
     aaa.assigned_at,
     aaa.revoked_at,
     CASE 
-        WHEN aaa.is_active = true AND aaa.revoked_at IS NULL THEN 'ACTIVE ✓'
-        ELSE 'INACTIVE/REVOKED ✗'
+        WHEN aaa.is_active = true AND aaa.revoked_at IS NULL THEN 'ACTIVE'
+        ELSE 'INACTIVE/REVOKED'
     END AS status
 FROM admin_agent_assignments aaa
 LEFT JOIN users admin_user ON aaa.admin_id = admin_user.id

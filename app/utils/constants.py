@@ -65,6 +65,8 @@ class ErrorMessages:
     INVITE_NOT_FOUND = "Invitation not found or expired"
     ALREADY_SUBMITTED = "You have already submitted your application"
     INVALID_STATUS_TRANSITION = "Agent must be in PENDING_REVIEW status to accept"
+    INVALID_AGENT_STATUS = "Invalid agent status"
+    INVALID_AGENT_STATUS_TRANSITION = "Invalid agent status transition"
     REASON_REQUIRED = "A decline reason is required"
     AGENT_NOT_FOUND = "Agent not found"
     ALREADY_DELETED = "This agent has already been deleted"
@@ -81,15 +83,15 @@ class ErrorMessages:
 # Validation messages (Pydantic/schema validators — shown to API clients on validation failure)
 class ValidationMessages:
     """Validation error messages used in request schemas"""
-    PHONE_E164 = "Phone number must be in E.164 format (e.g., +1234567890)"
+    PHONE_E164 = "Phone number must be in international format (e.g., +00 000000000)"
     PASSWORD_MIN_LENGTH = "Password must be at least 8 characters long"
     PASSWORD_UPPERCASE = "Password must have at least one uppercase letter"
     PASSWORD_LOWERCASE = "Password must have at least one lowercase letter"
     PASSWORD_NUMBER = "Password must have at least one number"
     PASSWORD_SPECIAL = "Password must have at least one special character"
     INVALID_EMAIL_FORMAT = "Invalid email format"
-    USERNAME_EMAIL_OR_PHONE = "Username must be a valid email or phone number (+1234567890)"
-    USERNAME_EMAIL_OR_E164 = "Username must be a valid email or E.164 phone (e.g. +1234567890)"
+    USERNAME_EMAIL_OR_PHONE = "Username must be a valid email or phone number (+00 000000000)"
+    USERNAME_EMAIL_OR_E164 = "Username must be a valid email or phone (e.g. +00 000000000)"
 
 
 # Success Messages
@@ -119,6 +121,7 @@ class SuccessMessages:
     AGENT_INVITED = "Agent invitation sent successfully"
     AGENT_REGISTERED = "Agent registered successfully"
     AGENT_APPROVED = "Agent approved successfully"
+    AGENT_STATUS_UPDATED = "Agent status updated successfully"
     AGENT_ASSIGNED = "Agent assigned successfully"
     INVITE_VALID = "Invitation token is valid"
     REGISTRATION_PENDING = "Registration successful, pending admin approval"
@@ -229,7 +232,8 @@ class AgentStatus:
     APPROVED = "APPROVED"
     DECLINED = "DECLINED"
     ACTIVE = "ACTIVE"
-    SUSPENDED = "SUSPENDED"
+    INACTIVE = "INACTIVE"
+    DELETED = "DELETED"
     # Legacy statuses for backward compatibility
     PENDING = "pending"
     REJECTED = "rejected"

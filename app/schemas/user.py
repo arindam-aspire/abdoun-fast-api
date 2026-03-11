@@ -1,10 +1,22 @@
 import uuid
 import re
 from datetime import datetime
+from enum import Enum
 from typing import List, Optional
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
-from app.utils.constants import ValidationMessages
+from app.utils.constants import ValidationMessages, AgentStatus
+
+
+class AgentStatusEnum(str, Enum):
+    """Enum for agent status fields used in schemas."""
+    INVITED = AgentStatus.INVITED
+    PENDING_REVIEW = AgentStatus.PENDING_REVIEW
+    APPROVED = AgentStatus.APPROVED
+    DECLINED = AgentStatus.DECLINED
+    ACTIVE = AgentStatus.ACTIVE
+    INACTIVE = AgentStatus.INACTIVE
+    DELETED = AgentStatus.DELETED
 
 # E.164 phone format for validation reuse
 PHONE_E164_REGEX = r"^\+[1-9]\d{1,14}$"
@@ -214,7 +226,7 @@ class AdminAgentAssignmentResponse(BaseModel):
     can_inherit_privileges: bool
     assigned_at: datetime
     revoked_at: Optional[datetime] = None
-    status: str  # "ACTIVE ✓" or "INACTIVE/REVOKED ✗"
+    status: str  # "ACTIVE" or "INACTIVE/REVOKED" (not an AgentStatus enum)
 
     model_config = {"from_attributes": True}
 
@@ -230,7 +242,7 @@ class AgentInviteResponse(BaseModel):
     """Response after inviting an agent"""
     id: uuid.UUID
     email: str
-    status: str
+    status: AgentStatusEnum
     inviteLink: str
     invitedAt: datetime
     invitedBy: Optional[str] = None
@@ -255,7 +267,7 @@ class AgentOnboardingFormRequest(BaseModel):
 class AgentOnboardingFormResponse(BaseModel):
     """Response after submitting onboarding form"""
     email: str
-    status: str
+    status: AgentStatusEnum
     formSubmittedAt: datetime
 
     model_config = {"from_attributes": True}
@@ -264,7 +276,7 @@ class AgentOnboardingFormResponse(BaseModel):
 class AgentValidateInviteResponse(BaseModel):
     """Response when validating invite token"""
     email: str
-    status: str
+    status: AgentStatusEnum
     alreadySubmitted: bool
 
 
@@ -275,7 +287,7 @@ class AgentListResponse(BaseModel):
     fullName: Optional[str] = None
     phone: Optional[str] = None
     serviceArea: Optional[str] = None
-    status: str
+    status: AgentStatusEnum
     invitedAt: Optional[datetime] = None
     invitedBy: Optional[str] = None
     formSubmittedAt: Optional[datetime] = None
@@ -292,7 +304,7 @@ class AgentDetailResponse(BaseModel):
     fullName: Optional[str] = None
     phone: Optional[str] = None
     serviceArea: Optional[str] = None
-    status: str
+    status: AgentStatusEnum
     invitedAt: Optional[datetime] = None
     invitedBy: Optional[str] = None
     formSubmittedAt: Optional[datetime] = None
@@ -312,7 +324,7 @@ class AgentAcceptRequest(BaseModel):
 class AgentAcceptResponse(BaseModel):
     """Response after accepting an agent"""
     id: uuid.UUID
-    status: str
+    status: AgentStatusEnum
     reviewedAt: datetime
     reviewedBy: uuid.UUID
 
@@ -327,7 +339,7 @@ class AgentDeclineRequest(BaseModel):
 class AgentDeclineResponse(BaseModel):
     """Response after declining an agent"""
     id: uuid.UUID
-    status: str
+    status: AgentStatusEnum
     declineReason: str
     reviewedAt: datetime
     reviewedBy: uuid.UUID
@@ -335,10 +347,25 @@ class AgentDeclineResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class AgentStatusUpdateRequest(BaseModel):
+    """Request to update an agent's status (admin-only)."""
+    status: AgentStatusEnum
+    reason: Optional[str] = None
+
+
+class AgentStatusUpdateResponse(BaseModel):
+    """Response after updating an agent's status."""
+    id: uuid.UUID
+    status: AgentStatusEnum
+    statusReason: Optional[str] = None
+
+    model_config = {"from_attributes": True}
+
+
 class AgentDeleteResponse(BaseModel):
     """Response after soft deleting an agent"""
     id: uuid.UUID
-    status: str
+    status: AgentStatusEnum
     deletedAt: datetime
     deletedBy: uuid.UUID
 
@@ -413,7 +440,7 @@ class AgentOnboardingFormResponse(BaseModel):
 class AgentValidateInviteResponse(BaseModel):
     """Response when validating invite token"""
     email: str
-    status: str
+    status: AgentStatusEnum
     alreadySubmitted: bool
 
 
@@ -424,7 +451,7 @@ class AgentListResponse(BaseModel):
     fullName: Optional[str] = None
     phone: Optional[str] = None
     serviceArea: Optional[str] = None
-    status: str
+    status: AgentStatusEnum
     invitedAt: Optional[datetime] = None
     invitedBy: Optional[str] = None
     formSubmittedAt: Optional[datetime] = None
@@ -441,7 +468,7 @@ class AgentDetailResponse(BaseModel):
     fullName: Optional[str] = None
     phone: Optional[str] = None
     serviceArea: Optional[str] = None
-    status: str
+    status: AgentStatusEnum
     invitedAt: Optional[datetime] = None
     invitedBy: Optional[str] = None
     formSubmittedAt: Optional[datetime] = None
@@ -473,7 +500,7 @@ class AgentAcceptRequest(BaseModel):
 class AgentAcceptResponse(BaseModel):
     """Response after accepting an agent"""
     id: uuid.UUID
-    status: str
+    status: AgentStatusEnum
     reviewedAt: datetime
     reviewedBy: uuid.UUID
 
@@ -488,7 +515,7 @@ class AgentDeclineRequest(BaseModel):
 class AgentDeclineResponse(BaseModel):
     """Response after declining an agent"""
     id: uuid.UUID
-    status: str
+    status: AgentStatusEnum
     declineReason: str
     reviewedAt: datetime
     reviewedBy: uuid.UUID
@@ -499,7 +526,7 @@ class AgentDeclineResponse(BaseModel):
 class AgentDeleteResponse(BaseModel):
     """Response after soft deleting an agent"""
     id: uuid.UUID
-    status: str
+    status: AgentStatusEnum
     deletedAt: datetime
     deletedBy: uuid.UUID
 

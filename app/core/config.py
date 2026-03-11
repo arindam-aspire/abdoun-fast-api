@@ -60,7 +60,7 @@ class Settings(BaseModel):
 
     cors_origins: list[str] = _parse_csv_env(
         "CORS_ORIGINS",
-        "http://localhost:3000,http://127.0.0.1:3000",
+        "*",
     )
     cors_allow_credentials: bool = os.getenv("CORS_ALLOW_CREDENTIALS", "true").lower() == "true"
     # When credentials=True, CORS spec forbids "*" for methods/headers; use explicit lists.

@@ -14,11 +14,23 @@ from app.core.auth import get_current_user
 from app.core.permissions import require_role, require_permission
 from app.models.user import User, Role, AgentInvite, AgentProfile, AdminAgentAssignment
 from app.schemas.user import (
-    AgentInviteRequest, AdminAgentAssignmentRequest, AdminAgentAssignmentResponse,
-    AgentOnboardingFormRequest, AgentOnboardingFormResponse, AgentValidateInviteResponse,
-    AgentListResponse, AgentDetailResponse, AgentInviteResponse, AgentAcceptRequest,
-    AgentAcceptResponse, AgentDeclineResponse, AgentDeleteResponse,
-    AgentListPaginatedResponse, PaginationInfo
+    AgentInviteRequest,
+    AdminAgentAssignmentRequest,
+    AdminAgentAssignmentResponse,
+    AgentOnboardingFormRequest,
+    AgentOnboardingFormResponse,
+    AgentValidateInviteResponse,
+    AgentListResponse,
+    AgentDetailResponse,
+    AgentInviteResponse,
+    AgentAcceptRequest,
+    AgentAcceptResponse,
+    AgentDeclineResponse,
+    AgentDeleteResponse,
+    AgentListPaginatedResponse,
+    PaginationInfo,
+    AgentStatusUpdateRequest,
+    AgentStatusUpdateResponse,
 )
 from app.utils.responses import StandardResponse, create_success_response
 from app.utils.constants import SuccessMessages, ErrorMessages, InfoMessages, UserRoles, UserPermissions, AgentStatus
@@ -104,9 +116,9 @@ def invite_agent(
         # Create User + AgentProfile with INVITED status if user doesn't exist
         db_user = existing_user
         if not existing_user:
-            # `users.phone_number` is unique/non-null; use a temporary unique placeholder
+            # `users.phone_number` is unique/non-null; use the agreed placeholder
             # until onboarding form submission provides the real number.
-            placeholder_phone = f"+1999{uuid.uuid4().int % 10**8:08d}"
+            placeholder_phone = "+00 000000000"
             db_user = User(
                 email=invite_in.email,
                 full_name="",  # Will be filled when form is submitted
@@ -359,11 +371,11 @@ def get_assignments(
         admin_user = assignment.admin
         agent_user = assignment.agent
         
-        # Determine status
+        # Determine status (plain text, no symbols)
         if assignment.is_active and assignment.revoked_at is None:
-            status = "ACTIVE ✓"
+            status = "ACTIVE"
         else:
-            status = "INACTIVE/REVOKED ✗"
+            status = "INACTIVE/REVOKED"
         
         assignments.append(AdminAgentAssignmentResponse(
             id=assignment.id,
@@ -668,6 +680,99 @@ def decline_agent(
         )
 
 
+@router.patch(
+    "/{agent_id}/status",
+    response_model=StandardResponse[AgentStatusUpdateResponse],
+)
+def update_agent_status(
+    agent_id: uuid.UUID = Path(..., description="Agent ID"),
+    payload: AgentStatusUpdateRequest = Body(...),
+    current_user: User = require_role(UserRoles.ADMIN),
+    db: Session = Depends(get_db),
+):
+    """
+    Admin: Update an agent's status (ACTIVE or INACTIVE) with optional reason.
+
+    - When setting status to INACTIVE, the agent will not be able to perform any actions
+      (their `User.is_active` flag is set to False).
+    - Only an admin can change this back to ACTIVE; agents cannot self-activate.
+    """
+    target_status = payload.status
+    reason = payload.reason
+
+    allowed_statuses = {AgentStatus.ACTIVE, AgentStatus.INACTIVE}
+    if target_status not in allowed_statuses:
+        raise HTTPException(
+            status_code=HTTPStatus.BAD_REQUEST,
+            detail=ErrorMessages.INVALID_AGENT_STATUS,
+        )
+
+    stmt = (
+        select(User, AgentProfile)
+        .join(AgentProfile, User.id == AgentProfile.user_id)
+        .where(User.id == agent_id)
+    )
+    result = db.execute(stmt).first()
+
+    if not result:
+        raise HTTPException(
+            status_code=HTTPStatus.NOT_FOUND,
+            detail=ErrorMessages.AGENT_NOT_FOUND,
+        )
+
+    user, profile = result
+
+    if profile.deleted_at is not None or profile.status == AgentStatus.DELETED:
+        raise HTTPException(
+            status_code=HTTPStatus.BAD_REQUEST,
+            detail=ErrorMessages.ALREADY_DELETED,
+        )
+
+    # Enforce valid transitions
+    current_status = profile.status
+    if current_status == AgentStatus.PENDING_REVIEW:
+        raise HTTPException(
+            status_code=HTTPStatus.BAD_REQUEST,
+            detail=ErrorMessages.INVALID_AGENT_STATUS_TRANSITION,
+        )
+
+    try:
+        if target_status == AgentStatus.INACTIVE:
+            profile.status = AgentStatus.INACTIVE
+            profile.status_reason = reason
+            user.is_active = False
+        elif target_status == AgentStatus.ACTIVE:
+            profile.status = AgentStatus.ACTIVE
+            profile.status_reason = reason
+            user.is_active = True
+
+        db.commit()
+        db.refresh(user)
+        db.refresh(profile)
+
+        return create_success_response(
+            data=AgentStatusUpdateResponse(
+                id=user.id,
+                status=profile.status,
+                statusReason=profile.status_reason,
+            ),
+            message=SuccessMessages.AGENT_STATUS_UPDATED,
+        )
+    except Exception as e:
+        db.rollback()
+        api_logger.error(
+            format_log_message(
+                LogMessages.RBAC.AGENT_STATUS_UPDATE_FAILED,
+                agent_id=str(agent_id),
+                error=str(e),
+            )
+        )
+        raise HTTPException(
+            status_code=HTTPStatus.INTERNAL_SERVER_ERROR,
+            detail=ErrorMessages.INTERNAL_SERVER_ERROR,
+        )
+
+
 @router.delete("/{agent_id}", response_model=StandardResponse[AgentDeleteResponse])
 def delete_agent(
     agent_id: uuid.UUID = Path(..., description="Agent ID"),
@@ -701,7 +806,7 @@ def delete_agent(
     try:
         profile.deleted_at = datetime.now()
         profile.deleted_by = current_user.id
-        profile.status = "DELETED"  # Set status to DELETED
+        profile.status = AgentStatus.DELETED  # Set status to DELETED
         user.is_active = False
         
         db.commit()
