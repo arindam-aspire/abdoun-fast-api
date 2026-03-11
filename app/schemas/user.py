@@ -21,6 +21,13 @@ class AgentStatusEnum(str, Enum):
 # E.164 phone format for validation reuse
 PHONE_E164_REGEX = r"^\+[1-9]\d{1,14}$"
 
+def _normalize_phone(value: str) -> str:
+    v = value.strip()
+    if v.startswith("+"):
+        digits = re.sub(r"\D", "", v[1:])
+        return f"+{digits}"
+    return re.sub(r"\D", "", v)
+
 class PermissionBase(BaseModel):
     code: str
     description: Optional[str] = None
@@ -50,9 +57,10 @@ class UserBase(BaseModel):
     @field_validator("phone_number")
     @classmethod
     def validate_phone(cls, v: str) -> str:
-        if not re.match(PHONE_E164_REGEX, v):
+        normalized = _normalize_phone(v)
+        if not re.match(PHONE_E164_REGEX, normalized):
             raise ValueError(ValidationMessages.PHONE_E164)
-        return v
+        return normalized
 
 class UserCreate(UserBase):
     password: str = Field(..., min_length=8)
@@ -100,9 +108,10 @@ class LoginRequest(BaseModel):
             if not re.match(r"[^@]+@[^@]+\.[^@]+", v):
                 raise ValueError(ValidationMessages.INVALID_EMAIL_FORMAT)
             return v
-        if not re.match(PHONE_E164_REGEX, v):
+        normalized = _normalize_phone(v)
+        if not re.match(PHONE_E164_REGEX, normalized):
             raise ValueError(ValidationMessages.USERNAME_EMAIL_OR_PHONE)
-        return v
+        return normalized
 
 class OTPRequest(BaseModel):
     username: str  # email or phone (E.164 for phone)
@@ -114,9 +123,10 @@ class OTPRequest(BaseModel):
             if not re.match(r"[^@]+@[^@]+\.[^@]+", v):
                 raise ValueError(ValidationMessages.INVALID_EMAIL_FORMAT)
             return v
-        if not re.match(PHONE_E164_REGEX, v):
+        normalized = _normalize_phone(v)
+        if not re.match(PHONE_E164_REGEX, normalized):
             raise ValueError(ValidationMessages.USERNAME_EMAIL_OR_E164)
-        return v
+        return normalized
 
 
 class RefreshRequest(BaseModel):
@@ -136,9 +146,10 @@ class OTPVerify(BaseModel):
             if not re.match(r"[^@]+@[^@]+\.[^@]+", v):
                 raise ValueError(ValidationMessages.INVALID_EMAIL_FORMAT)
             return v
-        if not re.match(PHONE_E164_REGEX, v):
+        normalized = _normalize_phone(v)
+        if not re.match(PHONE_E164_REGEX, normalized):
             raise ValueError(ValidationMessages.USERNAME_EMAIL_OR_E164)
-        return v
+        return normalized
 
 class ForgotPasswordRequest(BaseModel):
     email: EmailStr
@@ -202,9 +213,10 @@ class AgentRegister(BaseModel):
     @field_validator("phone_number")
     @classmethod
     def validate_phone(cls, v: str) -> str:
-        if not re.match(PHONE_E164_REGEX, v):
+        normalized = _normalize_phone(v)
+        if not re.match(PHONE_E164_REGEX, normalized):
             raise ValueError(ValidationMessages.PHONE_E164)
-        return v
+        return normalized
 
 
 class AdminAgentAssignmentRequest(BaseModel):
@@ -259,9 +271,10 @@ class AgentOnboardingFormRequest(BaseModel):
     @field_validator("phone")
     @classmethod
     def validate_phone(cls, v: str) -> str:
-        if not re.match(PHONE_E164_REGEX, v):
+        normalized = _normalize_phone(v)
+        if not re.match(PHONE_E164_REGEX, normalized):
             raise ValueError(ValidationMessages.PHONE_E164)
-        return v
+        return normalized
 
 
 class AgentOnboardingFormResponse(BaseModel):
@@ -397,9 +410,12 @@ class UserUpdate(BaseModel):
     @field_validator("phone_number")
     @classmethod
     def validate_phone(cls, v: Optional[str]) -> Optional[str]:
-        if v is not None and not re.match(PHONE_E164_REGEX, v):
+        if v is None:
+            return v
+        normalized = _normalize_phone(v)
+        if not re.match(PHONE_E164_REGEX, normalized):
             raise ValueError(ValidationMessages.PHONE_E164)
-        return v
+        return normalized
 
 
 class RoleAssignmentRequest(BaseModel):
@@ -423,9 +439,10 @@ class AgentOnboardingFormRequest(BaseModel):
     @field_validator("phone")
     @classmethod
     def validate_phone(cls, v: str) -> str:
-        if not re.match(PHONE_E164_REGEX, v):
+        normalized = _normalize_phone(v)
+        if not re.match(PHONE_E164_REGEX, normalized):
             raise ValueError(ValidationMessages.PHONE_E164)
-        return v
+        return normalized
 
 
 class AgentOnboardingFormResponse(BaseModel):

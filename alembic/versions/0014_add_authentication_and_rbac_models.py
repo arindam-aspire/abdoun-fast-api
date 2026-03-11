@@ -11,6 +11,9 @@ from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
+NOW = sa.text("now()")
+USERS_ID = "users.id"
+
 revision: str = "0014_add_auth_rbac_models"
 down_revision: Union[str, None] = "0013_property_media"
 branch_labels: Union[str, Sequence[str], None] = None
@@ -22,7 +25,7 @@ def upgrade() -> None:
         sa.Column("id", sa.UUID(), nullable=False),
         sa.Column("code", sa.String(length=100), nullable=False),
         sa.Column("description", sa.Text(), nullable=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True), server_default=NOW, nullable=False),
         sa.PrimaryKeyConstraint("id"),
     )
     op.create_index(op.f("ix_permissions_code"), "permissions", ["code"], unique=True)
@@ -30,8 +33,8 @@ def upgrade() -> None:
         sa.Column("id", sa.UUID(), nullable=False),
         sa.Column("name", sa.String(length=50), nullable=False),
         sa.Column("description", sa.Text(), nullable=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True), server_default=NOW, nullable=False),
+        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=NOW, nullable=False),
         sa.PrimaryKeyConstraint("id"),
     )
     op.create_index(op.f("ix_roles_name"), "roles", ["name"], unique=True)
@@ -44,8 +47,8 @@ def upgrade() -> None:
         sa.Column("is_active", sa.Boolean(), nullable=False, server_default=sa.true()),
         sa.Column("is_email_verified", sa.Boolean(), nullable=False, server_default=sa.false()),
         sa.Column("is_phone_verified", sa.Boolean(), nullable=False, server_default=sa.false()),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True), server_default=NOW, nullable=False),
+        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=NOW, nullable=False),
         sa.PrimaryKeyConstraint("id"),
     )
     op.create_index(op.f("ix_users_cognito_sub"), "users", ["cognito_sub"], unique=True)
@@ -56,10 +59,10 @@ def upgrade() -> None:
         sa.Column("admin_id", sa.UUID(), nullable=False),
         sa.Column("agent_id", sa.UUID(), nullable=False),
         sa.Column("is_active", sa.Boolean(), nullable=False, server_default=sa.true()),
-        sa.Column("assigned_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
+        sa.Column("assigned_at", sa.DateTime(timezone=True), server_default=NOW, nullable=False),
         sa.Column("revoked_at", sa.DateTime(timezone=True), nullable=True),
-        sa.ForeignKeyConstraint(["admin_id"], ["users.id"], ondelete="CASCADE"),
-        sa.ForeignKeyConstraint(["agent_id"], ["users.id"], ondelete="CASCADE"),
+        sa.ForeignKeyConstraint(["admin_id"], [USERS_ID], ondelete="CASCADE"),
+        sa.ForeignKeyConstraint(["agent_id"], [USERS_ID], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("id"),
     )
     op.create_table("agent_invites",
@@ -69,8 +72,8 @@ def upgrade() -> None:
         sa.Column("token", sa.String(length=100), nullable=False),
         sa.Column("expires_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("is_used", sa.Boolean(), nullable=False, server_default=sa.false()),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
-        sa.ForeignKeyConstraint(["invited_by"], ["users.id"], ondelete="CASCADE"),
+        sa.Column("created_at", sa.DateTime(timezone=True), server_default=NOW, nullable=False),
+        sa.ForeignKeyConstraint(["invited_by"], [USERS_ID], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("id"),
     )
     op.create_index(op.f("ix_agent_invites_email"), "agent_invites", ["email"], unique=False)
@@ -81,14 +84,14 @@ def upgrade() -> None:
         sa.Column("approved_by", sa.UUID(), nullable=True),
         sa.Column("approved_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("status", sa.String(length=20), nullable=False, server_default=sa.text("'pending'")),
-        sa.ForeignKeyConstraint(["approved_by"], ["users.id"], ondelete="SET NULL"),
-        sa.ForeignKeyConstraint(["user_id"], ["users.id"], ondelete="CASCADE"),
+        sa.ForeignKeyConstraint(["approved_by"], [USERS_ID], ondelete="SET NULL"),
+        sa.ForeignKeyConstraint(["user_id"], [USERS_ID], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("user_id"),
     )
     op.create_table("role_permissions",
         sa.Column("role_id", sa.UUID(), nullable=False),
         sa.Column("permission_id", sa.UUID(), nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=True),
+        sa.Column("created_at", sa.DateTime(timezone=True), server_default=NOW, nullable=True),
         sa.ForeignKeyConstraint(["permission_id"], ["permissions.id"], ondelete="CASCADE"),
         sa.ForeignKeyConstraint(["role_id"], ["roles.id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("role_id", "permission_id"),
@@ -97,10 +100,10 @@ def upgrade() -> None:
         sa.Column("user_id", sa.UUID(), nullable=False),
         sa.Column("role_id", sa.UUID(), nullable=False),
         sa.Column("assigned_by", sa.UUID(), nullable=True),
-        sa.Column("assigned_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=True),
-        sa.ForeignKeyConstraint(["assigned_by"], ["users.id"], ondelete="SET NULL"),
+        sa.Column("assigned_at", sa.DateTime(timezone=True), server_default=NOW, nullable=True),
+        sa.ForeignKeyConstraint(["assigned_by"], [USERS_ID], ondelete="SET NULL"),
         sa.ForeignKeyConstraint(["role_id"], ["roles.id"], ondelete="CASCADE"),
-        sa.ForeignKeyConstraint(["user_id"], ["users.id"], ondelete="CASCADE"),
+        sa.ForeignKeyConstraint(["user_id"], [USERS_ID], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("user_id", "role_id"),
     )
     op.alter_column(

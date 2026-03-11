@@ -1,6 +1,7 @@
 import secrets
 import uuid
 import math
+import json
 from datetime import datetime, timedelta
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, Path, Body
@@ -47,6 +48,209 @@ router = APIRouter()
 # ============================================================================
 # Admin Endpoints
 # ============================================================================
+AGENT_ID_DESC = "Agent ID"
+
+
+def _get_missing_cognito_config(settings) -> List[str]:
+    missing_config = []
+    if not settings.cognito_user_pool_id or not settings.cognito_user_pool_id.strip():
+        missing_config.append("COGNITO_USER_POOL_ID")
+    if not settings.cognito_client_id or not settings.cognito_client_id.strip():
+        missing_config.append("COGNITO_APP_CLIENT_ID")
+    return missing_config
+
+
+def _try_create_cognito_user_for_agent(
+    user: User,
+    current_user: User,
+    agent_id: uuid.UUID,
+    settings,
+) -> None:
+    # Create user in Cognito if configured and not already created
+    # DO NOT overwrite existing cognito_sub if already set
+    if user.cognito_sub:
+        api_logger.info(
+            f"Agent {agent_id} already has cognito_sub: {user.cognito_sub}. Skipping Cognito user creation."
+        )
+        return
+
+    pool_id = (settings.cognito_user_pool_id or "").strip()
+    client_id = (settings.cognito_client_id or "").strip()
+    cognito_enabled = bool(pool_id and client_id)
+    if not cognito_enabled:
+        missing_config = _get_missing_cognito_config(settings)
+        api_logger.warning(
+            format_log_message(
+                LogMessages.RBAC.NOTIFICATION_FAILED,
+                context="cognito create user skipped (missing config)",
+                error=f"user_id={user.id}, missing={', '.join(missing_config) if missing_config else 'unknown'}",
+            )
+            + " - Agent approval will proceed but Cognito user not created. Set missing values in .env to enable Cognito user creation."
+        )
+        return
+
+    try:
+        cognito_response = cognito_service.create_agent_user(
+            email=user.email,
+            full_name=user.full_name,
+            phone_number=user.phone_number,
+        )
+        # Store cognito_sub from Cognito response
+        # The Username field in the response is the cognito_sub
+        if cognito_response and "User" in cognito_response:
+            cognito_sub = cognito_response["User"]["Username"]
+            user.cognito_sub = cognito_sub
+            api_logger.info(
+                format_log_message(
+                    LogMessages.RBAC.AGENT_APPROVED,
+                    agent_id=str(agent_id),
+                    approver_id=current_user.email,
+                )
+                + f" | Cognito user created with sub: {cognito_sub}"
+            )
+        else:
+            api_logger.warning(
+                format_log_message(
+                    LogMessages.RBAC.NOTIFICATION_FAILED,
+                    context="cognito create user - invalid response",
+                    error=f"user_id={user.id}, email={user.email}",
+                )
+            )
+    except NoCredentialsError as cred_error:
+        # AWS credentials not configured - allow agent approval to proceed
+        # The agent can still be approved, but they won't be able to login until Cognito user is created
+        api_logger.warning(
+            format_log_message(
+                LogMessages.RBAC.NOTIFICATION_FAILED,
+                context="cognito create user - AWS credentials not configured",
+                error=f"user_id={user.id}, email={user.email}, error={str(cred_error)}",
+            )
+            + " - Agent approval will proceed but Cognito user not created"
+        )
+    except Exception as cognito_error:
+        # Other Cognito errors - log but allow approval to proceed
+        # The agent can still be approved, but they won't be able to login until Cognito user is created
+        api_logger.error(
+            format_log_message(
+                LogMessages.RBAC.NOTIFICATION_FAILED,
+                context="cognito create user failed",
+                error=f"user_id={user.id}, email={user.email}, error={str(cognito_error)}",
+            )
+            + " - Agent approval will proceed but Cognito user not created"
+        )
+def _apply_agent_filters(stmt, status: Optional[str], search: Optional[str]):
+    if status:
+        stmt = stmt.where(AgentProfile.status == status)
+    if search:
+        search_pattern = f"%{search}%"
+        stmt = stmt.where(
+            or_(
+                User.full_name.ilike(search_pattern),
+                User.email.ilike(search_pattern),
+            )
+        )
+    return stmt
+
+
+def _get_agent_order_column(sort_by: str):
+    if sort_by == "invitedAt":
+        return AgentProfile.form_submitted_at if hasattr(AgentProfile, "form_submitted_at") else User.created_at
+    if sort_by == "email":
+        return User.email
+    if sort_by == "fullName":
+        return User.full_name
+    return User.created_at
+
+
+def _apply_sort(stmt, order_col, sort_order: str):
+    if sort_order.lower() == "asc":
+        return stmt.order_by(order_col.asc())
+    return stmt.order_by(order_col.desc())
+
+
+def _get_latest_invite_info(db: Session, email: str):
+    stmt_invite = (
+        select(AgentInvite, User.full_name)
+        .outerjoin(User, User.id == AgentInvite.invited_by)
+        .where(AgentInvite.email == email)
+        .order_by(AgentInvite.created_at.desc())
+    )
+    invite_result = db.execute(stmt_invite).first()
+    if not invite_result:
+        return None, None
+    return invite_result[0], invite_result[1]
+
+
+def _get_agent_with_profile(db: Session, agent_id: uuid.UUID):
+    stmt = (
+        select(User, AgentProfile)
+        .join(AgentProfile, User.id == AgentProfile.user_id)
+        .where(
+            and_(
+                User.id == agent_id,
+                AgentProfile.deleted_at.is_(None),
+            )
+        )
+    )
+    result = db.execute(stmt).first()
+    if not result:
+        raise HTTPException(
+            status_code=HTTPStatus.NOT_FOUND,
+            detail=ErrorMessages.AGENT_NOT_FOUND,
+        )
+    return result
+
+
+def _ensure_pending_review(profile: AgentProfile) -> None:
+    if profile.status != AgentStatus.PENDING_REVIEW:
+        raise HTTPException(
+            status_code=HTTPStatus.BAD_REQUEST,
+            detail=ErrorMessages.INVALID_STATUS_TRANSITION,
+        )
+
+
+def _approve_agent(profile: AgentProfile, user: User, current_user: User) -> None:
+    profile.status = AgentStatus.ACTIVE
+    profile.reviewed_at = datetime.now()
+    profile.reviewed_by = current_user.id
+    profile.approved_by = current_user.id
+    profile.approved_at = datetime.now()
+    user.is_active = True
+
+
+def _notify_agent_approved_safely(user: User) -> None:
+    try:
+        notify_agent_approved(user.email, user.full_name)
+    except Exception as n:
+        api_logger.warning(
+            format_log_message(
+                LogMessages.RBAC.NOTIFICATION_FAILED,
+                context="agent approved",
+                error=str(n),
+            )
+        )
+
+
+def _sanitize_validation_errors(errors: List[dict]) -> List[dict]:
+    sanitized = []
+    for err in errors:
+        clean = dict(err)
+        ctx = clean.get("ctx")
+        if ctx:
+            clean_ctx = {}
+            for key, value in ctx.items():
+                if isinstance(value, BaseException):
+                    clean_ctx[key] = str(value)
+                else:
+                    try:
+                        json.dumps(value)
+                        clean_ctx[key] = value
+                    except TypeError:
+                        clean_ctx[key] = str(value)
+            clean["ctx"] = clean_ctx
+        sanitized.append(clean)
+    return sanitized
+
 
 @router.post("/invite", response_model=StandardResponse[AgentInviteResponse])
 def invite_agent(
@@ -58,17 +262,25 @@ def invite_agent(
     Admin: Invite an agent.
     Creates an AgentInvite record and sends an invite email.
     """
-    # Validate email format (Pydantic does this, but check for existing agent)
+    # Check if user already exists in the database (regardless of role)
     stmt_user = select(User).where(User.email == invite_in.email)
     existing_user = db.execute(stmt_user).scalar_one_or_none()
     
     if existing_user:
-        # Check if user already has an agent profile
+        # If user exists and already has an agent profile, they're already an agent
         if existing_user.profile:
             api_logger.warning(format_log_message(LogMessages.RBAC.INVITE_ATTEMPT_EXISTING, email=invite_in.email))
             raise HTTPException(
                 status_code=HTTPStatus.CONFLICT,
                 detail=ErrorMessages.AGENT_ALREADY_EXISTS
+            )
+        # If user exists but doesn't have agent profile, prevent sending invitation
+        # Admin should assign agent role directly instead of sending invitation
+        else:
+            api_logger.warning(format_log_message(LogMessages.RBAC.INVITE_ATTEMPT_EXISTING, email=invite_in.email))
+            raise HTTPException(
+                status_code=HTTPStatus.CONFLICT,
+                detail=ErrorMessages.USER_EXISTS
             )
     
     # Check for existing unused invite
@@ -113,46 +325,34 @@ def invite_agent(
         except Exception as n:
             api_logger.warning(format_log_message(LogMessages.RBAC.NOTIFICATION_FAILED, context="agent invite", error=str(n)))
         
-        # Create User + AgentProfile with INVITED status if user doesn't exist
-        db_user = existing_user
-        if not existing_user:
-            # `users.phone_number` is unique/non-null; use the agreed placeholder
-            # until onboarding form submission provides the real number.
-            placeholder_phone = "+00 000000000"
-            db_user = User(
-                email=invite_in.email,
-                full_name="",  # Will be filled when form is submitted
-                phone_number=placeholder_phone,
-                is_active=False
-            )
-            db.add(db_user)
-            db.flush()
-            
-            # Assign Agent role
-            stmt_role = select(Role).where(Role.name == UserRoles.AGENT)
-            role = db.execute(stmt_role).scalar_one_or_none()
-            if role:
-                db_user.roles.append(role)
-            
-            # Create AgentProfile with INVITED status
-            db_profile = AgentProfile(
-                user_id=db_user.id,
-                status=AgentStatus.INVITED
-            )
-            db.add(db_profile)
-            db.commit()
-            db.refresh(db_user)
-            db.refresh(db_profile)
-        else:
-            # User exists but might not have profile - create it if missing
-            if not existing_user.profile:
-                db_profile = AgentProfile(
-                    user_id=existing_user.id,
-                    status=AgentStatus.INVITED
-                )
-                db.add(db_profile)
-                db.commit()
-                db.refresh(db_profile)
+        # Create User + AgentProfile with INVITED status (user doesn't exist at this point)
+        # `users.phone_number` is unique/non-null; use the agreed placeholder
+        # until onboarding form submission provides the real number.
+        placeholder_phone = "+00 000000000"
+        db_user = User(
+            email=invite_in.email,
+            full_name="",  # Will be filled when form is submitted
+            phone_number=placeholder_phone,
+            is_active=False
+        )
+        db.add(db_user)
+        db.flush()
+        
+        # Assign Agent role
+        stmt_role = select(Role).where(Role.name == UserRoles.AGENT)
+        role = db.execute(stmt_role).scalar_one_or_none()
+        if role:
+            db_user.roles.append(role)
+        
+        # Create AgentProfile with INVITED status
+        db_profile = AgentProfile(
+            user_id=db_user.id,
+            status=AgentStatus.INVITED
+        )
+        db.add(db_profile)
+        db.commit()
+        db.refresh(db_user)
+        db.refresh(db_profile)
         
         return create_success_response(
             data=AgentInviteResponse(
@@ -195,19 +395,7 @@ def list_agents(
         .where(AgentProfile.deleted_at.is_(None))
     )
     
-    # Filter by status
-    if status:
-        stmt = stmt.where(AgentProfile.status == status)
-    
-    # Search by name or email
-    if search:
-        search_pattern = f"%{search}%"
-        stmt = stmt.where(
-            or_(
-                User.full_name.ilike(search_pattern),
-                User.email.ilike(search_pattern)
-            )
-        )
+    stmt = _apply_agent_filters(stmt, status, search)
     
     # Get total count before pagination
     # Create a count query
@@ -216,32 +404,12 @@ def list_agents(
         .join(AgentProfile, User.id == AgentProfile.user_id)
         .where(AgentProfile.deleted_at.is_(None))
     )
-    if status:
-        count_query = count_query.where(AgentProfile.status == status)
-    if search:
-        search_pattern = f"%{search}%"
-        count_query = count_query.where(
-            or_(
-                User.full_name.ilike(search_pattern),
-                User.email.ilike(search_pattern)
-            )
-        )
+    count_query = _apply_agent_filters(count_query, status, search)
     total_items = db.execute(count_query).scalar() or 0
     
     # Apply sorting
-    if sortBy == "invitedAt":
-        order_col = AgentProfile.form_submitted_at if hasattr(AgentProfile, 'form_submitted_at') else User.created_at
-    elif sortBy == "email":
-        order_col = User.email
-    elif sortBy == "fullName":
-        order_col = User.full_name
-    else:
-        order_col = User.created_at
-    
-    if sortOrder.lower() == "asc":
-        stmt = stmt.order_by(order_col.asc())
-    else:
-        stmt = stmt.order_by(order_col.desc())
+    order_col = _get_agent_order_column(sortBy)
+    stmt = _apply_sort(stmt, order_col, sortOrder)
     
     # Apply pagination
     offset = (page - 1) * limit
@@ -252,15 +420,7 @@ def list_agents(
     agents = []
     for user, profile in results:
         # Get invite info
-        stmt_invite = (
-            select(AgentInvite, User.full_name)
-            .outerjoin(User, User.id == AgentInvite.invited_by)
-            .where(AgentInvite.email == user.email)
-            .order_by(AgentInvite.created_at.desc())
-        )
-        invite_result = db.execute(stmt_invite).first()
-        invite = invite_result[0] if invite_result else None
-        inviter_name = invite_result[1] if invite_result else None
+        invite, inviter_name = _get_latest_invite_info(db, user.email)
         
         agents.append(AgentListResponse(
             id=user.id,
@@ -400,7 +560,7 @@ def get_assignments(
 
 @router.get("/{agent_id}", response_model=StandardResponse[AgentDetailResponse])
 def get_agent_details(
-    agent_id: uuid.UUID = Path(..., description="Agent ID"),
+    agent_id: uuid.UUID = Path(..., description=AGENT_ID_DESC),
     current_user: User = require_role(UserRoles.ADMIN),
     db: Session = Depends(get_db)
 ):
@@ -459,136 +619,28 @@ def get_agent_details(
 
 @router.patch("/{agent_id}/accept", response_model=StandardResponse[AgentAcceptResponse])
 def accept_agent(
-    agent_id: uuid.UUID = Path(..., description="Agent ID"),
+    agent_id: uuid.UUID = Path(..., description=AGENT_ID_DESC),
     current_user: User = require_role(UserRoles.ADMIN),
     db: Session = Depends(get_db)
 ):
     """
     Admin: Accept an agent (change status from PENDING_REVIEW to ACTIVE).
     """
-    stmt = (
-        select(User, AgentProfile)
-        .join(AgentProfile, User.id == AgentProfile.user_id)
-        .where(
-            and_(
-                User.id == agent_id,
-                AgentProfile.deleted_at.is_(None)
-            )
-        )
-    )
-    result = db.execute(stmt).first()
-    
-    if not result:
-        raise HTTPException(
-            status_code=HTTPStatus.NOT_FOUND,
-            detail=ErrorMessages.AGENT_NOT_FOUND
-        )
-    
-    user, profile = result
-    
-    if profile.status != AgentStatus.PENDING_REVIEW:
-        raise HTTPException(
-            status_code=HTTPStatus.BAD_REQUEST,
-            detail=ErrorMessages.INVALID_STATUS_TRANSITION
-        )
+    user, profile = _get_agent_with_profile(db, agent_id)
+    _ensure_pending_review(profile)
     
     try:
         settings = get_settings()
-        # Check if Cognito is properly configured (non-empty, non-whitespace values)
-        # Both pool_id and client_id must be set for Cognito to be enabled
-        pool_id = (settings.cognito_user_pool_id or "").strip()
-        client_id = (settings.cognito_client_id or "").strip()
-        cognito_enabled = bool(pool_id and client_id)
-
-        # Create user in Cognito if configured and not already created
-        # DO NOT overwrite existing cognito_sub if already set
-        if not user.cognito_sub:
-            if cognito_enabled:
-                try:
-                    cognito_response = cognito_service.create_agent_user(
-                        email=user.email,
-                        full_name=user.full_name,
-                        phone_number=user.phone_number
-                    )
-                    # Store cognito_sub from Cognito response
-                    # The Username field in the response is the cognito_sub
-                    if cognito_response and "User" in cognito_response:
-                        cognito_sub = cognito_response["User"]["Username"]
-                        user.cognito_sub = cognito_sub
-                        api_logger.info(
-                            format_log_message(
-                                LogMessages.RBAC.AGENT_APPROVED,
-                                agent_id=str(agent_id),
-                                approver_id=current_user.email
-                            ) + f" | Cognito user created with sub: {cognito_sub}"
-                        )
-                    else:
-                        api_logger.warning(
-                            format_log_message(
-                                LogMessages.RBAC.NOTIFICATION_FAILED,
-                                context="cognito create user - invalid response",
-                                error=f"user_id={user.id}, email={user.email}"
-                            )
-                        )
-                except NoCredentialsError as cred_error:
-                    # AWS credentials not configured - allow agent approval to proceed
-                    # The agent can still be approved, but they won't be able to login until Cognito user is created
-                    api_logger.warning(
-                        format_log_message(
-                            LogMessages.RBAC.NOTIFICATION_FAILED,
-                            context="cognito create user - AWS credentials not configured",
-                            error=f"user_id={user.id}, email={user.email}, error={str(cred_error)}"
-                        ) + " - Agent approval will proceed but Cognito user not created"
-                    )
-                    # Don't re-raise - allow approval to proceed
-                except Exception as cognito_error:
-                    # Other Cognito errors - log but allow approval to proceed
-                    # The agent can still be approved, but they won't be able to login until Cognito user is created
-                    api_logger.error(
-                        format_log_message(
-                            LogMessages.RBAC.NOTIFICATION_FAILED,
-                            context="cognito create user failed",
-                            error=f"user_id={user.id}, email={user.email}, error={str(cognito_error)}"
-                        ) + " - Agent approval will proceed but Cognito user not created"
-                    )
-                    # Don't re-raise - allow approval to proceed
-            else:
-                # Cognito not configured - log which values are missing
-                missing_config = []
-                if not settings.cognito_user_pool_id or not settings.cognito_user_pool_id.strip():
-                    missing_config.append("COGNITO_USER_POOL_ID")
-                if not settings.cognito_client_id or not settings.cognito_client_id.strip():
-                    missing_config.append("COGNITO_APP_CLIENT_ID")
-                
-                api_logger.warning(
-                    format_log_message(
-                        LogMessages.RBAC.NOTIFICATION_FAILED,
-                        context="cognito create user skipped (missing config)",
-                        error=f"user_id={user.id}, missing={', '.join(missing_config) if missing_config else 'unknown'}"
-                    ) + " - Agent approval will proceed but Cognito user not created. Set missing values in .env to enable Cognito user creation."
-                )
-        else:
-            # User already has cognito_sub, log this
-            api_logger.info(
-                f"Agent {agent_id} already has cognito_sub: {user.cognito_sub}. Skipping Cognito user creation."
-            )
+        _try_create_cognito_user_for_agent(user, current_user, agent_id, settings)
         
         # Update status to ACTIVE
-        profile.status = AgentStatus.ACTIVE
-        profile.reviewed_at = datetime.now()
-        profile.reviewed_by = current_user.id
-        profile.approved_by = current_user.id
-        profile.approved_at = datetime.now()
-        user.is_active = True
+        _approve_agent(profile, user, current_user)
         
         db.commit()
         
         api_logger.info(format_log_message(LogMessages.RBAC.AGENT_APPROVED, agent_id=str(agent_id), approver_id=current_user.email))
         
-        try:
-            notify_agent_approved(user.email, user.full_name)
-        except Exception as n:
-            api_logger.warning(format_log_message(LogMessages.RBAC.NOTIFICATION_FAILED, context="agent approved", error=str(n)))
+        _notify_agent_approved_safely(user)
         
         return create_success_response(
             data=AgentAcceptResponse(
@@ -610,7 +662,7 @@ def accept_agent(
 
 @router.patch("/{agent_id}/decline", response_model=StandardResponse[AgentDeclineResponse])
 def decline_agent(
-    agent_id: uuid.UUID = Path(..., description="Agent ID"),
+    agent_id: uuid.UUID = Path(..., description=AGENT_ID_DESC),
     payload: Optional[dict] = Body(None),
     current_user: User = require_role(UserRoles.ADMIN),
     db: Session = Depends(get_db)
@@ -685,7 +737,7 @@ def decline_agent(
     response_model=StandardResponse[AgentStatusUpdateResponse],
 )
 def update_agent_status(
-    agent_id: uuid.UUID = Path(..., description="Agent ID"),
+    agent_id: uuid.UUID = Path(..., description=AGENT_ID_DESC),
     payload: AgentStatusUpdateRequest = Body(...),
     current_user: User = require_role(UserRoles.ADMIN),
     db: Session = Depends(get_db),
@@ -775,7 +827,7 @@ def update_agent_status(
 
 @router.delete("/{agent_id}", response_model=StandardResponse[AgentDeleteResponse])
 def delete_agent(
-    agent_id: uuid.UUID = Path(..., description="Agent ID"),
+    agent_id: uuid.UUID = Path(..., description=AGENT_ID_DESC),
     current_user: User = require_role(UserRoles.ADMIN),
     db: Session = Depends(get_db)
 ):
@@ -1005,7 +1057,8 @@ def submit_onboarding_compat(
             serviceArea=payload.get("serviceArea") or payload.get("service_area"),
         )
     except ValidationError as e:
-        raise HTTPException(status_code=HTTPStatus.UNPROCESSABLE_ENTITY, detail=e.errors()) from e
+        sanitized_errors = _sanitize_validation_errors(e.errors())
+        raise HTTPException(status_code=HTTPStatus.UNPROCESSABLE_ENTITY, detail=sanitized_errors) from e
     return _submit_onboarding_form(resolved_token, form_data, db)
 
 

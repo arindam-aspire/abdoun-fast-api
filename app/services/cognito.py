@@ -369,13 +369,13 @@ class CognitoService:
                 )
             else:
                 # For users without password, use admin_set_user_password
-                # Extract username from access token
-                from jose import jwt
                 try:
-                    # Decode without verification to get username/sub
-                    unverified = jwt.get_unverified_claims(access_token)
+                    # Verify token signature before extracting username/sub
+                    payload = self.verify_token(access_token)
+                    if not payload:
+                        raise ValueError("Token verification failed")
                     # The 'sub' field in the token is the Cognito username
-                    username = unverified.get("sub") or unverified.get("username")
+                    username = payload.get("sub") or payload.get("username")
                     
                     if not username:
                         raise ValueError("Cannot extract username from access token")

@@ -58,6 +58,40 @@ def get_user_permissions(user: User, db: Session) -> set[str]:
     return permissions
 
 
+def get_user_roles(user: User, db: Session) -> set[str]:
+    """
+    Collect all roles for a user (direct roles + inherited from admin assignments).
+    
+    Args:
+        user: User model instance
+        db: Database session
+        
+    Returns:
+        set[str]: Set of role names the user has (directly or inherited)
+    """
+    role_names = {role.name for role in user.roles}
+    
+    # If this user is an agent and has an active assignment from an admin,
+    # they inherit the admin's roles if can_inherit_privileges is True
+    stmt = select(AdminAgentAssignment).where(
+        and_(
+            AdminAgentAssignment.agent_id == user.id,
+            AdminAgentAssignment.is_active == True,
+            AdminAgentAssignment.can_inherit_privileges == True
+        )
+    )
+    result = db.execute(stmt)
+    assignments = result.scalars().all()
+    
+    for assignment in assignments:
+        api_logger.debug(format_log_message(LogMessages.RBAC.INHERITANCE_TRIGGERED, user_id=str(user.id), admin_id=str(assignment.admin_id)))
+        admin_user = assignment.admin
+        for role in admin_user.roles:
+            role_names.add(role.name)
+    
+    return role_names
+
+
 class RoleChecker:
     """FastAPI dependency that enforces a required role for the current user."""
     
@@ -66,7 +100,7 @@ class RoleChecker:
     
     def __call__(self, user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> User:
         """
-        Check if the current user has the required role.
+        Check if the current user has the required role (directly or inherited).
         
         Returns:
             User: The current user if they have the required role
@@ -74,8 +108,8 @@ class RoleChecker:
         Raises:
             HTTPException 403: If user doesn't have the required role
         """
-        # Get user roles
-        user_role_names = {role.name for role in user.roles}
+        # Get user roles (including inherited roles from admin assignments)
+        user_role_names = get_user_roles(user, db)
         
         if self.required_role not in user_role_names:
             api_logger.warning(format_log_message(LogMessages.RBAC.PERMISSION_DENIED, user_id=str(user.id), permission=f"role:{self.required_role}"))
