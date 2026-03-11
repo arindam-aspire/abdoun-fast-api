@@ -149,7 +149,7 @@ def invite_agent(
                 status=AgentStatus.INVITED,
                 inviteLink=invite_link,
                 invitedAt=db_invite.invited_at or db_invite.created_at,
-                invitedBy=db_invite.invited_by
+                invitedBy=current_user.full_name
             ),
             message=f"Invitation sent to {invite_in.email}"
         )
@@ -240,9 +240,15 @@ def list_agents(
     agents = []
     for user, profile in results:
         # Get invite info
-        stmt_invite = select(AgentInvite).where(AgentInvite.email == user.email).order_by(AgentInvite.created_at.desc())
+        stmt_invite = (
+            select(AgentInvite, User.full_name)
+            .outerjoin(User, User.id == AgentInvite.invited_by)
+            .where(AgentInvite.email == user.email)
+            .order_by(AgentInvite.created_at.desc())
+        )
         invite_result = db.execute(stmt_invite).first()
         invite = invite_result[0] if invite_result else None
+        inviter_name = invite_result[1] if invite_result else None
         
         agents.append(AgentListResponse(
             id=user.id,
@@ -252,7 +258,7 @@ def list_agents(
             serviceArea=profile.service_area,
             status=profile.status,
             invitedAt=invite.created_at if invite else None,
-            invitedBy=invite.invited_by if invite else None,
+            invitedBy=inviter_name if invite else None,
             formSubmittedAt=profile.form_submitted_at,
             reviewedAt=profile.reviewed_at,
             declineReason=profile.decline_reason
@@ -410,9 +416,15 @@ def get_agent_details(
     user, profile = result
     
     # Get invite info
-    stmt_invite = select(AgentInvite).where(AgentInvite.email == user.email).order_by(AgentInvite.created_at.desc())
+    stmt_invite = (
+        select(AgentInvite, User.full_name)
+        .outerjoin(User, User.id == AgentInvite.invited_by)
+        .where(AgentInvite.email == user.email)
+        .order_by(AgentInvite.created_at.desc())
+    )
     invite_result = db.execute(stmt_invite).first()
     invite = invite_result[0] if invite_result else None
+    inviter_name = invite_result[1] if invite_result else None
     
     return create_success_response(
         data=AgentDetailResponse(
@@ -423,7 +435,7 @@ def get_agent_details(
             serviceArea=profile.service_area,
             status=profile.status,
             invitedAt=invite.created_at if invite else None,
-            invitedBy=invite.invited_by if invite else None,
+            invitedBy=inviter_name if invite else None,
             formSubmittedAt=profile.form_submitted_at,
             reviewedAt=profile.reviewed_at,
             reviewedBy=profile.reviewed_by,

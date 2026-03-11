@@ -233,7 +233,7 @@ class AgentInviteResponse(BaseModel):
     status: str
     inviteLink: str
     invitedAt: datetime
-    invitedBy: uuid.UUID
+    invitedBy: Optional[str] = None
 
     model_config = {"from_attributes": True}
 
@@ -277,7 +277,7 @@ class AgentListResponse(BaseModel):
     serviceArea: Optional[str] = None
     status: str
     invitedAt: Optional[datetime] = None
-    invitedBy: Optional[uuid.UUID] = None
+    invitedBy: Optional[str] = None
     formSubmittedAt: Optional[datetime] = None
     reviewedAt: Optional[datetime] = None
     declineReason: Optional[str] = None
@@ -294,7 +294,7 @@ class AgentDetailResponse(BaseModel):
     serviceArea: Optional[str] = None
     status: str
     invitedAt: Optional[datetime] = None
-    invitedBy: Optional[uuid.UUID] = None
+    invitedBy: Optional[str] = None
     formSubmittedAt: Optional[datetime] = None
     reviewedAt: Optional[datetime] = None
     reviewedBy: Optional[uuid.UUID] = None
@@ -426,7 +426,7 @@ class AgentListResponse(BaseModel):
     serviceArea: Optional[str] = None
     status: str
     invitedAt: Optional[datetime] = None
-    invitedBy: Optional[uuid.UUID] = None
+    invitedBy: Optional[str] = None
     formSubmittedAt: Optional[datetime] = None
     reviewedAt: Optional[datetime] = None
     declineReason: Optional[str] = None
@@ -443,7 +443,7 @@ class AgentDetailResponse(BaseModel):
     serviceArea: Optional[str] = None
     status: str
     invitedAt: Optional[datetime] = None
-    invitedBy: Optional[uuid.UUID] = None
+    invitedBy: Optional[str] = None
     formSubmittedAt: Optional[datetime] = None
     reviewedAt: Optional[datetime] = None
     reviewedBy: Optional[uuid.UUID] = None
@@ -460,7 +460,7 @@ class AgentInviteResponse(BaseModel):
     status: str
     inviteLink: str
     invitedAt: datetime
-    invitedBy: uuid.UUID
+    invitedBy: Optional[str] = None
 
     model_config = {"from_attributes": True}
 
