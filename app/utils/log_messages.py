@@ -113,6 +113,8 @@ class LogMessages:
         AGENT_REJECTED = "🚫 Agent {agent_id} rejected by {rejector_id}"
         AGENT_REJECT_FAILED_LOG = "❌ Failed to reject agent {agent_id}: {error}"
         AGENT_STATUS_UPDATE_FAILED = "❌ Failed to update agent status {agent_id}: {error}"
+        AGENT_INVITE_RESENT = "✉️ Agent invitation resent: {email} by {invited_by}"
+        AGENT_INVITE_REVOKED = "🚫 Agent invitation revoked: {email} by {revoked_by}"
         NOTIFICATION_FAILED = "⚠️ Notification ({context}) failed: {error}"
         USER_UPDATED_LOG = "✅ User {user_id} updated by {admin_email}"
         USER_DELETED_LOG = "🗑️ User {user_id} deactivated by {admin_email}"

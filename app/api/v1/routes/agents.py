@@ -283,12 +283,13 @@ def invite_agent(
                 detail=ErrorMessages.USER_EXISTS
             )
     
-    # Check for existing unused invite
+    # Check for existing unused invite (not revoked)
     stmt_invite = select(AgentInvite).where(
         and_(
             AgentInvite.email == invite_in.email,
             AgentInvite.is_used == False,
-            AgentInvite.expires_at > datetime.now()
+            AgentInvite.expires_at > datetime.now(),
+            AgentInvite.revoked_at.is_(None)
         )
     )
     existing_invite = db.execute(stmt_invite).scalar_one_or_none()
@@ -883,6 +884,185 @@ def delete_agent(
         )
 
 
+@router.post("/{agent_id}/resend-invite", response_model=StandardResponse[AgentInviteResponse])
+def resend_invite(
+    agent_id: uuid.UUID = Path(..., description=AGENT_ID_DESC),
+    current_user: User = require_role(UserRoles.ADMIN),
+    db: Session = Depends(get_db)
+):
+    """
+    Admin: Resend invitation email to an agent.
+    Generates a new token and sends a new invite email.
+    """
+    # Get agent user and profile
+    user, profile = _get_agent_with_profile(db, agent_id)
+    
+    # Find the latest invite for this agent's email
+    stmt_invite = (
+        select(AgentInvite)
+        .where(AgentInvite.email == user.email)
+        .order_by(AgentInvite.created_at.desc())
+    )
+    invite = db.execute(stmt_invite).scalar_one_or_none()
+    
+    if not invite:
+        raise HTTPException(
+            status_code=HTTPStatus.NOT_FOUND,
+            detail=ErrorMessages.INVITE_NOT_FOUND
+        )
+    
+    # Validate invite can be resent
+    # Per requirements:
+    # - used invites cannot be resent
+    # - revoked OR expired invites CAN be resent (we rotate token + extend expiry + clear revoke fields)
+    if invite.is_used:
+        raise HTTPException(
+            status_code=HTTPStatus.BAD_REQUEST,
+            detail=ErrorMessages.INVITE_ALREADY_USED
+        )
+    
+    try:
+        # Generate new secure token
+        new_token = secrets.token_urlsafe(32)
+        new_expires_at = datetime.now() + timedelta(days=7)
+        
+        # Update invite record
+        invite.token = new_token
+        invite.expires_at = new_expires_at
+        invite.invited_at = datetime.now()
+        # Clear revoked fields if they were set (allows resending after revoke)
+        invite.revoked_at = None
+        invite.revoked_by = None
+        
+        db.commit()
+        db.refresh(invite)
+        
+        # Generate invite link
+        settings = get_settings()
+        invite_link = f"{settings.app_base_url.rstrip('/')}/en/agent-invite?token={new_token}"
+        
+        api_logger.info(
+            format_log_message(
+                LogMessages.RBAC.AGENT_INVITE_RESENT,
+                email=user.email,
+                invited_by=current_user.email
+            )
+        )
+        
+        # Send invite email
+        try:
+            notify_agent_invite_sent(user.email, invite_link, current_user.email)
+        except Exception as n:
+            api_logger.warning(
+                format_log_message(
+                    LogMessages.RBAC.NOTIFICATION_FAILED,
+                    context="agent invite resend",
+                    error=str(n)
+                )
+            )
+        
+        # Use the updated invited_at timestamp (which reflects when it was resent)
+        invited_at_timestamp = invite.invited_at if invite.invited_at else invite.created_at
+        
+        return create_success_response(
+            data=AgentInviteResponse(
+                id=user.id,
+                email=invite.email,
+                status=profile.status,  # Status remains INVITED until agent completes onboarding
+                inviteLink=invite_link,
+                invitedAt=invited_at_timestamp,  # This will show the resend timestamp
+                invitedBy=current_user.full_name
+            ),
+            message=SuccessMessages.INVITE_RESENT
+        )
+    except Exception as e:
+        db.rollback()
+        api_logger.error(
+            format_log_message(
+                LogMessages.RBAC.INVITE_FAILED_LOG,
+                error=str(e)
+            )
+        )
+        raise HTTPException(
+            status_code=HTTPStatus.INTERNAL_SERVER_ERROR,
+            detail=ErrorMessages.INVITE_FAILED
+        )
+
+
+@router.patch("/{agent_id}/revoke-invite", response_model=StandardResponse[dict])
+# @router.delete("/{agent_id}/revoke-invite", response_model=StandardResponse[dict])
+def revoke_invite(
+    agent_id: uuid.UUID = Path(..., description=AGENT_ID_DESC),
+    current_user: User = require_role(UserRoles.ADMIN),
+    db: Session = Depends(get_db)
+):
+    """
+    Admin: Revoke an invitation that was sent by mistake.
+    Marks the invite as revoked without deleting the record.
+    """
+    # Get agent user and profile
+    user, profile = _get_agent_with_profile(db, agent_id)
+    
+    # Find the latest invite for this agent's email
+    stmt_invite = (
+        select(AgentInvite)
+        .where(AgentInvite.email == user.email)
+        .order_by(AgentInvite.created_at.desc())
+    )
+    invite = db.execute(stmt_invite).scalar_one_or_none()
+    
+    if not invite:
+        raise HTTPException(
+            status_code=HTTPStatus.NOT_FOUND,
+            detail=ErrorMessages.INVITE_NOT_FOUND
+        )
+    
+    # Validate invite can be revoked
+    if invite.is_used:
+        raise HTTPException(
+            status_code=HTTPStatus.BAD_REQUEST,
+            detail=ErrorMessages.INVITE_ALREADY_USED
+        )
+    
+    if invite.revoked_at is not None:
+        raise HTTPException(
+            status_code=HTTPStatus.BAD_REQUEST,
+            detail=ErrorMessages.INVITE_ALREADY_REVOKED
+        )
+    
+    try:
+        # Revoke the invite
+        invite.revoked_at = datetime.now()
+        invite.revoked_by = current_user.id
+        
+        db.commit()
+        
+        api_logger.info(
+            format_log_message(
+                LogMessages.RBAC.AGENT_INVITE_REVOKED,
+                email=user.email,
+                revoked_by=current_user.email
+            )
+        )
+        
+        return create_success_response(
+            data={"revoked": True, "revokedAt": invite.revoked_at},
+            message=SuccessMessages.INVITE_REVOKED
+        )
+    except Exception as e:
+        db.rollback()
+        api_logger.error(
+            format_log_message(
+                LogMessages.RBAC.INVITE_FAILED_LOG,
+                error=str(e)
+            )
+        )
+        raise HTTPException(
+            status_code=HTTPStatus.INTERNAL_SERVER_ERROR,
+            detail=ErrorMessages.INTERNAL_SERVER_ERROR
+        )
+
+
 # ============================================================================
 # Agent Endpoints (Public - No Auth Required)
 # ============================================================================
@@ -906,7 +1086,8 @@ def _validate_invite_token(
     stmt = select(AgentInvite).where(
         and_(
             AgentInvite.token == token,
-            AgentInvite.expires_at > datetime.now()
+            AgentInvite.expires_at > datetime.now(),
+            AgentInvite.revoked_at.is_(None)
         )
     )
     invite = db.execute(stmt).scalar_one_or_none()
@@ -915,6 +1096,12 @@ def _validate_invite_token(
         raise HTTPException(
             status_code=HTTPStatus.NOT_FOUND,
             detail=ErrorMessages.INVITE_NOT_FOUND
+        )
+    
+    if invite.is_used:
+        raise HTTPException(
+            status_code=HTTPStatus.BAD_REQUEST,
+            detail=ErrorMessages.INVITE_ALREADY_USED
         )
     
     # Check if user exists and has profile
@@ -955,7 +1142,8 @@ def _submit_onboarding_form(
     stmt_invite = select(AgentInvite).where(
         and_(
             AgentInvite.token == token,
-            AgentInvite.expires_at > datetime.now()
+            AgentInvite.expires_at > datetime.now(),
+            AgentInvite.revoked_at.is_(None)
         )
     )
     invite = db.execute(stmt_invite).scalar_one_or_none()
@@ -964,6 +1152,12 @@ def _submit_onboarding_form(
         raise HTTPException(
             status_code=HTTPStatus.NOT_FOUND,
             detail=ErrorMessages.INVITE_NOT_FOUND
+        )
+    
+    if invite.is_used:
+        raise HTTPException(
+            status_code=HTTPStatus.BAD_REQUEST,
+            detail=ErrorMessages.INVITE_ALREADY_USED
         )
     
     # Get or create user

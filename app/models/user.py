@@ -158,8 +158,13 @@ class AgentInvite(Base):
     is_used: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     invited_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=True)
+    revoked_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    revoked_by: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
 
     inviter: Mapped["User"] = relationship("User", foreign_keys=[invited_by])
+    revoker: Mapped[Optional["User"]] = relationship("User", foreign_keys=[revoked_by])
 
 
 class AdminAgentAssignment(Base):

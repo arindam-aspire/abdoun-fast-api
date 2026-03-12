@@ -63,6 +63,10 @@ class ErrorMessages:
     AGENT_ALREADY_EXISTS = "An agent with this email already exists"
     INVALID_EMAIL = "Please enter a valid email address"
     INVITE_NOT_FOUND = "Invitation not found or expired"
+    INVITE_ALREADY_USED = "Invitation has already been used"
+    INVITE_ALREADY_REVOKED = "Invitation has been revoked"
+    INVITE_CANNOT_RESEND = "Cannot resend invitation: invitation is already used or revoked"
+    INVITE_CANNOT_REVOKE = "Cannot revoke invitation: invitation is already used"
     ALREADY_SUBMITTED = "You have already submitted your application"
     INVALID_STATUS_TRANSITION = "Agent must be in PENDING_REVIEW status to accept"
     INVALID_AGENT_STATUS = "Invalid agent status"
@@ -136,6 +140,8 @@ class SuccessMessages:
     AGENT_DELETED = "Agent has been deleted"
     AGENT_ACCEPTED = "Agent accepted. Approval email sent."
     AGENT_DECLINED = "Agent declined. Rejection email sent with the reason."
+    INVITE_RESENT = "Invitation resent successfully"
+    INVITE_REVOKED = "Invitation revoked successfully"
 
 
 # Info Messages
