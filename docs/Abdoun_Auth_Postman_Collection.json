@@ -453,6 +453,57 @@
               ],
               "cookie": [],
               "body": "{\n    \"success\": true,\n    \"data\": {\n        \"email\": \"agent@email.com\",\n        \"status\": \"INVITED\",\n        \"alreadySubmitted\": false\n    },\n    \"message\": null,\n    \"error\": null\n}"
+            },
+            {
+              "name": "response with expired or after resend invitation with old token",
+              "originalRequest": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "http://localhost:8000/api/v1/agents/invite/validate?token=BOGjUntjDZyz_fnvXWC4A3tf0EFih0dpojx1Xp6S_18",
+                  "protocol": "http",
+                  "host": [
+                    "localhost"
+                  ],
+                  "port": "8000",
+                  "path": [
+                    "api",
+                    "v1",
+                    "agents",
+                    "invite",
+                    "validate"
+                  ],
+                  "query": [
+                    {
+                      "key": "token",
+                      "value": "BOGjUntjDZyz_fnvXWC4A3tf0EFih0dpojx1Xp6S_18"
+                    }
+                  ]
+                }
+              },
+              "status": "Not Found",
+              "code": 404,
+              "_postman_previewlanguage": null,
+              "header": [
+                {
+                  "key": "date",
+                  "value": "Thu, 12 Mar 2026 05:40:51 GMT"
+                },
+                {
+                  "key": "server",
+                  "value": "uvicorn"
+                },
+                {
+                  "key": "content-length",
+                  "value": "44"
+                },
+                {
+                  "key": "content-type",
+                  "value": "application/json"
+                }
+              ],
+              "cookie": [],
+              "body": "{\n    \"detail\": \"Invitation not found or expired\"\n}"
             }
           ]
         },
@@ -463,7 +514,7 @@
             "header": [],
             "body": {
               "mode": "raw",
-              "raw": "// {\r\n//   \"fullName\": \"John Doe\",\r\n//   \"phone\": \"+14155552671\",\r\n//   \"serviceArea\": \"Dubai Marina\"\r\n// }\r\n\r\n{\r\n  \"fullName\": \"Ashmita test\",\r\n  \"phone\": \"+987357567802\",\r\n  \"serviceArea\": \"sector v West Bengal\"\r\n}",
+              "raw": "// {\r\n//   \"fullName\": \"John Doe\",\r\n//   \"phone\": \"+14155552671\",\r\n//   \"serviceArea\": \"Dubai Marina\"\r\n// }\r\n\r\n{\r\n  \"fullName\": \"swati test\",\r\n  \"phone\": \"+987357568802\",\r\n  \"serviceArea\": \"Howrah West Bengal\"\r\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -471,7 +522,7 @@
               }
             },
             "url": {
-              "raw": "http://localhost:8000/api/v1/agents/onboarding?token=6Auq0Uqk6Hj0XlIn62IFZBVwtb7BQJxbN3VZkSmeL-s",
+              "raw": "http://localhost:8000/api/v1/agents/onboarding?token=7xNKFySfuoiW_yVqPNQqEvw2ftAkhyYh8Mn1vi-hVBs",
               "protocol": "http",
               "host": [
                 "localhost"
@@ -486,7 +537,7 @@
               "query": [
                 {
                   "key": "token",
-                  "value": "6Auq0Uqk6Hj0XlIn62IFZBVwtb7BQJxbN3VZkSmeL-s"
+                  "value": "7xNKFySfuoiW_yVqPNQqEvw2ftAkhyYh8Mn1vi-hVBs"
                 }
               ]
             }
@@ -1517,8 +1568,42 @@
         {
           "name": "Update an agent's status",
           "request": {
-            "method": "GET",
-            "header": []
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "eyJraWQiOiJSdEMyWUdwMm5ONWFhOVI1RVQrNGRqVlJzQjA2N2k2aUJKVlUxRkJhU1BFPSIsImFsZyI6IlJTMjU2In0.eyJzdWIiOiJiMWQwODU3MC00MGQxLTcwNzYtYTFiMi0wY2FjMTUyOTYyZmIiLCJpc3MiOiJodHRwczpcL1wvY29nbml0by1pZHAubWUtc291dGgtMS5hbWF6b25hd3MuY29tXC9tZS1zb3V0aC0xX3J2eTNQUjZZcSIsImNsaWVudF9pZCI6IjczNjk2YjZkNzUzcHRwcHAwMmJuY3B0NTRsIiwib3JpZ2luX2p0aSI6IjhkZTY5OTczLTdjODMtNDZjNC1hZmNjLTRjY2U5ZTU5NTJjZSIsImV2ZW50X2lkIjoiNTk2MjE2NjQtODMxMy00OTQ2LTk2MmItZDQ0MWY2YzFmYTQxIiwidG9rZW5fdXNlIjoiYWNjZXNzIiwic2NvcGUiOiJhd3MuY29nbml0by5zaWduaW4udXNlci5hZG1pbiIsImF1dGhfdGltZSI6MTc3MzIyNDUyOCwiZXhwIjoxNzczMjI0ODI4LCJpYXQiOjE3NzMyMjQ1MjgsImp0aSI6Ijk4OWFkNjlmLThiYzgtNDcxMC1hMzIyLWQ5ZWVkZWI2NmJiMyIsInVzZXJuYW1lIjoiYjFkMDg1NzAtNDBkMS03MDc2LWExYjItMGNhYzE1Mjk2MmZiIn0.XLdA9kVS9pPzmRGK8HiGrG5xSuh1dxhW-hnps0xV1EqkWHPbb2UedVOkk9t-q_--zG-Iag-u0s1AmR1R9AxJmQ0nygwQ2yqcqQIUKSWbUMUIH8gAa4pAEc9hVRAtzr4VB7-osPPEu0jYIpgLHIFgd1FSlJnFcf-Q0isW9SzHgu5xO_JS1GNQ3L893BZkB6JoqnyWD7OZcjZDAGrFCeZrNCodKAuRlmrGH8G7CXb51Az9MsTJ-_yOl-96CDLEOke550IShT-ZchbZTT0rZt_pOYnkKZHt1d29RqMDZUyxZkfZfWE2hSeNGGiowAbctFr7qEoLe7Miavwgy-HtErfBDg",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PATCH",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\r\n  \"status\": \"ACTIVE\",\r\n  \"reason\": \"Issue resolved, account reactivated\"\r\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "http://localhost:8000/api/v1/agents/ec20bb73-e4a8-461c-90df-84236cabc94f/status",
+              "protocol": "http",
+              "host": [
+                "localhost"
+              ],
+              "port": "8000",
+              "path": [
+                "api",
+                "v1",
+                "agents",
+                "ec20bb73-e4a8-461c-90df-84236cabc94f",
+                "status"
+              ]
+            }
           },
           "response": [
             {
@@ -1628,6 +1713,254 @@
               ],
               "cookie": [],
               "body": "{\n    \"success\": true,\n    \"data\": {\n        \"id\": \"ec20bb73-e4a8-461c-90df-84236cabc94f\",\n        \"status\": \"ACTIVE\",\n        \"statusReason\": \"Issue resolved, account reactivated\"\n    },\n    \"message\": \"Agent status updated successfully\",\n    \"error\": null\n}"
+            }
+          ]
+        },
+        {
+          "name": "Resend Invite",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "eyJraWQiOiJSdEMyWUdwMm5ONWFhOVI1RVQrNGRqVlJzQjA2N2k2aUJKVlUxRkJhU1BFPSIsImFsZyI6IlJTMjU2In0.eyJzdWIiOiJhMWYwYjU1MC03MDAxLTcwNjQtYWVkZS03YTBkMDNlY2Q4ZmYiLCJpc3MiOiJodHRwczpcL1wvY29nbml0by1pZHAubWUtc291dGgtMS5hbWF6b25hd3MuY29tXC9tZS1zb3V0aC0xX3J2eTNQUjZZcSIsImNsaWVudF9pZCI6IjczNjk2YjZkNzUzcHRwcHAwMmJuY3B0NTRsIiwib3JpZ2luX2p0aSI6IjNiM2I3M2U5LWEyYWYtNGFlMC1iZTA1LTI2NTE5ODE0NTk2MiIsImV2ZW50X2lkIjoiZmNiYTA3MmEtNjYwOS00ZTYzLTlmZWUtZGE0YzFlYTAxNDRjIiwidG9rZW5fdXNlIjoiYWNjZXNzIiwic2NvcGUiOiJhd3MuY29nbml0by5zaWduaW4udXNlci5hZG1pbiIsImF1dGhfdGltZSI6MTc3MzMwMTE5MCwiZXhwIjoxNzczMzAyOTkwLCJpYXQiOjE3NzMzMDExOTAsImp0aSI6ImQ0MTFkYjgyLTViOTItNDk4YS1iNTdlLTIwMzI0OTQ3NTNmZCIsInVzZXJuYW1lIjoiYTFmMGI1NTAtNzAwMS03MDY0LWFlZGUtN2EwZDAzZWNkOGZmIn0.LVKOR7p55HWauL__G3-cU60aezieQU7GLDYVVocI3cBXDSdmYFimLPfNAFR7FxYlXS3blYN9ZBc8zgNkTcoR4vWQ3GBFoWXUqA74SfkSiFrmq2bbsCUe5OMXVw1P3VjIgp9UKht4JqJXxBEugP0iRWBERR3MvyeVHb6dn63S9vO0h2LzrxPRdi7Dqqv-1669nm3hF_DO2010NVkQJeghYvsKtx59SwYiBMr8h5caNX-Mc7TKGIXiNaChYcHhmNlorqHRuMXEzq2zJsZb9pCWgUiuHv3j7Mf4Ib0AUo25Es9-2lpQ1GnaQjCXgHcOsgXid0xs1zQTuu7BegOpnOv1mw",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:8000/api/v1/agents/9908e4a6-8ab9-457d-aed1-da377000f41f/resend-invite",
+              "protocol": "http",
+              "host": [
+                "localhost"
+              ],
+              "port": "8000",
+              "path": [
+                "api",
+                "v1",
+                "agents",
+                "9908e4a6-8ab9-457d-aed1-da377000f41f",
+                "resend-invite"
+              ]
+            }
+          },
+          "response": [
+            {
+              "name": "Response Resend Invite",
+              "originalRequest": {
+                "method": "POST",
+                "header": [],
+                "url": {
+                  "raw": "http://localhost:8000/api/v1/agents/8b49c059-5226-481f-9e37-b2f10fa75f5b/resend-invite",
+                  "protocol": "http",
+                  "host": [
+                    "localhost"
+                  ],
+                  "port": "8000",
+                  "path": [
+                    "api",
+                    "v1",
+                    "agents",
+                    "8b49c059-5226-481f-9e37-b2f10fa75f5b",
+                    "resend-invite"
+                  ]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": null,
+              "header": [
+                {
+                  "key": "date",
+                  "value": "Thu, 12 Mar 2026 05:39:44 GMT"
+                },
+                {
+                  "key": "server",
+                  "value": "uvicorn"
+                },
+                {
+                  "key": "content-length",
+                  "value": "343"
+                },
+                {
+                  "key": "content-type",
+                  "value": "application/json"
+                }
+              ],
+              "cookie": [],
+              "body": "{\n    \"success\": true,\n    \"data\": {\n        \"id\": \"8b49c059-5226-481f-9e37-b2f10fa75f5b\",\n        \"email\": \"swati2@yopmail.com\",\n        \"status\": \"INVITED\",\n        \"inviteLink\": \"http://localhost:3000/en/agent-invite?token=7xNKFySfuoiW_yVqPNQqEvw2ftAkhyYh8Mn1vi-hVBs\",\n        \"invitedAt\": \"2026-03-12T11:09:53.095228Z\",\n        \"invitedBy\": \"Ramesh Dey\"\n    },\n    \"message\": \"Invitation resent successfully\",\n    \"error\": null\n}"
+            },
+            {
+              "name": "Resend Invite (for revoked invitation user)",
+              "originalRequest": {
+                "method": "POST",
+                "header": [],
+                "url": {
+                  "raw": "http://localhost:8000/api/v1/agents/9908e4a6-8ab9-457d-aed1-da377000f41f/resend-invite",
+                  "protocol": "http",
+                  "host": [
+                    "localhost"
+                  ],
+                  "port": "8000",
+                  "path": [
+                    "api",
+                    "v1",
+                    "agents",
+                    "9908e4a6-8ab9-457d-aed1-da377000f41f",
+                    "resend-invite"
+                  ]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": null,
+              "header": [
+                {
+                  "key": "date",
+                  "value": "Thu, 12 Mar 2026 07:40:03 GMT"
+                },
+                {
+                  "key": "server",
+                  "value": "uvicorn"
+                },
+                {
+                  "key": "content-length",
+                  "value": "345"
+                },
+                {
+                  "key": "content-type",
+                  "value": "application/json"
+                }
+              ],
+              "cookie": [],
+              "body": "{\n    \"success\": true,\n    \"data\": {\n        \"id\": \"9908e4a6-8ab9-457d-aed1-da377000f41f\",\n        \"email\": \"revoke@yopmail.com\",\n        \"status\": \"INVITED\",\n        \"inviteLink\": \"http://localhost:3000/en/agent-invite?token=b3zbuqlfu15mytO5Vcs9KRXvRd0e7fBy1K6SyFmu95Q\",\n        \"invitedAt\": \"2026-03-12T13:10:05.962728Z\",\n        \"invitedBy\": \"accept agent\"\n    },\n    \"message\": \"Invitation resent successfully\",\n    \"error\": null\n}"
+            }
+          ]
+        },
+        {
+          "name": "Revoke Invite",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "eyJraWQiOiJSdEMyWUdwMm5ONWFhOVI1RVQrNGRqVlJzQjA2N2k2aUJKVlUxRkJhU1BFPSIsImFsZyI6IlJTMjU2In0.eyJzdWIiOiJhMWYwYjU1MC03MDAxLTcwNjQtYWVkZS03YTBkMDNlY2Q4ZmYiLCJpc3MiOiJodHRwczpcL1wvY29nbml0by1pZHAubWUtc291dGgtMS5hbWF6b25hd3MuY29tXC9tZS1zb3V0aC0xX3J2eTNQUjZZcSIsImNsaWVudF9pZCI6IjczNjk2YjZkNzUzcHRwcHAwMmJuY3B0NTRsIiwib3JpZ2luX2p0aSI6ImUzNWExM2Q2LTRlN2UtNGVlYy05ZDg5LTMwNmEyNmY2MzI3MyIsImV2ZW50X2lkIjoiOTNjNDIzOTUtZWQ3Mi00YTVkLWE4N2ItYzg4ZTFmZWVmNzFlIiwidG9rZW5fdXNlIjoiYWNjZXNzIiwic2NvcGUiOiJhd3MuY29nbml0by5zaWduaW4udXNlci5hZG1pbiIsImF1dGhfdGltZSI6MTc3MzMwMTUyOCwiZXhwIjoxNzczMzAzMzI4LCJpYXQiOjE3NzMzMDE1MjgsImp0aSI6IjBlMWEzM2ZiLWZmMmEtNDhiYy1hZTczLThkMTY4ZmE5ZDVhOCIsInVzZXJuYW1lIjoiYTFmMGI1NTAtNzAwMS03MDY0LWFlZGUtN2EwZDAzZWNkOGZmIn0.G1-erZsDSbOrSB-mGnUmj_Tp4tycvbdPdm5AlqsiAponkxKvGFBQZ-yvBdLL1iYZMTK_siIrq2pi9Vzk2NqQiue5cp3SnfThF-7ubHNsPAGd_Fz83vpOZsYYLIdf_VjlWTHqBJkpQbqktY7d2_BdG_qAlnMz4XWTuMba7Zj_YieCpuMu0lguF7tBcLGl0wKP_9s2BHoDMaaYZzAFWclG1GpIeA17lbDW53p3RWb-1WyAb3mDrDMIV9rQYjPv_GYyX4GTqU0JHx4L75dx05hT1TTYG_Piz6LZ4iZ3E3aCyxC6O9wiFVHbLGVVRrrS5ZYtPVd-ICydaqZmhkAJbAn-HQ",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PATCH",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:8000/api/v1/agents/9908e4a6-8ab9-457d-aed1-da377000f41f/revoke-invite",
+              "protocol": "http",
+              "host": [
+                "localhost"
+              ],
+              "port": "8000",
+              "path": [
+                "api",
+                "v1",
+                "agents",
+                "9908e4a6-8ab9-457d-aed1-da377000f41f",
+                "revoke-invite"
+              ]
+            }
+          },
+          "response": [
+            {
+              "name": "Revoke Invite",
+              "originalRequest": {
+                "method": "DELETE",
+                "header": [],
+                "url": {
+                  "raw": "http://localhost:8000/api/v1/agents/9908e4a6-8ab9-457d-aed1-da377000f41f/revoke-invite",
+                  "protocol": "http",
+                  "host": [
+                    "localhost"
+                  ],
+                  "port": "8000",
+                  "path": [
+                    "api",
+                    "v1",
+                    "agents",
+                    "9908e4a6-8ab9-457d-aed1-da377000f41f",
+                    "revoke-invite"
+                  ]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": null,
+              "header": [
+                {
+                  "key": "date",
+                  "value": "Thu, 12 Mar 2026 06:13:16 GMT"
+                },
+                {
+                  "key": "server",
+                  "value": "uvicorn"
+                },
+                {
+                  "key": "content-length",
+                  "value": "139"
+                },
+                {
+                  "key": "content-type",
+                  "value": "application/json"
+                }
+              ],
+              "cookie": [],
+              "body": "{\n    \"success\": true,\n    \"data\": {\n        \"revoked\": true,\n        \"revokedAt\": \"2026-03-12T11:43:19.025429Z\"\n    },\n    \"message\": \"Invitation revoked successfully\",\n    \"error\": null\n}"
+            },
+            {
+              "name": "Revoke Invite (for used token)",
+              "originalRequest": {
+                "method": "PATCH",
+                "header": [],
+                "url": {
+                  "raw": "http://localhost:8000/api/v1/agents/9908e4a6-8ab9-457d-aed1-da377000f41f/revoke-invite",
+                  "protocol": "http",
+                  "host": [
+                    "localhost"
+                  ],
+                  "port": "8000",
+                  "path": [
+                    "api",
+                    "v1",
+                    "agents",
+                    "9908e4a6-8ab9-457d-aed1-da377000f41f",
+                    "revoke-invite"
+                  ]
+                }
+              },
+              "status": "Bad Request",
+              "code": 400,
+              "_postman_previewlanguage": null,
+              "header": [
+                {
+                  "key": "date",
+                  "value": "Thu, 12 Mar 2026 07:45:42 GMT"
+                },
+                {
+                  "key": "server",
+                  "value": "uvicorn"
+                },
+                {
+                  "key": "content-length",
+                  "value": "45"
+                },
+                {
+                  "key": "content-type",
+                  "value": "application/json"
+                }
+              ],
+              "cookie": [],
+              "body": "{\n    \"detail\": \"Invitation has already been used\"\n}"
             }
           ]
         }
@@ -2976,7 +3309,7 @@
         ],
         "body": {
           "mode": "raw",
-          "raw": "// {\n//   \"username\": \"testuser@example.com\",\n//   \"password\": \"Test@1234\"\n// }\n\n// {\n//   \"username\": \"rameshadmin@yopmail.com\",\n//   \"password\": \"Spring@2026\"\n// }\n\n\n \n{\n  \"username\": \"agent@yopmail.com\",\n  \"password\": \"Spring@2026\"\n}"
+          "raw": "// {\n//   \"username\": \"testuser@example.com\",\n//   \"password\": \"Test@1234\"\n// }\n\n{\n  \"username\": \"rameshadmin@yopmail.com\",\n  \"password\": \"Spring@2026\"\n}\n\n\n// {\n//   \"username\": \"swati@yopmail.com\",\n//   \"password\": \"Spring@2026\"\n// }\n\n\n// {\n//   \"username\": \"agent@yopmail.com\",\n//   \"password\": \"Spring@2026\"\n// }"
         },
         "url": {
           "raw": "{{base_url}}/auth/login/password",
@@ -3080,7 +3413,9 @@
               "  }",
               "}"
             ],
-            "type": "text/javascript"
+            "type": "text/javascript",
+            "packages": {},
+            "requests": {}
           }
         }
       ],
@@ -3094,7 +3429,7 @@
         ],
         "body": {
           "mode": "raw",
-          "raw": "{\n  \"refresh_token\": \"{{refresh_token}}\",\n  \"username\": \"{{username}}\"\n}"
+          "raw": "// {\n//   \"refresh_token\": \"{{refresh_token}}\",\n//   \"username\": \"{{username}}\"\n// }\n\n\n{\n    \"refresh_token\": \"eyJjdHkiOiJKV1QiLCJlbmMiOiJBMjU2R0NNIiwiYWxnIjoiUlNBLU9BRVAifQ.PF1QSYSqUsBlfutPeW7aVyEXSIWI6tzgy1AOpxwpmJH9iLq4ZcJ-8WqVo7WTlJGt_3el0P8DReeaU2Ao3mvW8h3NyVO90sYOmnZL_u75-CQwpfrS1NYjAM156sT4Hfy_pVUt4I6_xONHKeh1fThCWyg0mReRyT9Og7NkeSKa4rCNtggcFBE41IAJ9JNFfWoqXr4yYDTUtySKf1QFzSyPCOLrQ0eXZJAxjvOr4ReanfEeSqsqO02qjJXA_MP08guTV2iDJHxadS-I-DXErHLOh-9QOWUKu1AiStoDGo1GDoZMu5eswuOKiLP1UQwoZbNcishtk71cg9-ev-_NWzalyg.hfaGnVZ-yLZ7pdYW.3gHmaMHCvyV80dVcZCC-lMYKC0tM5Z5ipb4uLL6DveW8rHCEia_5mPVOVJC68QVRyWDCahTLw63vHY_7sExDYfCKg0WU4k5zH5UWGsQzZQKwpo-Hk4GJLdH0RdOkPn9Ca_kKTGfP1EUzwVMo99GrOCX_F4gcwsK5lN8CEazA7hXIPw0hi9N3NdAYEJnZJz2HHThhRiIexNwTC-BqZW1zjYpcROi9AZ4zkKYDruXgeXwZoThKpgAnMvCr3pSTAJ1Jnmj8FEEMXoikqcBMvWXrpcY2FagHRJmE5VzD3lVafIZ3aKvZxPsafbpMqJ3Tw5nz68GvUmyQL-KstbElQPdp-TaTKI85blesvHGQXtuedZtHFaPRjewlHlkdwBeD9cAO7uF5pbALP4LJOZsVR7Ia5IHRExH3j3zygWUhNI1ydPj95t6IbKXWy2tuvxsfJPIpCuGc8heK4PTNRgWCgvFupN8jxdoEvO4O3990mDgaFZdmGmJzQ8iWAh5AelCHLe4yGaAy6wLrdy-Jk_NkX3P7SAPOARSb2ZeOm5RSLccM2Jub5JDOtZY3hl2iH8840LMUOpMWFK2dHQCP78qPtsCiMcc-yJudFDf-NWqaSpSvAXGPcglFGpWR5C5meq1E6U8b30sybtK2orirIJjKDQOyn0A1QUynDkl9ryM4Z2iQpHFU9rAOci1nH_tQ79Cl0rY33jFxWzz365dWoqWaYhifwHdp7NcO-ZS06uJGuvQ1WKBWgE9Jv2iF-wXnLCRbgnVl5P2skU4YaprbCwD-Z9eEeHLEbBQtNQCx7v1lNTN0YmVlTJa4AvqRD7AiEZZyFj7cBer3Ye8y_foEngWyxdST7TV_ZP3llNzVwKLaTMyBjjW5NvBEfLjy1D_fAkm-pAGzys8QyhxfIGG7XEVV9UpVMvCxWzN7_Xs2hbUyVxhGtnTNoDJlGeuZZCzwaUvOy6P5CZDAVZ_wVP8IlcCYRw7sFEO92MECGPBNbAQZ2Kj7RUz4oD9GSszTiAEnJZ6osa_lZVw0KmIJamRZpgDqhQauV-GlRtiFeIiRYATBVUqakUhVnRrNsJsrOe4cji3G1CplMEV_cnwvv79T2mcDpL4kYZvJgZWGf4Ic3jEmbh3eYKhvbxoI_7sjI5ivgpWAHF5eBvzMlUyScvgeE1QovzxmP9maGXoCrEUZ9LFeNZ2Gka-Pd2ea3y_cux8FvP5H_Nl1Po1g5Y6Xah7chKSgJlYI1-vc9ZgW5hJFeDZx3i8YnVCYBFFPgHVOPFe_7fP0UmSTtke7Cq9yAWiGgpFHosAMGrMBZp8TrxW6xR-rhxoxKYE81J8D44AwvLWvLPjGKAA.FSbHYp-aktLznh-9juDLyQ\",\n    \"username\": \"5130e550-3061-707c-f38c-9c3ce2a200a5\"\n}"
         },
         "url": {
           "raw": "{{base_url}}/auth/refresh",
@@ -3107,7 +3442,57 @@
           ]
         }
       },
-      "response": []
+      "response": [
+        {
+          "name": "6. Refresh Token",
+          "originalRequest": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "// {\n//   \"refresh_token\": \"{{refresh_token}}\",\n//   \"username\": \"{{username}}\"\n// }\n\n\n{\n    \"refresh_token\": \"eyJjdHkiOiJKV1QiLCJlbmMiOiJBMjU2R0NNIiwiYWxnIjoiUlNBLU9BRVAifQ.PF1QSYSqUsBlfutPeW7aVyEXSIWI6tzgy1AOpxwpmJH9iLq4ZcJ-8WqVo7WTlJGt_3el0P8DReeaU2Ao3mvW8h3NyVO90sYOmnZL_u75-CQwpfrS1NYjAM156sT4Hfy_pVUt4I6_xONHKeh1fThCWyg0mReRyT9Og7NkeSKa4rCNtggcFBE41IAJ9JNFfWoqXr4yYDTUtySKf1QFzSyPCOLrQ0eXZJAxjvOr4ReanfEeSqsqO02qjJXA_MP08guTV2iDJHxadS-I-DXErHLOh-9QOWUKu1AiStoDGo1GDoZMu5eswuOKiLP1UQwoZbNcishtk71cg9-ev-_NWzalyg.hfaGnVZ-yLZ7pdYW.3gHmaMHCvyV80dVcZCC-lMYKC0tM5Z5ipb4uLL6DveW8rHCEia_5mPVOVJC68QVRyWDCahTLw63vHY_7sExDYfCKg0WU4k5zH5UWGsQzZQKwpo-Hk4GJLdH0RdOkPn9Ca_kKTGfP1EUzwVMo99GrOCX_F4gcwsK5lN8CEazA7hXIPw0hi9N3NdAYEJnZJz2HHThhRiIexNwTC-BqZW1zjYpcROi9AZ4zkKYDruXgeXwZoThKpgAnMvCr3pSTAJ1Jnmj8FEEMXoikqcBMvWXrpcY2FagHRJmE5VzD3lVafIZ3aKvZxPsafbpMqJ3Tw5nz68GvUmyQL-KstbElQPdp-TaTKI85blesvHGQXtuedZtHFaPRjewlHlkdwBeD9cAO7uF5pbALP4LJOZsVR7Ia5IHRExH3j3zygWUhNI1ydPj95t6IbKXWy2tuvxsfJPIpCuGc8heK4PTNRgWCgvFupN8jxdoEvO4O3990mDgaFZdmGmJzQ8iWAh5AelCHLe4yGaAy6wLrdy-Jk_NkX3P7SAPOARSb2ZeOm5RSLccM2Jub5JDOtZY3hl2iH8840LMUOpMWFK2dHQCP78qPtsCiMcc-yJudFDf-NWqaSpSvAXGPcglFGpWR5C5meq1E6U8b30sybtK2orirIJjKDQOyn0A1QUynDkl9ryM4Z2iQpHFU9rAOci1nH_tQ79Cl0rY33jFxWzz365dWoqWaYhifwHdp7NcO-ZS06uJGuvQ1WKBWgE9Jv2iF-wXnLCRbgnVl5P2skU4YaprbCwD-Z9eEeHLEbBQtNQCx7v1lNTN0YmVlTJa4AvqRD7AiEZZyFj7cBer3Ye8y_foEngWyxdST7TV_ZP3llNzVwKLaTMyBjjW5NvBEfLjy1D_fAkm-pAGzys8QyhxfIGG7XEVV9UpVMvCxWzN7_Xs2hbUyVxhGtnTNoDJlGeuZZCzwaUvOy6P5CZDAVZ_wVP8IlcCYRw7sFEO92MECGPBNbAQZ2Kj7RUz4oD9GSszTiAEnJZ6osa_lZVw0KmIJamRZpgDqhQauV-GlRtiFeIiRYATBVUqakUhVnRrNsJsrOe4cji3G1CplMEV_cnwvv79T2mcDpL4kYZvJgZWGf4Ic3jEmbh3eYKhvbxoI_7sjI5ivgpWAHF5eBvzMlUyScvgeE1QovzxmP9maGXoCrEUZ9LFeNZ2Gka-Pd2ea3y_cux8FvP5H_Nl1Po1g5Y6Xah7chKSgJlYI1-vc9ZgW5hJFeDZx3i8YnVCYBFFPgHVOPFe_7fP0UmSTtke7Cq9yAWiGgpFHosAMGrMBZp8TrxW6xR-rhxoxKYE81J8D44AwvLWvLPjGKAA.FSbHYp-aktLznh-9juDLyQ\",\n    \"username\": \"5130e550-3061-707c-f38c-9c3ce2a200a5\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/auth/refresh",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "auth",
+                "refresh"
+              ]
+            }
+          },
+          "status": "OK",
+          "code": 200,
+          "_postman_previewlanguage": null,
+          "header": [
+            {
+              "key": "date",
+              "value": "Fri, 13 Mar 2026 04:33:45 GMT"
+            },
+            {
+              "key": "server",
+              "value": "uvicorn"
+            },
+            {
+              "key": "content-length",
+              "value": "2443"
+            },
+            {
+              "key": "content-type",
+              "value": "application/json"
+            }
+          ],
+          "cookie": [],
+          "body": "{\n    \"success\": true,\n    \"data\": {\n        \"access_token\": \"eyJraWQiOiJSdEMyWUdwMm5ONWFhOVI1RVQrNGRqVlJzQjA2N2k2aUJKVlUxRkJhU1BFPSIsImFsZyI6IlJTMjU2In0.eyJzdWIiOiI1MTMwZTU1MC0zMDYxLTcwN2MtZjM4Yy05YzNjZTJhMjAwYTUiLCJpc3MiOiJodHRwczpcL1wvY29nbml0by1pZHAubWUtc291dGgtMS5hbWF6b25hd3MuY29tXC9tZS1zb3V0aC0xX3J2eTNQUjZZcSIsImNsaWVudF9pZCI6IjczNjk2YjZkNzUzcHRwcHAwMmJuY3B0NTRsIiwib3JpZ2luX2p0aSI6ImY3Yjk3M2Y3LTgxOWMtNGY1NC1hMmRlLTk2OWM3MTZhY2ZkYyIsImV2ZW50X2lkIjoiMmJjNTc1NzEtNzE2My00NWIwLThhMmQtNTgyZTgyYmNlZDYzIiwidG9rZW5fdXNlIjoiYWNjZXNzIiwic2NvcGUiOiJhd3MuY29nbml0by5zaWduaW4udXNlci5hZG1pbiIsImF1dGhfdGltZSI6MTc3MzM3NTE3NCwiZXhwIjoxNzczMzc4MjI3LCJpYXQiOjE3NzMzNzY0MjcsImp0aSI6IjZhZmQ0NTA4LTVkYmEtNGYwNS1iMTlhLTNjNTY1OGFjZTI1MCIsInVzZXJuYW1lIjoiNTEzMGU1NTAtMzA2MS03MDdjLWYzOGMtOWMzY2UyYTIwMGE1In0.T38LGyxb0KKfq79Kuf2RDEXQ0hqVhBoEuwa3XsNDFZZRY1rihYSk-dGJUV_Bp70mwOxwRYe8aPS_pfyMls1xH3hqkM9EeT_dxgDtqLCRnPpNwaCoAD2FOPkdKvcjSdcMzlOhYngUv0qObArncWxURxSaXfUoLk5_VUtkFWlqkU5ynzdaNLaac2-7_Jwl7UZUXCoMXqP1pgB07SA4vohrZ1s9EXRIPDGGxmhugquHzqsxZ9DiRiQiYco0zcZY54Fad5dgKO9B-dvCvtIwRZN_Ii2FT22NpEpy9rxyo5_SZ2GKCo4JiIIZyHD_A0ZOXSUPxNv82PhmVJaw92D4pXo4ZA\",\n        \"refresh_token\": null,\n        \"id_token\": \"eyJraWQiOiJkRDErSHZvK3RzN2NRZEtzeHBYVHBOaTBlbG5xamVEdlpnTjFSdWNRdk1JPSIsImFsZyI6IlJTMjU2In0.eyJzdWIiOiI1MTMwZTU1MC0zMDYxLTcwN2MtZjM4Yy05YzNjZTJhMjAwYTUiLCJlbWFpbF92ZXJpZmllZCI6dHJ1ZSwiaXNzIjoiaHR0cHM6XC9cL2NvZ25pdG8taWRwLm1lLXNvdXRoLTEuYW1hem9uYXdzLmNvbVwvbWUtc291dGgtMV9ydnkzUFI2WXEiLCJwaG9uZV9udW1iZXJfdmVyaWZpZWQiOnRydWUsImNvZ25pdG86dXNlcm5hbWUiOiI1MTMwZTU1MC0zMDYxLTcwN2MtZjM4Yy05YzNjZTJhMjAwYTUiLCJvcmlnaW5fanRpIjoiZjdiOTczZjctODE5Yy00ZjU0LWEyZGUtOTY5YzcxNmFjZmRjIiwiYXVkIjoiNzM2OTZiNmQ3NTNwdHBwcDAyYm5jcHQ1NGwiLCJldmVudF9pZCI6IjJiYzU3NTcxLTcxNjMtNDViMC04YTJkLTU4MmU4MmJjZWQ2MyIsInRva2VuX3VzZSI6ImlkIiwiYXV0aF90aW1lIjoxNzczMzc1MTc0LCJuYW1lIjoiU3dhdGkgU2luZ2giLCJwaG9uZV9udW1iZXIiOiIrOTE2Mjg5NjQ5Nzg1IiwiZXhwIjoxNzczMzgwMDI3LCJpYXQiOjE3NzMzNzY0MjcsImp0aSI6ImRkNzE4ZTE5LWFmZWUtNDI2Zi04MGQzLTE4YjQwOTU2YjhjZCIsImVtYWlsIjoic3dhdGlAeW9wbWFpbC5jb20ifQ.7igNbtVdQLgJFjrDbS22vyQaTjwPpRXsUE7iq0yj8L1vign353QLaUosdh2ztCwHtbNtHNgi_01n83WG__3wSGIGpofU1xGvkXx8LaP4IVYsIeMuX0CunI6p6hR53aIBNna2QXbC_v9fTbzDkcj0OPKLrd-paUnYwq6O-Tm1rq0xmS3tFRAAJr_SmlK-JC888p0TlnXbsiY6c7wVHYJNugUZ971LsdJLu-vaRS1kK18XJS5mE4h5hxlwjixAUajTNMqIqyfekbn2vf2QK_OZiToYg6BgDTrtQrwXPFmsz1du4DTlvGDAAPNMl9VemlRxr7xXKbXlT7OyEqKzE0zF5A\",\n        \"token_type\": \"Bearer\",\n        \"expires_in\": 1800,\n        \"requires_password_set\": false\n    },\n    \"message\": null,\n    \"error\": null\n}"
+        }
+      ]
     },
     {
       "name": "7. Logout",
