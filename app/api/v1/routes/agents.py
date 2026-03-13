@@ -1268,7 +1268,12 @@ def submit_onboarding_compat(
 def assign_agent(assign_in: AdminAgentAssignmentRequest, current_user: User = require_role(UserRoles.ADMIN), db: Session = Depends(get_db)):
     """
     Assign an agent to the current authenticated admin for permission inheritance.
-    
+
+    This only links the agent to the admin (admin_agent_assignments). It does NOT
+    grant the Admin role to the agent. The agent's roles in GET /auth/me come from
+    user_roles; to grant the Admin role use POST /api/v1/users/{user_id}/roles
+    with the Admin role_id (from GET /api/v1/users/roles/list).
+
     The admin_id is automatically set to the current authenticated user's ID.
     This ensures admins can only assign agents to themselves, not to other admins.
     """

@@ -87,6 +87,7 @@ class UserResponse(UserBase):
     is_phone_verified: bool
     roles: List[RoleResponse] = []
     created_at: datetime
+    requires_password_set: bool = Field(False, description="True if user must set a password (e.g. agent who signed in via OTP and has not set one)")
 
     model_config = {"from_attributes": True}
 
@@ -96,6 +97,8 @@ class TokenResponse(BaseModel):
     id_token: Optional[str] = None
     token_type: str = "Bearer"
     expires_in: int
+    # In response body only (not in JWT). True = first-time agent without password; show set-password UI.
+    requires_password_set: bool = Field(False, description="True if user must set a password (e.g. agent who signed in via OTP and has not set one)")
 
 class LoginRequest(BaseModel):
     username: str # email or phone

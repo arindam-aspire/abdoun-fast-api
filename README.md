@@ -908,6 +908,8 @@ Content-Type: application/json
 
 **Note:** The `admin_id` is automatically extracted from the authenticated user's JWT token. You don't need to (and cannot) specify it in the request body. This ensures admins can only assign agents to themselves, not to other admins.
 
+**Assign-agent vs granting the Admin role:** `POST /agents/assign-agent` only *links* an agent to an admin (for permission inheritance). It does **not** add the "admin" role to the agent. The `roles` array in `GET /auth/me` comes from the `user_roles` table. To give a user the Admin role so they appear with both "agent" and "admin" in `/auth/me`, use **`POST /api/v1/users/{user_id}/roles`** with body `{"role_id": "<admin_role_uuid>"}`. Get role IDs from `GET /api/v1/users/roles/list` (requires `role:assign` permission).
+
 **Expected Success Response (200 OK):**
 ```json
 {

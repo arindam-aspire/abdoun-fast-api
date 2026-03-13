@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 from sqlalchemy import select
 
 from app.core.config import get_settings
@@ -143,7 +143,10 @@ def resend_confirmation(req: ResendConfirmationRequest):
 def login_password(login_in: LoginRequest, db: Session = Depends(get_db)):
     """Authenticate with email or phone number + password. Returns access and refresh tokens."""
     # Resolve email or phone to user; Cognito username is always email (pool sign-in identifier)
-    stmt = select(User).where((User.email == login_in.username) | (User.phone_number == login_in.username))
+    # Eagerly load profile to check password_set_at (though password login means they have a password)
+    stmt = select(User).options(selectinload(User.profile)).where(
+        (User.email == login_in.username) | (User.phone_number == login_in.username)
+    )
     user = db.execute(stmt).scalar_one_or_none()
     if not user:
         api_logger.warning(format_log_message(LogMessages.Auth.LOGIN_FAILED, email=login_in.username, error=ErrorMessages.USER_NOT_FOUND))
@@ -151,12 +154,16 @@ def login_password(login_in: LoginRequest, db: Session = Depends(get_db)):
     cognito_username = user.email
     try:
         auth_result = cognito_service.login_password(cognito_username, login_in.password)
+        requires_password_set = bool(
+            user.profile is not None and user.profile.password_set_at is None
+        )
         return create_success_response(
             data=TokenResponse(
                 access_token=auth_result["AccessToken"],
                 refresh_token=auth_result.get("RefreshToken"),
                 id_token=auth_result.get("IdToken"),
-                expires_in=auth_result["ExpiresIn"]
+                expires_in=auth_result["ExpiresIn"],
+                requires_password_set=requires_password_set
             ),
             message=SuccessMessages.LOGIN_SUCCESSFUL
         )
@@ -201,19 +208,30 @@ def login_otp_request(otp_req: OTPRequest, db: Session = Depends(get_db)):
 def login_otp_verify(otp_ver: OTPVerify, db: Session = Depends(get_db)):
     """Verify OTP and return tokens. Requires session from /login/otp/request. username = same as request (email or phone)."""
     # Resolve username (email or phone) to Cognito username (email) so RespondToAuthChallenge succeeds
-    stmt = select(User).where((User.email == otp_ver.username) | (User.phone_number == otp_ver.username))
+    # Eagerly load profile to check password_set_at
+    stmt = select(User).options(selectinload(User.profile)).where(
+        (User.email == otp_ver.username) | (User.phone_number == otp_ver.username)
+    )
     user = db.execute(stmt).scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=HTTPStatus.NOT_FOUND, detail=ErrorMessages.USER_NOT_FOUND)
     cognito_username = user.email
     try:
         auth_result = cognito_service.login_otp_verify(otp_ver.session, cognito_username, otp_ver.code)
+        
+        # Check if user needs to set password (for agents who logged in via OTP without password).
+        # This flag is in the response body only (Cognito JWT cannot contain custom claims).
+        requires_password_set = bool(
+            user.profile is not None and user.profile.password_set_at is None
+        )
+        
         return create_success_response(
             data=TokenResponse(
                 access_token=auth_result["AccessToken"],
                 refresh_token=auth_result.get("RefreshToken"),
                 id_token=auth_result.get("IdToken"),
-                expires_in=auth_result["ExpiresIn"]
+                expires_in=auth_result["ExpiresIn"],
+                requires_password_set=requires_password_set
             ),
             message=SuccessMessages.LOGIN_SUCCESSFUL
         )
@@ -221,9 +239,10 @@ def login_otp_verify(otp_ver: OTPVerify, db: Session = Depends(get_db)):
         raise HTTPException(status_code=HTTPStatus.UNAUTHORIZED, detail=ErrorMessages.INVALID_OTP)
 
 @router.post("/refresh", response_model=StandardResponse[TokenResponse])
-def refresh_token(body: RefreshRequest):
+def refresh_token(body: RefreshRequest, db: Session = Depends(get_db)):
     """Refresh access token using refresh_token in request body.
-    When Cognito app client has a secret, include username (sub or email) for SECRET_HASH."""
+    When Cognito app client has a secret, include username (sub or email) for SECRET_HASH.
+    Returns requires_password_set from DB (agent with no password_set_at) so clients stay in sync after refresh."""
     settings = get_settings()
     if settings.cognito_client_secret and not (body.username or "").strip():
         raise HTTPException(
@@ -232,11 +251,26 @@ def refresh_token(body: RefreshRequest):
         )
     try:
         auth_result = cognito_service.refresh_token(body.refresh_token, (body.username or "").strip())
+        access_token = auth_result["AccessToken"]
+
+        # Resolve requires_password_set from DB (single source of truth: agent_profiles.password_set_at)
+        requires_password_set = False
+        payload = cognito_service.verify_token(access_token)
+        if payload:
+            cognito_sub = payload.get("sub")
+            if cognito_sub:
+                stmt = select(User).options(selectinload(User.profile)).where(User.cognito_sub == cognito_sub)
+                user = db.execute(stmt).scalar_one_or_none()
+                if user and user.profile and user.profile.password_set_at is None:
+                    requires_password_set = True
+
         return create_success_response(
             data=TokenResponse(
-                access_token=auth_result["AccessToken"],
+                access_token=access_token,
+                refresh_token=auth_result.get("RefreshToken"),
                 id_token=auth_result.get("IdToken"),
-                expires_in=auth_result["ExpiresIn"]
+                expires_in=auth_result["ExpiresIn"],
+                requires_password_set=requires_password_set,
             )
         )
     except Exception:
@@ -337,9 +371,29 @@ def social_login(provider: str = "Google"):
     return create_success_response(data={"url": login_url})
 
 @router.get("/me", response_model=StandardResponse[UserResponse])
-def get_current_user_profile(current_user: User = Depends(get_current_user)):
+def get_current_user_profile(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     """Return the currently authenticated user's profile."""
-    return create_success_response(data=current_user, message=None)
+    # Ensure profile is loaded (it might be lazy-loaded)
+    if current_user.profile is None:
+        # Try to load profile if it exists
+        from app.models.user import AgentProfile
+        profile = db.query(AgentProfile).filter(AgentProfile.user_id == current_user.id).first()
+        if profile:
+            current_user.profile = profile
+    
+    # Check if user needs to set password (for agents who logged in via OTP without password)
+    requires_password_set = False
+    if current_user.profile:
+        # Refresh profile to get latest password_set_at
+        db.refresh(current_user.profile)
+        # Agent user: check if password_set_at is None
+        requires_password_set = current_user.profile.password_set_at is None
+    
+    # Create user response with requires_password_set flag (explicit bool so JSON is always true/false, never null)
+    user_response = UserResponse.model_validate(current_user)
+    user_response.requires_password_set = requires_password_set
+
+    return create_success_response(data=user_response, message=None)
 
 
 @router.get("/me/permissions", response_model=StandardResponse[PermissionsResponse])
