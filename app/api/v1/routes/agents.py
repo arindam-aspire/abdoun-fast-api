@@ -32,6 +32,8 @@ from app.schemas.user import (
     PaginationInfo,
     AgentStatusUpdateRequest,
     AgentStatusUpdateResponse,
+    AdminCreateAgentRequest,
+    AdminCreateAgentResponse,
 )
 from app.utils.responses import StandardResponse, create_success_response
 from app.utils.constants import SuccessMessages, ErrorMessages, InfoMessages, UserRoles, UserPermissions, AgentStatus
@@ -58,6 +60,30 @@ def _get_missing_cognito_config(settings) -> List[str]:
     if not settings.cognito_client_id or not settings.cognito_client_id.strip():
         missing_config.append("COGNITO_APP_CLIENT_ID")
     return missing_config
+
+
+def _generate_temporary_password(length: int = 16) -> str:
+    """
+    Generate a strong temporary password that satisfies typical Cognito policies:
+    - At least one uppercase, one lowercase, one digit, one special character.
+    - No need to store in DB; returned to admin/notification only.
+    """
+    import secrets
+    import string
+
+    upper = secrets.choice(string.ascii_uppercase)
+    lower = secrets.choice(string.ascii_lowercase)
+    digit = secrets.choice(string.digits)
+    special_chars = "!@#$%^&*()-_=+[]{}|;:,.<>?"
+    special = secrets.choice(special_chars)
+
+    remaining_length = max(length - 4, 4)
+    alphabet = string.ascii_letters + string.digits + special_chars
+    remaining = [secrets.choice(alphabet) for _ in range(remaining_length)]
+
+    chars = [upper, lower, digit, special] + remaining
+    secrets.SystemRandom().shuffle(chars)
+    return "".join(chars)
 
 
 def _try_create_cognito_user_for_agent(
@@ -326,14 +352,12 @@ def invite_agent(
         except Exception as n:
             api_logger.warning(format_log_message(LogMessages.RBAC.NOTIFICATION_FAILED, context="agent invite", error=str(n)))
         
-        # Create User + AgentProfile with INVITED status (user doesn't exist at this point)
-        # `users.phone_number` is unique/non-null; use the agreed placeholder
-        # until onboarding form submission provides the real number.
-        placeholder_phone = "+00 000000000"
+        # Create User + AgentProfile with INVITED status (user doesn't exist at this point).
+        # phone_number is left NULL until the agent submits the onboarding form.
         db_user = User(
             email=invite_in.email,
             full_name="",  # Will be filled when form is submitted
-            phone_number=placeholder_phone,
+            phone_number=None,
             is_active=False
         )
         db.add(db_user)
@@ -372,6 +396,157 @@ def invite_agent(
         raise HTTPException(
             status_code=HTTPStatus.INTERNAL_SERVER_ERROR,
             detail=ErrorMessages.INVITE_FAILED
+        )
+
+
+@router.post("/manual-onboard", response_model=StandardResponse[AdminCreateAgentResponse])
+def create_agent_direct(
+    body: AdminCreateAgentRequest,
+    current_user: User = require_role(UserRoles.ADMIN),
+    db: Session = Depends(get_db)
+):
+    """
+    Admin: directly create an agent (no invite flow) with a temporary password.
+
+    - Creates Cognito user with a temporary password (admin shares this with agent).
+    - Creates local User + AgentProfile similar to approved onboarding, without using AgentInvite.
+    - Does NOT add Admin role to the agent; they keep only the AGENT role.
+    - Uses the existing requires_password_set flag so UI can prompt the agent to change password.
+    """
+    # Check if a user already exists with this email
+    stmt_user = select(User).where(User.email == body.email)
+    existing_user = db.execute(stmt_user).scalar_one_or_none()
+
+    if existing_user:
+        # If user already has an agent profile, they are already an agent
+        if existing_user.profile:
+            api_logger.warning(
+                format_log_message(LogMessages.RBAC.INVITE_ATTEMPT_EXISTING, email=body.email)
+            )
+            raise HTTPException(
+                status_code=HTTPStatus.CONFLICT,
+                detail=ErrorMessages.AGENT_ALREADY_EXISTS,
+            )
+        # If user exists but is not an agent, require explicit role assignment via /users/{id}/roles
+        raise HTTPException(
+            status_code=HTTPStatus.CONFLICT,
+            detail=ErrorMessages.USER_EXISTS,
+        )
+
+    # Generate a strong temporary password
+    temp_password = _generate_temporary_password()
+
+    # Create user in Cognito with temporary password
+    try:
+        cognito_response = cognito_service.signup(
+            email=body.email,
+            password=temp_password,
+            full_name=body.fullName,
+            phone_number=body.phone,
+        )
+        cognito_sub = cognito_response.get("UserSub")
+        if not cognito_sub:
+            raise HTTPException(
+                status_code=HTTPStatus.BAD_REQUEST,
+                detail="Cognito signup did not return UserSub",
+            )
+        # Confirm sign-up without changing password so they can log in with the temp password.
+        # Use cognito_sub (UUID); in many pools the admin API Username is the sub, not the email.
+        try:
+            cognito_service.admin_confirm_sign_up(cognito_sub)
+        except Exception as confirm_err:
+            api_logger.warning(
+                format_log_message(
+                    LogMessages.Auth.ADMIN_CONFIRM_FAILED,
+                    email=body.email,
+                    error=str(confirm_err),
+                )
+            )
+            raise HTTPException(
+                status_code=HTTPStatus.BAD_REQUEST,
+                detail="Could not confirm user in Cognito. The agent may not be able to log in with the temporary password.",
+            ) from confirm_err
+    except HTTPException:
+        raise
+    except Exception as e:
+        server_error = format_log_message(ErrorMessages.COGNITO_ERROR, error=str(e))
+        raise HTTPException(status_code=HTTPStatus.BAD_REQUEST, detail=server_error)
+
+    # Create local User + AgentProfile
+    try:
+        db_user = User(
+            email=body.email,
+            full_name=body.fullName,
+            phone_number=body.phone,
+            is_active=True,
+            cognito_sub=cognito_sub,
+        )
+        db.add(db_user)
+        db.flush()
+
+        # Assign AGENT role
+        stmt_role = select(Role).where(Role.name == UserRoles.AGENT)
+        role = db.execute(stmt_role).scalar_one_or_none()
+        if role:
+            db_user.roles.append(role)
+
+        # Create AgentProfile with ACTIVE status, as this is an admin-created agent
+        profile = AgentProfile(
+            user_id=db_user.id,
+            service_area=body.serviceArea,
+            status=AgentStatus.ACTIVE,
+        )
+        # Mark as approved/reviewed by current admin
+        profile.approved_by = current_user.id
+        profile.reviewed_by = current_user.id
+        profile.approved_at = datetime.now()
+        profile.reviewed_at = profile.approved_at
+
+        db.add(profile)
+        db.commit()
+        db.refresh(db_user)
+        db.refresh(profile)
+
+        # Mark in Cognito that this user should change their password (requires_password_set=true)
+        try:
+            if db_user.cognito_sub:
+                cognito_service.set_requires_password_set(db_user.cognito_sub, True)
+        except Exception as attr_err:
+            api_logger.debug(
+                "Could not set Cognito requires_password_set attribute for direct-created agent: %s",
+                attr_err,
+            )
+
+        # For now, we log the temp password. In production, wire this to an email notification.
+        api_logger.info(
+            format_log_message(
+                LogMessages.RBAC.AGENT_INVITED,
+                email=db_user.email,
+                invited_by=current_user.email,
+            )
+            + f" | Direct-create agent with temporary password issued."
+        )
+
+        return create_success_response(
+            data=AdminCreateAgentResponse(
+                id=db_user.id,
+                email=db_user.email,
+                fullName=db_user.full_name,
+                phone=db_user.phone_number,
+                serviceArea=profile.service_area,
+                status=profile.status,
+                temporaryPassword=temp_password,
+            ),
+            message="Agent created successfully with a temporary password",
+        )
+    except Exception as e:
+        db.rollback()
+        api_logger.error(
+            format_log_message(LogMessages.RBAC.INVITE_FAILED_LOG, error=str(e))
+        )
+        raise HTTPException(
+            status_code=HTTPStatus.INTERNAL_SERVER_ERROR,
+            detail=ErrorMessages.INTERNAL_SERVER_ERROR,
         )
 
 

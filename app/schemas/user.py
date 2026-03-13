@@ -52,17 +52,20 @@ class RoleResponse(RoleBase):
 class UserBase(BaseModel):
     email: EmailStr
     full_name: str
-    phone_number: str
+    phone_number: Optional[str] = None
 
     @field_validator("phone_number")
     @classmethod
-    def validate_phone(cls, v: str) -> str:
+    def validate_phone(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return None
         normalized = _normalize_phone(v)
         if not re.match(PHONE_E164_REGEX, normalized):
             raise ValueError(ValidationMessages.PHONE_E164)
         return normalized
 
 class UserCreate(UserBase):
+    phone_number: str = Field(..., description="Required for registration")
     password: str = Field(..., min_length=8)
 
     @field_validator("password")
@@ -220,6 +223,33 @@ class AgentRegister(BaseModel):
         if not re.match(PHONE_E164_REGEX, normalized):
             raise ValueError(ValidationMessages.PHONE_E164)
         return normalized
+
+
+class AdminCreateAgentRequest(BaseModel):
+    """Admin: directly create an agent with a temporary password."""
+    fullName: str = Field(..., min_length=1)
+    email: EmailStr
+    phone: str
+    serviceArea: str = Field(..., min_length=1)
+
+    @field_validator("phone")
+    @classmethod
+    def validate_phone(cls, v: str) -> str:
+        normalized = _normalize_phone(v)
+        if not re.match(PHONE_E164_REGEX, normalized):
+            raise ValueError(ValidationMessages.PHONE_E164)
+        return normalized
+
+
+class AdminCreateAgentResponse(BaseModel):
+    """Response after admin directly creates an agent with a temporary password."""
+    id: uuid.UUID
+    email: str
+    fullName: str
+    phone: str
+    serviceArea: str
+    status: AgentStatusEnum
+    temporaryPassword: str
 
 
 class AdminAgentAssignmentRequest(BaseModel):

@@ -1963,6 +1963,101 @@
               "body": "{\n    \"detail\": \"Invitation has already been used\"\n}"
             }
           ]
+        },
+        {
+          "name": "manual agent onboard",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "eyJraWQiOiJSdEMyWUdwMm5ONWFhOVI1RVQrNGRqVlJzQjA2N2k2aUJKVlUxRkJhU1BFPSIsImFsZyI6IlJTMjU2In0.eyJzdWIiOiI1MTMwZTU1MC0zMDYxLTcwN2MtZjM4Yy05YzNjZTJhMjAwYTUiLCJpc3MiOiJodHRwczpcL1wvY29nbml0by1pZHAubWUtc291dGgtMS5hbWF6b25hd3MuY29tXC9tZS1zb3V0aC0xX3J2eTNQUjZZcSIsImNsaWVudF9pZCI6IjczNjk2YjZkNzUzcHRwcHAwMmJuY3B0NTRsIiwib3JpZ2luX2p0aSI6IjZjMTI3OTM0LTg1MDUtNDJjNS05NmU4LTVjMjM0ODBmMTQwMyIsImV2ZW50X2lkIjoiZGNjZDY3OTktNmM4MC00ZWJlLTg1MTctMTU5NDhkYjQ0ZDg2IiwidG9rZW5fdXNlIjoiYWNjZXNzIiwic2NvcGUiOiJhd3MuY29nbml0by5zaWduaW4udXNlci5hZG1pbiIsImF1dGhfdGltZSI6MTc3MzQwMTIxMiwiZXhwIjoxNzczNDAzMDEyLCJpYXQiOjE3NzM0MDEyMTIsImp0aSI6IjUzYjcyNzRmLTg3YzMtNDc2ZC1iMTg1LWEzNjI0ZWE2MDFhYyIsInVzZXJuYW1lIjoiNTEzMGU1NTAtMzA2MS03MDdjLWYzOGMtOWMzY2UyYTIwMGE1In0.cLSe5X6vlqjunzJ5bwA1eZuGu_rEOaj53SnoVt8YwTxKV5ZtYkkm-d6VzBnBwz7XQ3I_tzgWTaKPi_kZxOjbSOzHsqteHfM4p5W4rlloDEXUlr6M7Gw00Gdggg06sh4CpvTZpnbxa0t3DPpxwJG4XSMItwppJzFhm5RZ9Yl2Lyc7O3zmeKQSF3r1zOIq0o9YCP6cXnzMy96MsLK4rnafaJKzpGNQNw9swOmZMNOfm3l9T3mM45FevNbEfu-GuLDnTwpKfrAk7-ZBjIguW2cfdo9XGvGwffBHw1-AP5UY5ZKyrHcA0GcyNZEh9b5MWpe7iDl3xrkv9EuXl3J-b0ADXg",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\r\n  \"fullName\": \"Supriya Singh\",\r\n  \"email\": \"swati.agent@example.com\",\r\n  \"phone\": \"+916209649785\",\r\n  \"serviceArea\": \"Gurgaon\"\r\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "http://localhost:8000/api/v1/agents/manual-onboard",
+              "protocol": "http",
+              "host": [
+                "localhost"
+              ],
+              "port": "8000",
+              "path": [
+                "api",
+                "v1",
+                "agents",
+                "manual-onboard"
+              ]
+            }
+          },
+          "response": [
+            {
+              "name": "manual agent onboard",
+              "originalRequest": {
+                "method": "POST",
+                "header": [],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\r\n  \"fullName\": \"Supriya Singh\",\r\n  \"email\": \"swati.agent@example.com\",\r\n  \"phone\": \"+916209649785\",\r\n  \"serviceArea\": \"Gurgaon\"\r\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "http://localhost:8000/api/v1/agents/manual-onboard",
+                  "protocol": "http",
+                  "host": [
+                    "localhost"
+                  ],
+                  "port": "8000",
+                  "path": [
+                    "api",
+                    "v1",
+                    "agents",
+                    "manual-onboard"
+                  ]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": null,
+              "header": [
+                {
+                  "key": "date",
+                  "value": "Fri, 13 Mar 2026 11:27:23 GMT"
+                },
+                {
+                  "key": "server",
+                  "value": "uvicorn"
+                },
+                {
+                  "key": "content-length",
+                  "value": "313"
+                },
+                {
+                  "key": "content-type",
+                  "value": "application/json"
+                }
+              ],
+              "cookie": [],
+              "body": "{\n    \"success\": true,\n    \"data\": {\n        \"id\": \"40541e54-9a15-4e42-ad83-e019119852e5\",\n        \"email\": \"swati.agent@example.com\",\n        \"fullName\": \"Supriya Singh\",\n        \"phone\": \"+916209649785\",\n        \"serviceArea\": \"Gurgaon\",\n        \"status\": \"ACTIVE\",\n        \"temporaryPassword\": \"cA{q6QCFn9J4TSrA\"\n    },\n    \"message\": \"Agent created successfully with a temporary password\",\n    \"error\": null\n}"
+            }
+          ]
         }
       ]
     },
@@ -3309,7 +3404,7 @@
         ],
         "body": {
           "mode": "raw",
-          "raw": "// {\n//   \"username\": \"testuser@example.com\",\n//   \"password\": \"Test@1234\"\n// }\n\n{\n  \"username\": \"rameshadmin@yopmail.com\",\n  \"password\": \"Spring@2026\"\n}\n\n\n// {\n//   \"username\": \"swati@yopmail.com\",\n//   \"password\": \"Spring@2026\"\n// }\n\n\n// {\n//   \"username\": \"agent@yopmail.com\",\n//   \"password\": \"Spring@2026\"\n// }"
+          "raw": "// {\n//   \"username\": \"testuser@example.com\",\n//   \"password\": \"Test@1234\"\n// }\n\n// {\n//   \"username\": \"rameshadmin@yopmail.com\",\n//   \"password\": \"Spring@2026\"\n// }\n\n\n// {\n//   \"username\": \"swati@yopmail.com\",\n//   \"password\": \"Spring@2026\"\n// }\n\n\n{\n  \"username\": \"supriya.agent@example.com\",\n  \"password\": \"Spring@2026\"\n//   \"password\": \"%;9.%c>|#YCe72m{\"\n}\n\n// {\n//   \"username\": \"agent@yopmail.com\",\n//   \"password\": \"Spring@2026\"\n// }"
         },
         "url": {
           "raw": "{{base_url}}/auth/login/password",

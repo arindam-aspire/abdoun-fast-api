@@ -166,7 +166,7 @@ class CognitoService:
             return None
 
     def admin_confirm_user(self, email: str):
-        """Confirm a user account manually."""
+        """Confirm a user account manually by setting a random permanent password (user must reset)."""
         try:
             self.client.admin_set_user_password(
                 UserPoolId=self.user_pool_id,
@@ -177,6 +177,23 @@ class CognitoService:
             return True
         except ClientError as e:
             api_logger.error(format_log_message(LogMessages.Auth.ADMIN_CONFIRM_FAILED, email=email, error=str(e)))
+            raise e
+
+    def admin_confirm_sign_up(self, username: str) -> bool:
+        """
+        Confirm a user's sign-up as admin without changing their password.
+        Use this after sign_up() so the user can log in with the same password.
+        """
+        try:
+            self.client.admin_confirm_sign_up(
+                UserPoolId=self.user_pool_id,
+                Username=username,
+            )
+            return True
+        except ClientError as e:
+            api_logger.error(
+                format_log_message(LogMessages.Auth.ADMIN_CONFIRM_FAILED, email=username, error=str(e))
+            )
             raise e
 
     def login_password(self, email: str, password: str) -> Dict[str, Any]:

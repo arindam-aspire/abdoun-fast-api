@@ -78,7 +78,7 @@ class User(Base):
     cognito_sub: Mapped[Optional[str]] = mapped_column(String(100), unique=True, index=True, nullable=True)
     full_name: Mapped[str] = mapped_column(String(255), nullable=False)
     email: Mapped[str] = mapped_column(String(255), unique=True, index=True, nullable=False)
-    phone_number: Mapped[str] = mapped_column(String(20), unique=True, index=True, nullable=False)
+    phone_number: Mapped[Optional[str]] = mapped_column(String(20), unique=True, index=True, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     is_email_verified: Mapped[bool] = mapped_column(Boolean, default=False)
     is_phone_verified: Mapped[bool] = mapped_column(Boolean, default=False)
