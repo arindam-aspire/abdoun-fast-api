@@ -59,16 +59,16 @@ def _check_azure_openai_config(emoji_safe) -> None:
             missing.append("AZURE_DEPLOYMENT_NAME")
         
         if missing:
-            safe_print(emoji_safe(f"🤖 Azure OpenAI fallback: Disabled (missing: {', '.join(missing)})"))
+            safe_print(emoji_safe(f"Azure OpenAI fallback: Disabled (missing: {', '.join(missing)})"))
         else:
             try:
                 import openai
-                safe_print(emoji_safe("🤖 Azure OpenAI fallback: ✅ Enabled (will be used if Nominatim fails)"))
+                safe_print(emoji_safe("Azure OpenAI fallback: Enabled (will be used if Nominatim fails)"))
             except ImportError:
-                safe_print(emoji_safe("🤖 Azure OpenAI fallback: ⚠️  Configured but 'openai' library not installed"))
+                safe_print(emoji_safe("Azure OpenAI fallback:  Configured but 'openai' library not installed"))
                 print("   Install with: pip install openai==0.28.1")
     except Exception as e:
-        safe_print(emoji_safe(f"🤖 Azure OpenAI fallback: Disabled (error: {str(e)})"))
+        safe_print(emoji_safe(f"Azure OpenAI fallback: Disabled (error: {str(e)})"))
 
 
 def _process_row(
@@ -85,27 +85,27 @@ def _process_row(
     
     # Skip if location is empty
     if pd.isna(location) or not str(location).strip():
-        safe_print(emoji_safe(f"[{idx+1}/{total_rows}] ⚠️  Empty location, skipping"))
+        safe_print(emoji_safe(f"[{idx+1}/{total_rows}]  Empty location, skipping"))
         return 0, 0, 1
     
     # Skip if coordinates already exist
     if skip_existing:
         if pd.notna(row.get("latitude")) and pd.notna(row.get("longitude")):
-            safe_print(emoji_safe(f"[{idx+1}/{total_rows}] ⏭️  Already has coordinates, skipping: {location}"))
+            safe_print(emoji_safe(f"[{idx+1}/{total_rows}] Already has coordinates, skipping: {location}"))
             return 0, 1, 0
     
     # Geocode the location
-    safe_print(emoji_safe(f"[{idx+1}/{total_rows}] 🌐 Geocoding: {location}"))
+    safe_print(emoji_safe(f"[{idx+1}/{total_rows}] Geocoding: {location}"))
     coords = geocoding_service.get_coordinates_with_fallback(str(location))
     
     if coords:
         lon, lat = coords
         df.at[idx, "longitude"] = lon
         df.at[idx, "latitude"] = lat
-        safe_print(emoji_safe(f"    ✅ Found: ({lat:.6f}, {lon:.6f})"))
+        safe_print(emoji_safe(f"    Found: ({lat:.6f}, {lon:.6f})"))
         return 1, 0, 0
     else:
-        safe_print(emoji_safe("    ❌ Not found"))
+        safe_print(emoji_safe("    Not found"))
         return 0, 0, 1
 
 
@@ -125,12 +125,12 @@ def enrich_csv_with_coordinates(
         skip_existing: If True, skip rows that already have lat/lng
     """
     _, emoji_safe = get_coord_logger()
-    safe_print(emoji_safe(f"📖 Reading CSV: {input_csv}"))
+    safe_print(emoji_safe(f"Reading CSV: {input_csv}"))
     df = pd.read_csv(input_csv)
     
     # Check if location column exists
     if location_column not in df.columns:
-        safe_print(emoji_safe(f"❌ Error: Column '{location_column}' not found in CSV"))
+        safe_print(emoji_safe(f"Error: Column '{location_column}' not found in CSV"))
         print(f"Available columns: {', '.join(df.columns)}")
         sys.exit(1)
     
@@ -145,8 +145,8 @@ def enrich_csv_with_coordinates(
     skipped_count = 0
     failed_count = 0
     
-    safe_print(emoji_safe(f"📍 Processing {total_rows} properties..."))
-    safe_print(emoji_safe("⏱️  Rate limited to 1 request/second (Nominatim policy)"))
+    safe_print(emoji_safe(f"Processing {total_rows} properties..."))
+    safe_print(emoji_safe("Rate limited to 1 request/second (Nominatim policy)"))
     
     _check_azure_openai_config(emoji_safe)
     
@@ -163,18 +163,18 @@ def enrich_csv_with_coordinates(
     # Save enriched CSV
     output_path = output_csv or input_csv
     print("-" * 60)
-    safe_print(emoji_safe(f"💾 Saving enriched CSV to: {output_path}"))
+    safe_print(emoji_safe(f"Saving enriched CSV to: {output_path}"))
     df.to_csv(output_path, index=False)
     
     # Print summary
     print("\n" + "=" * 60)
-    safe_print(emoji_safe("📊 SUMMARY"))
+    safe_print(emoji_safe("SUMMARY"))
     print("=" * 60)
     print(f"Total properties:     {total_rows}")
-    safe_print(emoji_safe(f"✅ Geocoded:          {geocoded_count}"))
-    safe_print(emoji_safe(f"⏭️  Skipped (existing): {skipped_count}"))
-    safe_print(emoji_safe(f"❌ Failed:            {failed_count}"))
-    print(f"📈 Success rate:      {(geocoded_count / (total_rows - skipped_count) * 100):.1f}%" if (total_rows - skipped_count) > 0 else "N/A")
+    safe_print(emoji_safe(f"Geocoded:          {geocoded_count}"))
+    safe_print(emoji_safe(f"Skipped (existing): {skipped_count}"))
+    safe_print(emoji_safe(f"Failed:            {failed_count}"))
+    print(f"Success rate:      {(geocoded_count / (total_rows - skipped_count) * 100):.1f}%" if (total_rows - skipped_count) > 0 else "N/A")
     print("=" * 60)
 
 

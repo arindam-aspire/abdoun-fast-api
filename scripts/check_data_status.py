@@ -51,7 +51,7 @@ def check_table_counts(db):
     
     for table_name, model in tables.items():
         count = db.execute(select(func.count()).select_from(model)).scalar() or 0
-        status = "✓" if count > 0 else "✗"
+        status = "YES" if count > 0 else "NO"
         print(f"{status} {table_name:30} : {count:5} rows")
 
     # property_translations by language (en, ar, esp, fr)
@@ -79,7 +79,7 @@ def main():
         # Additional checks
         prop_count = db.execute(select(func.count(PropertyNormalized.id))).scalar() or 0
         if prop_count > 0:
-            print("✓ Properties exist in database")
+            print("Properties exist in database")
             print(f"  Total properties: {prop_count}")
             
             # Check a sample property
@@ -93,7 +93,7 @@ def main():
                 print(f"    Title: {sample.title}")
                 print(f"    URL: {sample.url}")
         else:
-            print("✗ No properties found in database")
+            print("No properties found in database")
             print("  Run: python scripts/import_normalized_csv.py")
         
     finally:

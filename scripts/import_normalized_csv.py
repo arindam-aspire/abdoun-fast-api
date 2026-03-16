@@ -40,7 +40,7 @@ def main():
     
     csv_path = Path(args.csv_path)
     if not csv_path.exists():
-        print(f"✗ Error: CSV file not found at {csv_path}")
+        print(f"Error: CSV file not found at {csv_path}")
         sys.exit(1)
     
     print("=" * 60)
@@ -55,9 +55,9 @@ def main():
     print("Reading CSV file...")
     try:
         df = pd.read_csv(csv_path)
-        print(f"✓ Loaded {len(df)} rows from CSV")
+        print(f"Loaded {len(df)} rows from CSV")
     except Exception as e:
-        print(f"✗ Error reading CSV: {e}")
+        print(f"Error reading CSV: {e}")
         sys.exit(1)
     
     # Import to database
@@ -74,13 +74,13 @@ def main():
         
         print()
         print("=" * 60)
-        print(f"✓ Import completed successfully!")
+        print(f"Import completed successfully!")
         print(f"  Imported: {imported_count} properties")
         print("=" * 60)
         
     except Exception as e:
         db.rollback()
-        print(f"✗ Error importing data: {e}")
+        print(f"Error importing data: {e}")
         import traceback
         traceback.print_exc()
         sys.exit(1)

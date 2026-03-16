@@ -25,9 +25,9 @@ def test_social_login_url():
     print(f"Status: {response.status_code}")
     if response.status_code == HTTPStatus.OK:
         url = response.json().get("data", {}).get("url")
-        print(f"✅ Success! URL: {url[:50]}...")
+        print(f"Success! URL: {url[:50]}...")
     else:
-        print(f"❌ Error: {response.text}")
+        print(f"Error: {response.text}")
 
 def test_auth_endpoints():
     print("\n" + "="*60)
@@ -40,7 +40,7 @@ def test_auth_endpoints():
         requests.get(f"{BASE_URL}/social-login?provider=Google", timeout=5)
         print("Connection check passed.")
     except Exception as e:
-        print(f"\n❌ ERROR: Cannot connect to FastAPI server! Error: {e}")
+        print(f"\nERROR: Cannot connect to FastAPI server! Error: {e}")
         print("   Please start the server first: uvicorn app.main:app --reload")
         return
 

@@ -4,15 +4,15 @@ A production-ready FastAPI application for managing and searching real estate pr
 
 ## Features
 
-- 🗺️ **Spatial Search**: Search properties by geographic bounds or polygons
-- 📍 **Geocoding**: Automatic geocoding with Nominatim, Google Search, and Azure OpenAI fallback
-- 🏠 **Property Management**: Full CRUD operations for property listings
-- 📊 **CSV Import**: Bulk import properties from CSV files
-- 🔍 **Advanced Filtering**: Search by status, category, type, city, location, price range, and more
-- 🔗 **Similar Properties**: Find similar properties based on category, location, price, bedrooms, bathrooms, and area
-- 📄 **Pagination**: Page-based pagination with configurable page size
-- 🌍 **Multi-Language (i18n)**: Property title and description in English, Arabic, Spanish, and French via `property_translations` table
-- 🚀 **Fast & Scalable**: Built with FastAPI, SQLAlchemy 2.0, and PostGIS
+- **Spatial Search**: Search properties by geographic bounds or polygons
+- **Geocoding**: Automatic geocoding with Nominatim, Google Search, and Azure OpenAI fallback
+- **Property Management**: Full CRUD operations for property listings
+- **CSV Import**: Bulk import properties from CSV files
+- **Advanced Filtering**: Search by status, category, type, city, location, price range, and more
+- **Similar Properties**: Find similar properties based on category, location, price, bedrooms, bathrooms, and area
+- **Pagination**: Page-based pagination with configurable page size
+- **Multi-Language (i18n)**: Property title and description in English, Arabic, Spanish, and French via `property_translations` table
+- **Fast & Scalable**: Built with FastAPI, SQLAlchemy 2.0, and PostGIS
 
 ## Tech Stack
 
@@ -164,13 +164,13 @@ abdoun_fast_api/
    
    **Expected Output:**
    ```
-   ✓ Created category: Residential
-   ✓ Created property type: Apartment
-   ✓ Created city: Amman
-   ✓ Created area: Abdoun
-   ✓ Created status: Verified
-   ✓ Created feature: Elevator
-   ✓ Linked feature 'Elevator' to category 'Residential'
+   Created category: Residential
+   Created property type: Apartment
+   Created city: Amman
+   Created area: Abdoun
+   Created status: Verified
+   Created feature: Elevator
+   Linked feature 'Elevator' to category 'Residential'
    ...
    ```
 
@@ -238,11 +238,11 @@ abdoun_fast_api/
    
    **Expected Output:**
    ```
-   ✅ PASS: List Properties
-   ✅ PASS: Get Property Detail
-   ✅ PASS: Search with Filters
-   ✅ PASS: Search by Bounds
-   ✅ PASS: Search by Polygon
+   PASS: List Properties
+   PASS: Get Property Detail
+   PASS: Search with Filters
+   PASS: Search by Bounds
+   PASS: Search by Polygon
    
    Total: 5/5 tests passed
    ```

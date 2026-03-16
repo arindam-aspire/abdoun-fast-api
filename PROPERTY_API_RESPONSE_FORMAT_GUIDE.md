@@ -1,6 +1,6 @@
 # Property API Response Format Transformation Guide
 
-## 📋 Table of Contents
+## Table of Contents
 
 1. [Executive Summary](#executive-summary)
 2. [Current vs New Format Comparison](#current-vs-new-format-comparison)
@@ -17,11 +17,11 @@
 
 This document provides a comprehensive guide for transforming the current property API response format to a new structured format with:
 
-- ✅ **Multi-language support** (English & Arabic)
-- ✅ **Nested object structure** for better organization
-- ✅ **Rich metadata** (agent, owner, media management)
-- ✅ **Enhanced property details** (general, details, features, pricing)
-- ✅ **SEO-friendly slugs** for better discoverability
+- **Multi-language support** (English & Arabic)
+- **Nested object structure** for better organization
+- **Rich metadata** (agent, owner, media management)
+- **Enhanced property details** (general, details, features, pricing)
+- **SEO-friendly slugs** for better discoverability
 
 **Key Statistics:**
 - **~70% of fields** can be extracted directly or derived from existing CSV
@@ -239,7 +239,7 @@ This document provides a comprehensive guide for transforming the current proper
 
 ## Field-by-Field Analysis
 
-### ✅ Available in Current Database/API
+### Available in Current Database/API
 
 | Field | Current Location | Notes |
 |-------|-----------------|-------|
@@ -270,7 +270,7 @@ This document provides a comprehensive guide for transforming the current proper
 | `created_at` | `PropertyNormalized.created_at` | TIMESTAMP |
 | `updated_at` | `PropertyNormalized.updated_at` | TIMESTAMP |
 
-### ❌ Missing in Current Database/API
+### Missing in Current Database/API
 
 | Field | Required For | Impact Level | Solution |
 |-------|-------------|--------------|----------|
@@ -318,89 +318,89 @@ more_features, image_urls, status, latitude, longitude
 
 | New Format Field | CSV Source | Transformation Logic | Status |
 |-----------------|------------|---------------------|--------|
-| `id` | `property_id` | Use existing UUID hash or generate from `property_id` | ✅ Direct |
-| `reference_number` | `property_id` | Format: `property_id` (e.g., "01002" → "01002") | ✅ Direct |
-| `status` | `status` | Map: "ok" → "active", else → "pending" | ✅ Direct |
-| `listing_type` | `selling_price`, `rent_price` | If both exist → "both", else "rent" or "buy" | ✅ Derived |
-| `property_type` | `category`, `type` | Extract from category/type (e.g., "Apartment", "Villa") | ✅ Derived |
-| `category` | `category` | Map to: "residential", "commercial", "land" | ✅ Derived |
-| `is_exclusive` | Calculated | From existing `is_exclusive` column in DB | ✅ Direct |
+| `id` | `property_id` | Use existing UUID hash or generate from `property_id` | Direct |
+| `reference_number` | `property_id` | Format: `property_id` (e.g., "01002" → "01002") | Direct |
+| `status` | `status` | Map: "ok" → "active", else → "pending" | Direct |
+| `listing_type` | `selling_price`, `rent_price` | If both exist → "both", else "rent" or "buy" | Derived |
+| `property_type` | `category`, `type` | Extract from category/type (e.g., "Apartment", "Villa") | Derived |
+| `category` | `category` | Map to: "residential", "commercial", "land" | Derived |
+| `is_exclusive` | Calculated | From existing `is_exclusive` column in DB | Direct |
 
 #### 2. Multi-Language Fields
 
 | New Format Field | CSV Source | Transformation Logic | Status |
 |-----------------|------------|---------------------|--------|
-| `title.en` | `property_name` | Direct copy | ✅ Direct |
-| `title.ar` | `property_name` | **Translation API or manual translation** | ❌ Missing |
-| `description.en` | `description` | Direct copy | ✅ Direct |
-| `description.ar` | `description` | **Translation API or manual translation** | ❌ Missing |
-| `slug.en` | `property_name`, `location`, `property_id` | Generate: `slugify(property_name + location + property_id)` | ✅ Derived |
-| `slug.ar` | `property_name`, `location`, `property_id` | Generate from Arabic title | ❌ Missing |
-| `address.en` | `location` | Direct copy (e.g., "Dabouq - Amman") | ✅ Direct |
-| `address.ar` | `location` | **Translation API or manual translation** | ❌ Missing |
+| `title.en` | `property_name` | Direct copy | Direct |
+| `title.ar` | `property_name` | **Translation API or manual translation** | Missing |
+| `description.en` | `description` | Direct copy | Direct |
+| `description.ar` | `description` | **Translation API or manual translation** | Missing |
+| `slug.en` | `property_name`, `location`, `property_id` | Generate: `slugify(property_name + location + property_id)` | Derived |
+| `slug.ar` | `property_name`, `location`, `property_id` | Generate from Arabic title | Missing |
+| `address.en` | `location` | Direct copy (e.g., "Dabouq - Amman") | Direct |
+| `address.ar` | `location` | **Translation API or manual translation** | Missing |
 
 #### 3. Location Fields
 
 | New Format Field | CSV Source | Transformation Logic | Status |
 |-----------------|------------|---------------------|--------|
-| `country_id` | N/A | Default to 1 (Jordan) | ✅ Default |
-| `country` | N/A | Default to "Jordan" | ✅ Default |
-| `city_id` | `location` | Extract city from "Area - City" format, lookup/create in DB | ✅ Derived |
-| `city` | `location` | Extract city name (e.g., "Amman") | ✅ Derived |
-| `region_id` | `location` | Extract area from "Area - City" format, lookup/create in DB | ✅ Derived |
-| `region` | `location` | Extract area name (e.g., "Dabouq") | ✅ Derived |
-| `latitude` | `latitude` | Direct copy | ✅ Direct |
-| `longitude` | `longitude` | Direct copy | ✅ Direct |
-| `map_embed_url` | `latitude`, `longitude` | Generate: `https://maps.google.com/?q={lat},{lng}` | ✅ Derived |
+| `country_id` | N/A | Default to 1 (Jordan) | Default |
+| `country` | N/A | Default to "Jordan" | Default |
+| `city_id` | `location` | Extract city from "Area - City" format, lookup/create in DB | Derived |
+| `city` | `location` | Extract city name (e.g., "Amman") | Derived |
+| `region_id` | `location` | Extract area from "Area - City" format, lookup/create in DB | Derived |
+| `region` | `location` | Extract area name (e.g., "Dabouq") | Derived |
+| `latitude` | `latitude` | Direct copy | Direct |
+| `longitude` | `longitude` | Direct copy | Direct |
+| `map_embed_url` | `latitude`, `longitude` | Generate: `https://maps.google.com/?q={lat},{lng}` | Derived |
 
 #### 4. General Details
 
 | New Format Field | CSV Source | Transformation Logic | Status |
 |-----------------|------------|---------------------|--------|
-| `floor_type` | `type` | Map: "Ground" → "ground", "Upper Floor" → "upper", "Semi Ground Floor" → "semi_ground", "Roof" → "roof" | ✅ Derived |
-| `floor_number` | `floor` | Parse float to int (e.g., 1.0 → 1, -1.0 → -1) | ✅ Direct |
-| `building_status` | `building_status` | Map: "Used" → "used", "New" → "new", else → "used" | ✅ Direct |
-| `built_in_year` | N/A | **Not in CSV** - Set to NULL or estimate from `building_status` | ❌ Missing |
-| `furniture_status` | `furniture` | Map: "Furnished" → "furnished", "Unfurnished" → "unfurnished" | ✅ Direct |
-| `furniture_condition` | N/A | **Not in CSV** - Default to NULL | ❌ Missing |
-| `garage_type` | `garage` | Map: "Closed" → "closed", "Open" → "open", empty → NULL | ✅ Direct |
-| `total_floors_in_building` | N/A | **Not in CSV** - Set to NULL | ❌ Missing |
+| `floor_type` | `type` | Map: "Ground" → "ground", "Upper Floor" → "upper", "Semi Ground Floor" → "semi_ground", "Roof" → "roof" | Derived |
+| `floor_number` | `floor` | Parse float to int (e.g., 1.0 → 1, -1.0 → -1) | Direct |
+| `building_status` | `building_status` | Map: "Used" → "used", "New" → "new", else → "used" | Direct |
+| `built_in_year` | N/A | **Not in CSV** - Set to NULL or estimate from `building_status` | Missing |
+| `furniture_status` | `furniture` | Map: "Furnished" → "furnished", "Unfurnished" → "unfurnished" | Direct |
+| `furniture_condition` | N/A | **Not in CSV** - Default to NULL | Missing |
+| `garage_type` | `garage` | Map: "Closed" → "closed", "Open" → "open", empty → NULL | Direct |
+| `total_floors_in_building` | N/A | **Not in CSV** - Set to NULL | Missing |
 
 #### 5. Property Details
 
 | New Format Field | CSV Source | Transformation Logic | Status |
 |-----------------|------------|---------------------|--------|
-| `built_up_area` | `built_up_area` or `area_sqm` | Parse "400 Sqm" → 400.0 | ✅ Direct |
-| `land_area` | `plot_area` (from DB) | Use `plot_area` if available | ✅ From DB |
-| `garden_area` | `garden_area` | Parse "50 Sqm" → 50.0 | ✅ Direct |
-| `area_unit` | N/A | Default to "sqm" | ✅ Default |
-| `bedrooms` | `bedrooms` | Direct copy | ✅ Direct |
-| `master_bedrooms` | `master_bedrooms` | Parse "1.0" → 1 | ✅ Direct |
-| `bathrooms` | `bathrooms` | Parse "4.0" → 4 | ✅ Direct |
-| `living_rooms` | N/A | **Not in CSV** - Default to 1 or NULL | ❌ Missing |
-| `salons` | N/A | **Not in CSV** - Default to 1 or NULL | ❌ Missing |
-| `balconies` | N/A | **Not in CSV** - Default to NULL | ❌ Missing |
-| `entrances` | N/A | **Not in CSV** - Default to NULL | ❌ Missing |
-| `kitchens` | `kitchens` | Parse "1.0" → 1 | ✅ Direct |
-| `kitchen_type` | N/A | **Not in CSV** - Default to "installed" or NULL | ❌ Missing |
-| `maid_rooms` | `features` | Extract from features: "Maid's Room" → 1, else → 0 | ✅ Derived |
-| `driver_rooms` | `features` | Extract from features: "Driver's Room" → 1, else → 0 | ✅ Derived |
-| `store_rooms` | `features` | Extract from features: "Storage Room" → 1, else → 0 | ✅ Derived |
+| `built_up_area` | `built_up_area` or `area_sqm` | Parse "400 Sqm" → 400.0 | Direct |
+| `land_area` | `plot_area` (from DB) | Use `plot_area` if available | From DB |
+| `garden_area` | `garden_area` | Parse "50 Sqm" → 50.0 | Direct |
+| `area_unit` | N/A | Default to "sqm" | Default |
+| `bedrooms` | `bedrooms` | Direct copy | Direct |
+| `master_bedrooms` | `master_bedrooms` | Parse "1.0" → 1 | Direct |
+| `bathrooms` | `bathrooms` | Parse "4.0" → 4 | Direct |
+| `living_rooms` | N/A | **Not in CSV** - Default to 1 or NULL | Missing |
+| `salons` | N/A | **Not in CSV** - Default to 1 or NULL | Missing |
+| `balconies` | N/A | **Not in CSV** - Default to NULL | Missing |
+| `entrances` | N/A | **Not in CSV** - Default to NULL | Missing |
+| `kitchens` | `kitchens` | Parse "1.0" → 1 | Direct |
+| `kitchen_type` | N/A | **Not in CSV** - Default to "installed" or NULL | Missing |
+| `maid_rooms` | `features` | Extract from features: "Maid's Room" → 1, else → 0 | Derived |
+| `driver_rooms` | `features` | Extract from features: "Driver's Room" → 1, else → 0 | Derived |
+| `store_rooms` | `features` | Extract from features: "Storage Room" → 1, else → 0 | Derived |
 
 #### 6. Features Structure
 
 | New Format Field | CSV Source | Transformation Logic | Status |
 |-----------------|------------|---------------------|--------|
-| `amenities` | `features` | Parse pipe-separated: "Maid's Room\|Elevator\|..." → ["maid_room", "elevator", ...] | ✅ Derived |
-| `finishing` | `more_features` | Extract from key-value: "Finishing\|Deluxe" → "deluxe" | ✅ Derived |
-| `windows` | `more_features` | Extract: "Windows\|Double Glazed" → "double_glazed" | ✅ Derived |
-| `window_shutters` | `more_features` | Extract: "Window Shutters\|Electric" → "electric" | ✅ Derived |
-| `doors` | `more_features` | Extract: "Doors\|Standard" → "standard" | ✅ Derived |
-| `air_conditioning` | `more_features` | Extract: "Air Conditioning\|Central" → "central" | ✅ Derived |
-| `heating_system` | `more_features` | Extract: "Heating System\|Central" → "central" | ✅ Derived |
-| `heating_fuel` | `more_features` | Extract: "Heating Fuel\|Diesel" → "diesel" | ✅ Derived |
-| `has_view` | N/A | **Not in CSV** - Default to false | ❌ Missing |
-| `view_type` | N/A | **Not in CSV** - Default to [] | ❌ Missing |
+| `amenities` | `features` | Parse pipe-separated: "Maid's Room\|Elevator\|..." → ["maid_room", "elevator", ...] | Derived |
+| `finishing` | `more_features` | Extract from key-value: "Finishing\|Deluxe" → "deluxe" | Derived |
+| `windows` | `more_features` | Extract: "Windows\|Double Glazed" → "double_glazed" | Derived |
+| `window_shutters` | `more_features` | Extract: "Window Shutters\|Electric" → "electric" | Derived |
+| `doors` | `more_features` | Extract: "Doors\|Standard" → "standard" | Derived |
+| `air_conditioning` | `more_features` | Extract: "Air Conditioning\|Central" → "central" | Derived |
+| `heating_system` | `more_features` | Extract: "Heating System\|Central" → "central" | Derived |
+| `heating_fuel` | `more_features` | Extract: "Heating Fuel\|Diesel" → "diesel" | Derived |
+| `has_view` | N/A | **Not in CSV** - Default to false | Missing |
+| `view_type` | N/A | **Not in CSV** - Default to [] | Missing |
 
 **CSV `more_features` Format:**
 - Pipe-separated key-value pairs: `Finishing|Deluxe|Windows|Double Glazed|Window Shutters|Electric`
@@ -414,56 +414,56 @@ more_features, image_urls, status, latitude, longitude
 
 | New Format Field | CSV Source | Transformation Logic | Status |
 |-----------------|------------|---------------------|--------|
-| `listing_type` | `selling_price`, `rent_price` | If both → "both", else "rent" or "buy" | ✅ Derived |
-| `annual_rent` | `rent_price` | Parse "30,000 JOD" → 30000.0 | ✅ Direct |
-| `monthly_rent` | `rent_price` | Calculate: `annual_rent / 12` | ✅ Derived |
-| `quarterly_rent` | `rent_price` | Calculate: `annual_rent / 4` | ✅ Derived |
-| `selling_price` | `selling_price` | Parse "320,000 JOD" → 320000.0 | ✅ Direct |
-| `currency` | `rent_price` or `selling_price` | Extract currency (default: "JOD") | ✅ Derived |
-| `price_on_request` | N/A | Default to false | ✅ Default |
-| `rent_commission_percent` | `rent_commission` | Parse "5.00 %" → 5.00 | ✅ Direct |
-| `contract_duration` | `contract_duration` | Parse if available, else NULL | ✅ Direct |
-| `contract_duration_unit` | `contract_duration` | Infer from value, else NULL | ✅ Derived |
-| `payment_method` | `payment_method` | Map: "Annual" → "annual", etc. | ✅ Direct |
-| `is_negotiable` | N/A | Default to false | ✅ Default |
-| `down_payment` | N/A | **Not in CSV** - Default to NULL | ❌ Missing |
-| `installment_available` | N/A | **Not in CSV** - Default to false | ❌ Missing |
-| `installment_details` | N/A | **Not in CSV** - Default to NULL | ❌ Missing |
+| `listing_type` | `selling_price`, `rent_price` | If both → "both", else "rent" or "buy" | Derived |
+| `annual_rent` | `rent_price` | Parse "30,000 JOD" → 30000.0 | Direct |
+| `monthly_rent` | `rent_price` | Calculate: `annual_rent / 12` | Derived |
+| `quarterly_rent` | `rent_price` | Calculate: `annual_rent / 4` | Derived |
+| `selling_price` | `selling_price` | Parse "320,000 JOD" → 320000.0 | Direct |
+| `currency` | `rent_price` or `selling_price` | Extract currency (default: "JOD") | Derived |
+| `price_on_request` | N/A | Default to false | Default |
+| `rent_commission_percent` | `rent_commission` | Parse "5.00 %" → 5.00 | Direct |
+| `contract_duration` | `contract_duration` | Parse if available, else NULL | Direct |
+| `contract_duration_unit` | `contract_duration` | Infer from value, else NULL | Derived |
+| `payment_method` | `payment_method` | Map: "Annual" → "annual", etc. | Direct |
+| `is_negotiable` | N/A | Default to false | Default |
+| `down_payment` | N/A | **Not in CSV** - Default to NULL | Missing |
+| `installment_available` | N/A | **Not in CSV** - Default to false | Missing |
+| `installment_details` | N/A | **Not in CSV** - Default to NULL | Missing |
 
 #### 8. Media Structure
 
 | New Format Field | CSV Source | Transformation Logic | Status |
 |-----------------|------------|---------------------|--------|
-| `thumbnail` | `image_urls` | Use first image URL | ✅ Derived |
-| `images[].id` | `image_urls` | Generate sequential IDs (1, 2, 3, ...) | ✅ Derived |
-| `images[].url` | `image_urls` | Parse pipe-separated URLs | ✅ Derived |
-| `images[].thumb_url` | `image_urls` | Use same URL (thumbnails already in CSV) | ✅ Derived |
-| `images[].is_primary` | `image_urls` | First image → true, others → false | ✅ Derived |
-| `images[].order` | `image_urls` | Sequential order (1, 2, 3, ...) | ✅ Derived |
-| `images[].caption` | N/A | Default to NULL | ✅ Default |
-| `videos` | N/A | **Not in CSV** - Default to [] | ❌ Missing |
-| `virtual_tour_url` | N/A | **Not in CSV** - Default to NULL | ❌ Missing |
-| `floor_plan_images` | N/A | **Not in CSV** - Default to [] | ❌ Missing |
-| `documents` | N/A | **Not in CSV** - Default to [] | ❌ Missing |
+| `thumbnail` | `image_urls` | Use first image URL | Derived |
+| `images[].id` | `image_urls` | Generate sequential IDs (1, 2, 3, ...) | Derived |
+| `images[].url` | `image_urls` | Parse pipe-separated URLs | Derived |
+| `images[].thumb_url` | `image_urls` | Use same URL (thumbnails already in CSV) | Derived |
+| `images[].is_primary` | `image_urls` | First image → true, others → false | Derived |
+| `images[].order` | `image_urls` | Sequential order (1, 2, 3, ...) | Derived |
+| `images[].caption` | N/A | Default to NULL | Default |
+| `videos` | N/A | **Not in CSV** - Default to [] | Missing |
+| `virtual_tour_url` | N/A | **Not in CSV** - Default to NULL | Missing |
+| `floor_plan_images` | N/A | **Not in CSV** - Default to [] | Missing |
+| `documents` | N/A | **Not in CSV** - Default to [] | Missing |
 
 #### 9. Agent & Owner
 
 | New Format Field | CSV Source | Transformation Logic | Status |
 |-----------------|------------|---------------------|--------|
-| `agent` | N/A | **Not in CSV** - Default to NULL or create default agent | ❌ Missing |
-| `owner` | N/A | **Not in CSV** - Default to NULL | ❌ Missing |
+| `agent` | N/A | **Not in CSV** - Default to NULL or create default agent | Missing |
+| `owner` | N/A | **Not in CSV** - Default to NULL | Missing |
 
 #### 10. Metadata
 
 | New Format Field | CSV Source | Transformation Logic | Status |
 |-----------------|------------|---------------------|--------|
-| `created_by` | N/A | **Not in CSV** - Default to system user | ❌ Missing |
-| `created_at` | DB `created_at` | Use existing timestamp | ✅ From DB |
-| `updated_at` | DB `updated_at` | Use existing timestamp | ✅ From DB |
-| `published_at` | `status` | If status="ok" → use `created_at`, else NULL | ✅ Derived |
-| `expires_at` | N/A | **Not in CSV** - Default to NULL | ❌ Missing |
-| `sold_at` | N/A | **Not in CSV** - Default to NULL | ❌ Missing |
-| `rented_at` | N/A | **Not in CSV** - Default to NULL | ❌ Missing |
+| `created_by` | N/A | **Not in CSV** - Default to system user | Missing |
+| `created_at` | DB `created_at` | Use existing timestamp | From DB |
+| `updated_at` | DB `updated_at` | Use existing timestamp | From DB |
+| `published_at` | `status` | If status="ok" → use `created_at`, else NULL | Derived |
+| `expires_at` | N/A | **Not in CSV** - Default to NULL | Missing |
+| `sold_at` | N/A | **Not in CSV** - Default to NULL | Missing |
+| `rented_at` | N/A | **Not in CSV** - Default to NULL | Missing |
 
 ---
 
@@ -1017,7 +1017,7 @@ def transform_property_to_new_format(property: Property, lang: str = "en") -> di
 
 ## Effectiveness & Recommendations
 
-### ✅ Benefits
+### Benefits
 
 1. **Better Structure**
    - Nested objects improve readability
@@ -1044,7 +1044,7 @@ def transform_property_to_new_format(property: Property, lang: str = "en") -> di
    - Easier frontend integration
    - Better documentation
 
-### ⚠️ Challenges
+### Challenges
 
 1. **Data Migration**
    - Existing data needs transformation
@@ -1071,7 +1071,7 @@ def transform_property_to_new_format(property: Property, lang: str = "en") -> di
    - Requires data collection/enhancement
    - May need manual data entry
 
-### 📊 Recommendation
+### Recommendation
 
 **Recommended Approach: Incremental Migration**
 
@@ -1098,16 +1098,16 @@ def transform_property_to_new_format(property: Property, lang: str = "en") -> di
 ## Conclusion
 
 The new format is **significantly more comprehensive** and provides:
-- ✅ Better structure and organization
-- ✅ Multi-language support
-- ✅ Rich metadata and relationships
-- ✅ Better media management
-- ✅ Agent/Owner tracking
+- Better structure and organization
+- Multi-language support
+- Rich metadata and relationships
+- Better media management
+- Agent/Owner tracking
 
 **Data Availability Summary:**
-- ✅ **~70% of fields** can be extracted directly or derived from existing CSV
-- ⚠️ **~20% of fields** require translation or external data (Arabic translations)
-- ❌ **~10% of fields** are completely missing and need manual input or defaults
+- **~70% of fields** can be extracted directly or derived from existing CSV
+- **~20% of fields** require translation or external data (Arabic translations)
+- **~10% of fields** are completely missing and need manual input or defaults
 
 **Next Steps:**
 1. Review and approve this transformation plan

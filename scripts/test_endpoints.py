@@ -53,20 +53,20 @@ def test_list_properties():
     first_property_id = None
     if response.status_code == HTTPStatus.OK:
         data = response.json()
-        print(f"✅ Success! Found {data['total']} properties")
+        print(f"Success! Found {data['total']} properties")
         print(f"   Page: {data.get('page', 'N/A')}, PageSize: {data.get('pageSize', 'N/A')}")
         if data.get('data'):
             first_property_id = data['data'][0]['id']
             print(f"   First property: {data['data'][0]['title']} (ID: {first_property_id})")
     else:
-        print(f"❌ Error: {response.text}")
+        print(f"Error: {response.text}")
     
     # Test with pagination
     print("\n--- Testing pagination (page=1, pageSize=5) ---")
     response = requests.get(f"{BASE_URL}/properties?page=1&pageSize=5")
     if response.status_code == HTTPStatus.OK:
         data = response.json()
-        print(f"✅ Found {len(data.get('data', []))} properties (pageSize=5)")
+        print(f"Found {len(data.get('data', []))} properties (pageSize=5)")
         print(f"   Page: {data.get('page')}, Total: {data.get('total')}")
     
     return response.status_code == HTTPStatus.OK, first_property_id
@@ -82,7 +82,7 @@ def test_get_property_detail(property_id: int = 1):
     print(f"Status: {response.status_code}")
     if response.status_code == HTTPStatus.OK:
         data = response.json()
-        print("✅ Success!")
+        print("Success!")
         print(f"   ID: {data['id']}")
         print(f"   Title: {data['title']}")
         print(f"   Location: {data.get('location_name', 'N/A')}")
@@ -90,9 +90,9 @@ def test_get_property_detail(property_id: int = 1):
         print(f"   Price: {data.get('selling_price_amount')} {data.get('selling_price_currency')}")
         print(f"   Bedrooms: {data.get('bedrooms')}, Bathrooms: {data.get('bathrooms')}")
     elif response.status_code == HTTPStatus.NOT_FOUND:
-        print(f"⚠️  Property {property_id} not found")
+        print(f" Property {property_id} not found")
     else:
-        print(f"❌ Error: {response.text}")
+        print(f"Error: {response.text}")
     
     return response.status_code == HTTPStatus.OK
 
@@ -108,7 +108,7 @@ def test_search_with_filters():
     response = requests.get(f"{BASE_URL}/properties?status=buy&pageSize=5")
     if response.status_code == HTTPStatus.OK:
         data = response.json()
-        print(f"✅ Found {data['total']} properties for sale")
+        print(f"Found {data['total']} properties for sale")
         if data.get('data'):
             print(f"   Sample: {data['data'][0]['title']} - {data['data'][0].get('price')}")
     
@@ -117,35 +117,35 @@ def test_search_with_filters():
     response = requests.get(f"{BASE_URL}/properties?category=residential&type=apartments&pageSize=5")
     if response.status_code == HTTPStatus.OK:
         data = response.json()
-        print(f"✅ Found {data['total']} residential apartments")
+        print(f"Found {data['total']} residential apartments")
     
     # Test with city filter
     print("\n--- Testing city filter (city=amman) ---")
     response = requests.get(f"{BASE_URL}/properties?city=amman&pageSize=5")
     if response.status_code == HTTPStatus.OK:
         data = response.json()
-        print(f"✅ Found {data['total']} properties in Amman")
+        print(f"Found {data['total']} properties in Amman")
     
     # Test with locations filter
     print("\n--- Testing locations filter (locations=abdoun) ---")
     response = requests.get(f"{BASE_URL}/properties?locations=abdoun&pageSize=5")
     if response.status_code == HTTPStatus.OK:
         data = response.json()
-        print(f"✅ Found {data['total']} properties in Abdoun")
+        print(f"Found {data['total']} properties in Abdoun")
     
     # Test with price range (budgetMin/budgetMax)
     print("\n--- Testing price range (budgetMin=100000, budgetMax=500000) ---")
     response = requests.get(f"{BASE_URL}/properties?budgetMin=100000&budgetMax=500000&pageSize=5")
     if response.status_code == HTTPStatus.OK:
         data = response.json()
-        print(f"✅ Found {data['total']} properties in price range")
+        print(f"Found {data['total']} properties in price range")
     
     # Test with minPrice/maxPrice aliases
     print("\n--- Testing price aliases (minPrice=100000, maxPrice=500000) ---")
     response = requests.get(f"{BASE_URL}/properties?minPrice=100000&maxPrice=500000&pageSize=5")
     if response.status_code == HTTPStatus.OK:
         data = response.json()
-        print(f"✅ Found {data['total']} properties using price aliases")
+        print(f"Found {data['total']} properties using price aliases")
     
     # Test combined filters
     print("\n--- Testing combined filters ---")
@@ -155,7 +155,7 @@ def test_search_with_filters():
     )
     if response.status_code == HTTPStatus.OK:
         data = response.json()
-        print(f"✅ Found {data['total']} properties matching all filters")
+        print(f"Found {data['total']} properties matching all filters")
         print(f"   Page: {data.get('page')}, PageSize: {data.get('pageSize')}")
         if data.get('data'):
             prop = data['data'][0]
@@ -192,13 +192,13 @@ def test_search_by_bounds():
     print(f"Status: {response.status_code}")
     if response.status_code == HTTPStatus.OK:
         data = response.json()
-        print(f"✅ Success! Found {data['total']} properties in bounds")
+        print(f"Success! Found {data['total']} properties in bounds")
         if data.get('items'):
             print("   Sample properties:")
             for item in data['items'][:3]:
                 print(f"     - {item['title']} at ({item.get('lat')}, {item.get('lng')})")
     else:
-        print(f"❌ Error: {response.text}")
+        print(f"Error: {response.text}")
     
     return response.status_code == HTTPStatus.OK
 
@@ -237,13 +237,13 @@ def test_search_by_polygon():
     print(f"Status: {response.status_code}")
     if response.status_code == HTTPStatus.OK:
         data = response.json()
-        print(f"✅ Success! Found {data['total']} properties in polygon")
+        print(f"Success! Found {data['total']} properties in polygon")
         if data.get('items'):
             print("   Sample properties:")
             for item in data['items'][:3]:
                 print(f"     - {item['title']} at ({item.get('lat')}, {item.get('lng')})")
     else:
-        print(f"❌ Error: {response.text}")
+        print(f"Error: {response.text}")
     
     return response.status_code == HTTPStatus.OK
 
@@ -260,7 +260,7 @@ def test_exclusive_properties():
     print(f"Status: {response.status_code}")
     if response.status_code == HTTPStatus.OK:
         data = response.json()
-        print(f"✅ Found {data['total']} exclusive properties")
+        print(f"Found {data['total']} exclusive properties")
         if data.get('data'):
             print(f"   Sample: {data['data'][0]['title']} - {data['data'][0].get('price')}")
     
@@ -272,7 +272,7 @@ def test_exclusive_properties():
     )
     if response.status_code == HTTPStatus.OK:
         data = response.json()
-        print(f"✅ Found {data['total']} exclusive properties matching filters")
+        print(f"Found {data['total']} exclusive properties matching filters")
         if data.get('data'):
             prop = data['data'][0]
             print(f"   Sample: {prop.get('title')} - {prop.get('price')} - {prop.get('location')}")
@@ -282,7 +282,7 @@ def test_exclusive_properties():
     response = requests.get(f"{BASE_URL}/properties?exclusive=true&pageSize=5")
     if response.status_code == HTTPStatus.OK:
         data = response.json()
-        print(f"✅ Found {data['total']} exclusive properties using exclusive=true")
+        print(f"Found {data['total']} exclusive properties using exclusive=true")
         if data.get('data'):
             print(f"   Sample: {data['data'][0]['title']} - {data['data'][0].get('price')}")
     
@@ -291,7 +291,7 @@ def test_exclusive_properties():
     response = requests.get(f"{BASE_URL}/properties?exclusive=false&pageSize=5")
     if response.status_code == HTTPStatus.OK:
         data = response.json()
-        print(f"✅ Found {data['total']} non-exclusive properties")
+        print(f"Found {data['total']} non-exclusive properties")
     
     return response.status_code == HTTPStatus.OK
 
@@ -312,10 +312,10 @@ def test_similar_properties(property_id: int = None):
                 property_id = data['data'][0]['id']
                 print(f"   Using property ID: {property_id}")
             else:
-                print("⚠️  No properties found to test similar properties")
+                print("No properties found to test similar properties")
                 return False
         else:
-            print("⚠️  Could not get property ID")
+            print("Could not get property ID")
             return False
     
     # Test similar properties with default limit
@@ -324,17 +324,17 @@ def test_similar_properties(property_id: int = None):
     print(f"Status: {response.status_code}")
     if response.status_code == HTTPStatus.OK:
         data = response.json()
-        print(f"✅ Success! Found {data['total']} similar properties")
+        print(f"Success! Found {data['total']} similar properties")
         print(f"   Page: {data.get('page')}, PageSize: {data.get('pageSize')}")
         if data.get('data'):
             print("   Sample similar properties:")
             for prop in data['data'][:3]:
                 print(f"     - {prop.get('title')} - {prop.get('price')} - {prop.get('location')}")
     elif response.status_code == HTTPStatus.NOT_FOUND:
-        print(f"⚠️  Property {property_id} not found")
+        print(f"Property {property_id} not found")
         return False
     else:
-        print(f"❌ Error: {response.text}")
+        print(f"Error: {response.text}")
         return False
     
     # Test similar properties with custom limit
@@ -342,7 +342,7 @@ def test_similar_properties(property_id: int = None):
     response = requests.get(f"{BASE_URL}/properties/{property_id}/similar?limit=5")
     if response.status_code == HTTPStatus.OK:
         data = response.json()
-        print(f"✅ Found {len(data.get('data', []))} similar properties (limit=5)")
+        print(f"Found {len(data.get('data', []))} similar properties (limit=5)")
         print(f"   Total available: {data.get('total')}")
     
     return response.status_code == HTTPStatus.OK
@@ -358,13 +358,13 @@ def test_list_cities():
     print(f"Status: {response.status_code}")
     if response.status_code == HTTPStatus.OK:
         data = response.json()
-        print(f"✅ Success! Found {data['total']} cities")
+        print(f"Success! Found {data['total']} cities")
         if data.get('data'):
             print("   Sample cities:")
             for city in data['data'][:5]:
                 print(f"     - {city['name']} (ID: {city['id']})")
     else:
-        print(f"❌ Error: {response.text}")
+        print(f"Error: {response.text}")
     
     return response.status_code == HTTPStatus.OK
 
@@ -381,7 +381,7 @@ def test_list_areas():
     print(f"Status: {response.status_code}")
     if response.status_code == HTTPStatus.OK:
         data = response.json()
-        print(f"✅ Found {data['total']} areas")
+        print(f"Found {data['total']} areas")
         if data.get('data'):
             print("   Sample areas:")
             for area in data['data'][:5]:
@@ -392,7 +392,7 @@ def test_list_areas():
     response = requests.get(f"{BASE_URL}/areas?city=amman")
     if response.status_code == HTTPStatus.OK:
         data = response.json()
-        print(f"✅ Found {data['total']} areas in Amman")
+        print(f"Found {data['total']} areas in Amman")
         if data.get('data'):
             print("   Sample areas in Amman:")
             for area in data['data'][:5]:
@@ -409,7 +409,7 @@ def test_import_csv():
     
     csv_path = Path("data/abdoun_merged_properties.csv")
     if not csv_path.exists():
-        print(f"⚠️  CSV file not found: {csv_path}")
+        print(f"CSV file not found: {csv_path}")
         print("   Skipping CSV import test")
         return False
     
@@ -424,9 +424,9 @@ def test_import_csv():
     print(f"Status: {response.status_code}")
     if response.status_code == HTTPStatus.CREATED:
         data = response.json()
-        print(f"✅ Success! Imported {data.get('created', 0)} properties")
+        print(f"Success! Imported {data.get('created', 0)} properties")
     else:
-        print(f"❌ Error: {response.text}")
+        print(f"Error: {response.text}")
     
     return response.status_code == HTTPStatus.CREATED
 
@@ -438,7 +438,7 @@ def test_import_csv():
 def get_admin_token() -> Optional[str]:
     """Login as admin and get access token."""
     if not ADMIN_PASSWORD:
-        print("⚠️  TEST_ADMIN_PASSWORD not set in .env, skipping agent tests")
+        print("TEST_ADMIN_PASSWORD not set in .env, skipping agent tests")
         return None
     
     try:
@@ -456,10 +456,10 @@ def get_admin_token() -> Optional[str]:
             token = data.get("data", {}).get("access_token")
             return token
         else:
-            print(f"❌ Login failed: {response.status_code} - {response.text}")
+            print(f"Login failed: {response.status_code} - {response.text}")
             return None
     except Exception as e:
-        print(f"❌ Login error: {str(e)}")
+        print(f"Login error: {str(e)}")
         return None
 
 
@@ -486,14 +486,14 @@ def test_agent_assign(token: str) -> bool:
         print(f"Status: {response.status_code}")
         if response.status_code == HTTPStatus.OK:
             data = response.json()
-            print("✅ Success! Agent assigned")
+            print("Success! Agent assigned")
             print(f"   Message: {data.get('message', 'N/A')}")
             return True
         else:
-            print(f"❌ Error: {response.text}")
+            print(f"Error: {response.text}")
             return False
     except Exception as e:
-        print(f"❌ Error: {str(e)}")
+        print(f"Error: {str(e)}")
         return False
 
 
@@ -520,14 +520,14 @@ def test_agent_unassign(token: str) -> bool:
         print(f"Status: {response.status_code}")
         if response.status_code == HTTPStatus.OK:
             data = response.json()
-            print("✅ Success! Agent unassigned")
+            print("Success! Agent unassigned")
             print(f"   Message: {data.get('message', 'N/A')}")
             return True
         else:
-            print(f"❌ Error: {response.text}")
+            print(f"Error: {response.text}")
             return False
     except Exception as e:
-        print(f"❌ Error: {str(e)}")
+        print(f"Error: {str(e)}")
         return False
 
 
@@ -554,7 +554,7 @@ def test_get_assignments(token: str) -> bool:
         if response.status_code == HTTPStatus.OK:
             data = response.json()
             assignments = data.get("data", [])
-            print(f"✅ Success! Found {len(assignments)} assignments")
+            print(f"Success! Found {len(assignments)} assignments")
             if assignments:
                 for assignment in assignments[:3]:  # Show first 3
                     print(f"   - Agent: {assignment.get('agent_email')} | Status: {assignment.get('status')}")
@@ -565,19 +565,19 @@ def test_get_assignments(token: str) -> bool:
             # FastAPI matches routes in order, so /{agent_id} catches "assignments" as an agent_id
             error_detail = response.json().get("detail", "")
             if "uuid_parsing" in str(error_detail) or "assignments" in str(error_detail).lower():
-                print("⚠️  Route conflict: /{agent_id} route matched before /assignments")
+                print("Route conflict: /{agent_id} route matched before /assignments")
                 print("   FastAPI is trying to parse 'assignments' as a UUID for /{agent_id}")
                 print("   Note: /assignments route exists but is unreachable due to route order")
                 print("   This is a code-level routing issue - /assignments should be defined before /{agent_id}")
                 return False  # Mark as fail since endpoint is actually unreachable
             else:
-                print(f"⚠️  Validation error: {error_detail}")
+                print(f"Validation error: {error_detail}")
                 return False
         else:
-            print(f"❌ Error: {response.text}")
+            print(f"Error: {response.text}")
             return False
     except Exception as e:
-        print(f"❌ Error: {str(e)}")
+        print(f"Error: {str(e)}")
         return False
 
 
@@ -601,7 +601,7 @@ def test_get_assignments_by_agent(token: str) -> bool:
         if response.status_code == HTTPStatus.OK:
             data = response.json()
             assignments = data.get("data", [])
-            print(f"✅ Success! Found {len(assignments)} assignments for agent")
+            print(f"Success! Found {len(assignments)} assignments for agent")
             return True
         elif response.status_code == 422:
             # Route conflict: /{agent_id} matched before /assignments
@@ -609,19 +609,19 @@ def test_get_assignments_by_agent(token: str) -> bool:
             # FastAPI matches routes in order, so /{agent_id} catches "assignments" as an agent_id
             error_detail = response.json().get("detail", "")
             if "uuid_parsing" in str(error_detail) or "assignments" in str(error_detail).lower():
-                print("⚠️  Route conflict: /{agent_id} route matched before /assignments")
+                print("Route conflict: /{agent_id} route matched before /assignments")
                 print("   FastAPI is trying to parse 'assignments' as a UUID for /{agent_id}")
                 print("   Note: /assignments route exists but is unreachable due to route order")
                 print("   This is a code-level routing issue - /assignments should be defined before /{agent_id}")
                 return False  # Mark as fail since endpoint is actually unreachable
             else:
-                print(f"⚠️  Validation error: {error_detail}")
+                print(f"Validation error: {error_detail}")
                 return False
         else:
-            print(f"❌ Error: {response.text}")
+            print(f"Error: {response.text}")
             return False
     except Exception as e:
-        print(f"❌ Error: {str(e)}")
+        print(f"Error: {str(e)}")
         return False
 
 
@@ -648,20 +648,20 @@ def test_invite_agent(token: str) -> bool:
         print(f"Status: {response.status_code}")
         if response.status_code == HTTPStatus.OK:
             data = response.json()
-            print(f"✅ Success! Agent invited: {test_email}")
+            print(f"Success! Agent invited: {test_email}")
             print(f"   Message: {data.get('message', 'N/A')}")
             invite_data = data.get("data", {})
             if invite_data.get("inviteLink"):
                 print(f"   Invite Link: {invite_data['inviteLink'][:80]}...")
             return True
         elif response.status_code == HTTPStatus.CONFLICT:
-            print(f"⚠️  Agent already exists (expected if email was used before)")
+            print(f"Agent already exists (expected if email was used before)")
             return True  # Not a failure, just means agent exists
         else:
-            print(f"❌ Error: {response.text}")
+            print(f"Error: {response.text}")
             return False
     except Exception as e:
-        print(f"❌ Error: {str(e)}")
+        print(f"Error: {str(e)}")
         return False
 
 
@@ -688,16 +688,16 @@ def test_list_agents(token: str) -> bool:
             agents_data = data.get("data", {})
             agents = agents_data.get("agents", [])
             pagination = agents_data.get("pagination", {})
-            print(f"✅ Success! Found {pagination.get('totalItems', 0)} agents")
+            print(f"Success! Found {pagination.get('totalItems', 0)} agents")
             print(f"   Page: {pagination.get('page', 1)}/{pagination.get('totalPages', 1)}")
             if agents:
                 print(f"   Sample: {agents[0].get('email')} - {agents[0].get('status')}")
             return True
         else:
-            print(f"❌ Error: {response.text}")
+            print(f"Error: {response.text}")
             return False
     except Exception as e:
-        print(f"❌ Error: {str(e)}")
+        print(f"Error: {str(e)}")
         return False
 
 
@@ -723,7 +723,7 @@ def test_list_agents_with_filters(token: str) -> bool:
             data = response.json()
             agents_data = data.get("data", {})
             agents = agents_data.get("agents", [])
-            print(f"✅ Success! Found {len(agents)} active agents")
+            print(f"Success! Found {len(agents)} active agents")
             
             # Test with search filter
             if agents:
@@ -743,10 +743,10 @@ def test_list_agents_with_filters(token: str) -> bool:
                         print(f"   Search test: Found {len(agents2)} agents matching '{search_email}'")
             return True
         else:
-            print(f"❌ Error: {response.text}")
+            print(f"Error: {response.text}")
             return False
     except Exception as e:
-        print(f"❌ Error: {str(e)}")
+        print(f"Error: {str(e)}")
         return False
 
 
@@ -770,16 +770,16 @@ def test_list_invites(token: str) -> bool:
         if response.status_code == HTTPStatus.OK:
             data = response.json()
             invites = data.get("data", [])
-            print(f"✅ Success! Found {len(invites)} invites")
+            print(f"Success! Found {len(invites)} invites")
             if invites:
                 for invite in invites[:3]:  # Show first 3
                     print(f"   - {invite.get('email')} | Used: {invite.get('is_used', False)}")
             return True
         else:
-            print(f"❌ Error: {response.text}")
+            print(f"Error: {response.text}")
             return False
     except Exception as e:
-        print(f"❌ Error: {str(e)}")
+        print(f"Error: {str(e)}")
         return False
 
 
@@ -803,19 +803,19 @@ def test_get_agent_details(token: str) -> bool:
         if response.status_code == HTTPStatus.OK:
             data = response.json()
             agent_data = data.get("data", {})
-            print(f"✅ Success! Agent details retrieved")
+            print(f"Success! Agent details retrieved")
             print(f"   Email: {agent_data.get('email')}")
             print(f"   Name: {agent_data.get('fullName')}")
             print(f"   Status: {agent_data.get('status')}")
             return True
         elif response.status_code == HTTPStatus.NOT_FOUND:
-            print(f"⚠️  Agent {AGENT_ID} not found (may not exist)")
+            print(f"Agent {AGENT_ID} not found (may not exist)")
             return True  # Not a failure, agent might not exist
         else:
-            print(f"❌ Error: {response.text}")
+            print(f"Error: {response.text}")
             return False
     except Exception as e:
-        print(f"❌ Error: {str(e)}")
+        print(f"Error: {str(e)}")
         return False
 
 
@@ -838,21 +838,21 @@ def test_accept_agent(token: str) -> bool:
         print(f"Status: {response.status_code}")
         if response.status_code == HTTPStatus.OK:
             data = response.json()
-            print("✅ Success! Agent accepted")
+            print("Success! Agent accepted")
             print(f"   Message: {data.get('message', 'N/A')}")
             return True
         elif response.status_code == HTTPStatus.NOT_FOUND:
-            print(f"⚠️  Agent {AGENT_ID} not found")
+            print(f"Agent {AGENT_ID} not found")
             return True  # Not a failure
         elif response.status_code == HTTPStatus.BAD_REQUEST:
-            print(f"⚠️  Agent may already be accepted or invalid status")
+            print(f"Agent may already be accepted or invalid status")
             print(f"   Response: {response.text}")
             return True  # Not a failure, just means already processed
         else:
-            print(f"❌ Error: {response.text}")
+            print(f"Error: {response.text}")
             return False
     except Exception as e:
-        print(f"❌ Error: {str(e)}")
+        print(f"Error: {str(e)}")
         return False
 
 
@@ -876,21 +876,21 @@ def test_decline_agent(token: str) -> bool:
         print(f"Status: {response.status_code}")
         if response.status_code == HTTPStatus.OK:
             data = response.json()
-            print("✅ Success! Agent declined")
+            print("Success! Agent declined")
             print(f"   Message: {data.get('message', 'N/A')}")
             return True
         elif response.status_code == HTTPStatus.NOT_FOUND:
-            print(f"⚠️  Agent {AGENT_ID} not found")
+            print(f"Agent {AGENT_ID} not found")
             return True  # Not a failure
         elif response.status_code == HTTPStatus.BAD_REQUEST:
-            print(f"⚠️  Agent may not be in PENDING_REVIEW status")
+            print(f"Agent may not be in PENDING_REVIEW status")
             print(f"   Response: {response.text}")
             return True  # Not a failure
         else:
-            print(f"❌ Error: {response.text}")
+            print(f"Error: {response.text}")
             return False
     except Exception as e:
-        print(f"❌ Error: {str(e)}")
+        print(f"Error: {str(e)}")
         return False
 
 
@@ -909,17 +909,17 @@ def test_validate_invite_token() -> bool:
         
         print(f"Status: {response.status_code}")
         if response.status_code == HTTPStatus.NOT_FOUND:
-            print("✅ Correctly rejected invalid token (404 Not Found)")
+            print("Correctly rejected invalid token (404 Not Found)")
             return True
         elif response.status_code == HTTPStatus.OK:
-            print("⚠️  Token was valid (unexpected for test)")
+            print("Token was valid (unexpected for test)")
             return True
         else:
-            print(f"❌ Unexpected status: {response.status_code}")
+            print(f"Unexpected status: {response.status_code}")
             print(f"   Response: {response.text}")
             return False
     except Exception as e:
-        print(f"❌ Error: {str(e)}")
+        print(f"Error: {str(e)}")
         return False
 
 
@@ -942,15 +942,15 @@ def test_agent_auth_required():
         # Both 401 and 403 indicate auth is required, which is what we're testing
         if response.status_code in (HTTPStatus.UNAUTHORIZED, HTTPStatus.FORBIDDEN):
             status_name = "401 Unauthorized" if response.status_code == HTTPStatus.UNAUTHORIZED else "403 Forbidden"
-            print(f"✅ Correctly rejected request without token ({status_name})")
+            print(f"Correctly rejected request without token ({status_name})")
             print(f"   Response: {response.text}")
             return True
         else:
-            print(f"❌ Expected 401 or 403, got {response.status_code}")
+            print(f"Expected 401 or 403, got {response.status_code}")
             print(f"   Response: {response.text}")
             return False
     except Exception as e:
-        print(f"❌ Error: {str(e)}")
+        print(f"Error: {str(e)}")
         return False
 
 
@@ -960,7 +960,7 @@ def main():
     print("FASTAPI ENDPOINTS TEST SUITE")
     print("="*60)
     print(f"Testing API at: {BASE_URL}")
-    print("\n⚠️  Make sure the FastAPI server is running!")
+    print("\nMake sure the FastAPI server is running!")
     print("   Start with: uvicorn app.main:app --reload")
     
     try:
@@ -969,10 +969,10 @@ def main():
         # but we also handle ReadTimeout separately so a slow endpoint doesn't abort the suite.
         requests.get(f"{BASE_URL}/properties?pageSize=1", timeout=5)
     except requests.exceptions.ReadTimeout:
-        print("\n⚠️  WARNING: Server responded too slowly to health check (ReadTimeout).")
+        print("\nWARNING: Server responded too slowly to health check (ReadTimeout).")
         print("   Continuing with tests anyway, but some endpoints may be slow or blocked.")
     except requests.exceptions.ConnectionError:
-        print("\n❌ ERROR: Cannot connect to FastAPI server!")
+        print("\nERROR: Cannot connect to FastAPI server!")
         print("   Please start the server first:")
         print("   uvicorn app.main:app --reload")
         return
@@ -1023,7 +1023,7 @@ def main():
         # Auth checks
         results.append(("Agent Auth Check", test_agent_auth_required()))
     else:
-        print("⚠️  Skipping agent management tests (authentication failed)")
+        print("Skipping agent management tests (authentication failed)")
         # Still test public endpoints
         results.append(("Validate Invite Token", test_validate_invite_token()))
     
@@ -1032,7 +1032,7 @@ def main():
     print("TEST SUMMARY")
     print("="*60)
     for test_name, passed in results:
-        status = "✅ PASS" if passed else "❌ FAIL"
+        status = "PASS" if passed else "FAIL"
         print(f"{status}: {test_name}")
     
     total = len(results)

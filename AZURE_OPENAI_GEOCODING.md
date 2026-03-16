@@ -60,11 +60,11 @@ python scripts/import_from_csv.py data\abdoun_merged_properties.csv --geocode-mi
 
 ## Features
 
-✅ **Non-breaking**: Existing Nominatim geocoding continues to work  
-✅ **Automatic**: No code changes needed, just configure .env  
-✅ **Smart Fallback**: Only uses Azure OpenAI when Nominatim fails  
-✅ **Cost-effective**: Minimizes Azure OpenAI API calls  
-✅ **Logging**: Shows when Azure OpenAI is being used  
+**Non-breaking**: Existing Nominatim geocoding continues to work  
+**Automatic**: No code changes needed, just configure .env  
+**Smart Fallback**: Only uses Azure OpenAI when Nominatim fails  
+**Cost-effective**: Minimizes Azure OpenAI API calls  
+**Logging**: Shows when Azure OpenAI is being used  
 
 ## Cost Considerations
 
@@ -91,9 +91,9 @@ Some locations may genuinely not exist or be too ambiguous. The service will:
 ## Example Output
 
 ```
-[1588/2358] 🌐 Geocoding: Dair Gbhar - Amman
-    ❌ Not found (Nominatim failed)
-    🤖 Trying Azure OpenAI as final fallback for: 'Dair Gbhar - Amman'
-    ✅ Azure OpenAI geocoded 'Dair Gbhar - Amman' to (31.953900, 35.910600)
+[1588/2358] Geocoding: Dair Gbhar - Amman
+    Not found (Nominatim failed)
+    Trying Azure OpenAI as final fallback for: 'Dair Gbhar - Amman'
+    Azure OpenAI geocoded 'Dair Gbhar - Amman' to (31.953900, 35.910600)
 ```
 

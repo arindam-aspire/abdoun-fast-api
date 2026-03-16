@@ -46,9 +46,9 @@ def seed_categories(db: Session):
         if not existing:
             category = PropertyCategory(**cat_data, is_active=True)
             db.add(category)
-            print(f"✓ Created category: {cat_data['name']}")
+            print(f"Created category: {cat_data['name']}")
         else:
-            print(f"⊘ Category already exists: {cat_data['name']}")
+            print(f"Category already exists: {cat_data['name']}")
     
     db.commit()
 
@@ -98,9 +98,9 @@ def seed_property_types(db: Session):
         if not existing:
             prop_type = PropertyType(**type_data, category_id=category.id, is_active=True)
             db.add(prop_type)
-            print(f"✓ Created type: {type_data['name']} ({category.name})")
+            print(f"Created type: {type_data['name']} ({category.name})")
         else:
-            print(f"⊘ Type already exists: {type_data['name']}")
+            print(f"Type already exists: {type_data['name']}")
     
     db.commit()
 
@@ -122,9 +122,9 @@ def seed_cities(db: Session):
         if not existing:
             city = City(**city_data, is_active=True)
             db.add(city)
-            print(f"✓ Created city: {city_data['name']}")
+            print(f"Created city: {city_data['name']}")
         else:
-            print(f"⊘ City already exists: {city_data['name']}")
+            print(f"City already exists: {city_data['name']}")
     
     db.commit()
 
@@ -133,7 +133,7 @@ def seed_areas(db: Session):
     """Seed areas for Amman."""
     amman = db.query(City).filter(City.name.ilike("Amman")).first()
     if not amman:
-        print("⚠ Amman city not found. Creating it first...")
+        print("Amman city not found. Creating it first...")
         amman = City(name="Amman", is_active=True)
         db.add(amman)
         db.commit()
@@ -162,9 +162,9 @@ def seed_areas(db: Session):
         if not existing:
             area = Area(name=area_name, city_id=amman.id, is_active=True)
             db.add(area)
-            print(f"✓ Created area: {area_name} (Amman)")
+            print(f"Created area: {area_name} (Amman)")
         else:
-            print(f"⊘ Area already exists: {area_name}")
+            print(f"Area already exists: {area_name}")
     
     db.commit()
 
@@ -186,9 +186,9 @@ def seed_property_statuses(db: Session):
         if not existing:
             status = PropertyStatus(**status_data, is_active=True)
             db.add(status)
-            print(f"✓ Created status: {status_data['name']}")
+            print(f"Created status: {status_data['name']}")
         else:
-            print(f"⊘ Status already exists: {status_data['name']}")
+            print(f"Status already exists: {status_data['name']}")
     
     db.commit()
 
@@ -230,9 +230,9 @@ def seed_features(db: Session):
         if not existing:
             feature = Feature(name=feature_name, slug=slug, is_active=True)
             db.add(feature)
-            print(f"✓ Created feature: {feature_name}")
+            print(f"Created feature: {feature_name}")
         else:
-            print(f"⊘ Feature already exists: {feature_name}")
+            print(f"Feature already exists: {feature_name}")
     
     db.commit()
 
@@ -257,9 +257,9 @@ def seed_search_fields(db: Session):
         if not existing:
             field = SearchField(**field_data)
             db.add(field)
-            print(f"✓ Created search field: {field_data['name']}")
+            print(f"Created search field: {field_data['name']}")
         else:
-            print(f"⊘ Search field already exists: {field_data['name']}")
+            print(f"Search field already exists: {field_data['name']}")
     
     db.commit()
 
@@ -296,7 +296,7 @@ def seed_category_features(db: Session):
                         feature_id=feature.id
                     )
                     db.add(cat_feature)
-                    print(f"✓ Linked feature '{feature_name}' to category '{category.name}'")
+                    print(f"Linked feature '{feature_name}' to category '{category.name}'")
     
     db.commit()
 
@@ -333,7 +333,7 @@ def seed_type_features(db: Session):
                         feature_id=feature.id
                     )
                     db.add(type_feature)
-                    print(f"✓ Linked feature '{feature_name}' to type '{prop_type.name}'")
+                    print(f"Linked feature '{feature_name}' to type '{prop_type.name}'")
     
     db.commit()
 
@@ -374,7 +374,7 @@ def seed_category_search_fields(db: Session):
                         is_required=False
                     )
                     db.add(cat_search_field)
-                    print(f"✓ Linked search field '{field.name}' to category '{category.name}'")
+                    print(f"Linked search field '{field.name}' to category '{category.name}'")
         
         # Bedrooms only for residential
         if category == residential and bedrooms_field:
@@ -389,7 +389,7 @@ def seed_category_search_fields(db: Session):
                     is_required=False
                 )
                 db.add(cat_search_field)
-                print(f"✓ Linked search field 'Bedrooms' to category 'Residential'")
+                print(f"Linked search field 'Bedrooms' to category 'Residential'")
     
     db.commit()
 
@@ -444,12 +444,12 @@ def main():
         print()
         
         print("=" * 60)
-        print("✓ Reference data seeding completed successfully!")
+        print("Reference data seeding completed successfully!")
         print("=" * 60)
         
     except Exception as e:
         db.rollback()
-        print(f"✗ Error seeding data: {e}")
+        print(f"Error seeding data: {e}")
         raise
     finally:
         db.close()
