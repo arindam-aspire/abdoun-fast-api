@@ -44,8 +44,15 @@ class PropertyRepository:
     def find_property_uuid_by_hash(self, target_hash: int) -> Optional[uuid.UUID]:
         from app.schemas.property import uuid_to_int_hash
 
-        property_ids = self._db.execute(select(Property.id)).scalars().all()
-        for prop_id in property_ids:
+        # Indexed lookup by stored hash, then verify to guard against modulo collisions.
+        candidate_ids = (
+            self._db.execute(
+                select(Property.id).where(Property.property_hash == target_hash)
+            )
+            .scalars()
+            .all()
+        )
+        for prop_id in candidate_ids:
             if isinstance(prop_id, uuid.UUID) and uuid_to_int_hash(prop_id) == target_hash:
                 return prop_id
         return None

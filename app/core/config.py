@@ -56,6 +56,14 @@ class Settings(BaseModel):
 
     database_url: str = _get_database_url()
 
+    # SQLAlchemy connection pool tuning (env-driven).
+    # These defaults are conservative and can be overridden per environment.
+    db_pool_size: int = int(os.getenv("DB_POOL_SIZE", "5"))
+    db_max_overflow: int = int(os.getenv("DB_MAX_OVERFLOW", "10"))
+    db_pool_timeout: int = int(os.getenv("DB_POOL_TIMEOUT", "30"))
+    db_pool_recycle: int = int(os.getenv("DB_POOL_RECYCLE", "1800"))
+    db_pool_pre_ping: bool = os.getenv("DB_POOL_PRE_PING", "true").lower() == "true"
+
     api_v1_prefix: str = SystemMessages.API_V1_PREFIX
 
     cors_origins: list[str] = _parse_csv_env("CORS_ORIGINS", "*")

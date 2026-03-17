@@ -196,6 +196,9 @@ class PropertyNormalized(Base):
     __tablename__ = "properties_normalized"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    # Deterministic hash of UUID for friendly integer IDs and fast lookups (indexed).
+    # Range: 0..1e9-1 (matches app.schemas.property.uuid_to_int_hash).
+    property_hash = Column(Integer, nullable=False, index=True)
 
     category_id = Column(Integer, ForeignKey(FK_PROPERTY_CATEGORIES_ID), nullable=False)
     type_id = Column(Integer, ForeignKey("property_types.id"), nullable=False)

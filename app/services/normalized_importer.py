@@ -448,6 +448,10 @@ def create_property_normalized_from_row(
         contract_duration=contract_duration,
         payment_method=payment_method,
     )
+
+    from app.schemas.property import uuid_to_int_hash
+
+    prop.property_hash = uuid_to_int_hash(prop.id)
     
     # Set location geometry if coordinates available
     if lat_f is not None and lng_f is not None:
