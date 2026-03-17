@@ -1,24 +1,32 @@
-fastapi==0.115.0
-uvicorn[standard]==0.30.6
-SQLAlchemy==2.0.34
-psycopg2-binary==2.9.9
-geoalchemy2==0.15.2
-pydantic==2.9.2
-pydantic-settings==2.6.1
-alembic==1.13.3
-pandas==2.2.3
-python-dotenv==1.0.1
-python-multipart==0.0.9
-requests==2.31.0
-openai==0.28.1  # Azure OpenAI compatible version
-deep-translator==1.11.4  # Optional: for property title/description translation (ar, esp, fr)
-boto3>=1.34.0
-python-jose[cryptography]>=3.3.0
-email-validator>=2.0.0
-slowapi>=0.1.9
+fastapi>=0.115.10,<0.120
+uvicorn[standard]>=0.34,<0.36
+SQLAlchemy>=2.0.30,<2.1
+psycopg2-binary>=2.9.9,<3
+geoalchemy2>=0.15.2,<0.16
+pydantic>=2.10,<3
+pydantic-settings>=2.6.1,<3
+alembic>=1.13.3,<2
+pandas>=2.2.3,<3
+python-dotenv>=1.0.1,<2
+python-multipart>=0.0.18,<0.0.20
+requests>=2.32.0,<3
+openai>=0.28.1,<1.0.0  # Azure OpenAI legacy SDK (used by app/services/geocoding.py)
+deep-translator>=1.11.4,<2  # Optional: for property title/description translation (ar, esp, fr)
+boto3>=1.34.0,<2
+python-jose[cryptography]>=3.3.0,<4
+email-validator>=2.0.0,<3
+slowapi>=0.1.9,<0.2
+prometheus-client>=0.20.0,<1
+opentelemetry-api>=1.25.0,<2
+opentelemetry-sdk>=1.25.0,<2
+opentelemetry-exporter-otlp>=1.25.0,<2
+opentelemetry-instrumentation-fastapi>=0.46b0,<1
+opentelemetry-instrumentation-requests>=0.46b0,<1
+opentelemetry-instrumentation-sqlalchemy>=0.46b0,<1
+sentry-sdk>=2.0.0,<3
 
-pytest>=8.0.0
-httpx>=0.27.0  # Required by FastAPI TestClient
+pytest>=8.0.0,<9
+httpx>=0.27.0,<1  # Required by FastAPI TestClient
 
 
 

@@ -1,4 +1,5 @@
 import os
+import importlib.util
 from functools import lru_cache
 from typing import Optional
 
@@ -100,6 +101,40 @@ class Settings(BaseModel):
     # Base URL for invite links (e.g. https://app.example.com)
     app_base_url: str = _get_env_str("APP_BASE_URL", default="http://localhost:3000")
 
+    # -----------------------------------------------------------------------
+    # Observability (opt-in / env-driven)
+    # -----------------------------------------------------------------------
+    metrics_enabled: bool = os.getenv("METRICS_ENABLED", "").lower() == "true"
+    metrics_path: str = os.getenv("METRICS_PATH", "/metrics")
+
+    otel_enabled: bool = os.getenv("OTEL_ENABLED", "").lower() == "true"
+    otel_service_name: str = os.getenv("OTEL_SERVICE_NAME", "")
+
+    sentry_dsn: str = os.getenv("SENTRY_DSN", "")
+    sentry_enabled: bool = os.getenv("SENTRY_ENABLED", "").lower() == "true"
+
+    slow_query_threshold_ms: int = int(os.getenv("SLOW_QUERY_THRESHOLD_MS", "500"))
+
+
+def _apply_observability_defaults(settings: Settings) -> None:
+    # Sensible default: enable metrics in local/dev unless explicitly set.
+    if "METRICS_ENABLED" not in os.environ:
+        settings.metrics_enabled = settings.debug or settings.environment in {"local", "development"}
+
+    # If a dependency isn't installed, the corresponding feature must be disabled.
+    if settings.metrics_enabled and importlib.util.find_spec("prometheus_client") is None:
+        settings.metrics_enabled = False
+
+    if settings.otel_enabled and importlib.util.find_spec("opentelemetry.sdk") is None:
+        settings.otel_enabled = False
+    if not settings.otel_service_name:
+        settings.otel_service_name = settings.app_name
+
+    if settings.sentry_enabled and not settings.sentry_dsn:
+        settings.sentry_enabled = False
+    if settings.sentry_enabled and importlib.util.find_spec("sentry_sdk") is None:
+        settings.sentry_enabled = False
+
 
 @lru_cache
 def get_settings() -> Settings:
@@ -112,5 +147,7 @@ def get_settings() -> Settings:
                 "Invalid CORS configuration: in production/staging with credentials enabled, "
                 "CORS_ORIGINS must be a non-empty explicit list and cannot include '*'."
             )
+
+    _apply_observability_defaults(settings)
 
     return settings

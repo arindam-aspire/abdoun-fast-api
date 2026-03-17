@@ -23,6 +23,22 @@ def _build_engine_kwargs(database_url: str) -> dict:
 
 engine = create_engine(settings.database_url, **_build_engine_kwargs(settings.database_url))
 
+try:
+    from app.observability.slow_queries import install_slow_query_logging
+
+    install_slow_query_logging(engine=engine, threshold_ms=settings.slow_query_threshold_ms)
+except Exception:
+    pass
+
+if settings.otel_enabled:
+    try:
+        from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor
+
+        SQLAlchemyInstrumentor().instrument(engine=engine)
+    except Exception:
+        # Tracing should never break application startup.
+        pass
+
 SessionLocal = sessionmaker(
     autocommit=False,
     autoflush=False,

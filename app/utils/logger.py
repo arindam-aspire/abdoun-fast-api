@@ -7,10 +7,26 @@ import logging
 import sys
 from typing import Callable, Tuple
 
+# Ensure every LogRecord includes a request_id field (for correlation IDs).
+from app.utils.request_context import get_request_id
+
+
+_ORIGINAL_RECORD_FACTORY = logging.getLogRecordFactory()
+
+
+def _record_factory(*args, **kwargs):  # type: ignore[no-untyped-def]
+    record = _ORIGINAL_RECORD_FACTORY(*args, **kwargs)
+    rid = get_request_id()
+    record.request_id = rid if rid else "-"
+    return record
+
+
+logging.setLogRecordFactory(_record_factory)
+
 # Configure root logger
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    format="%(asctime)s %(levelname)s %(name)s request_id=%(request_id)s %(message)s",
     datefmt='%Y-%m-%d %H:%M:%S'
 )
 
