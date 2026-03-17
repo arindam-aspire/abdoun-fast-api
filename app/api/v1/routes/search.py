@@ -1,50 +1,41 @@
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, UploadFile, File, Query
-from sqlalchemy.orm import Session
 
-from app.db.session import get_db
 from app.api.v1.deps.security import get_current_user, require_permission
+from app.api.v1.deps.search import get_geo_search_service, get_property_import_service
 from app.models.user import User
-from app.schemas.property import (
-    PropertySearchRequest,
-    PropertyListResponse,
-)
-from app.services.csv_importer import import_properties_from_csv_file
+from app.schemas.property import PropertySearchRequest, PropertyListResponse
+from app.services.geo_search_service import GeoSearchService
+from app.services.property_import_service import PropertyImportService
 from app.utils.status_codes import STATUS_CREATED
 from app.utils.responses import ImportResponse
 from app.utils.constants import UserPermissions
 
-from app.services.property import search_properties_service
-
 router = APIRouter()
 
-DBSessionDep = Annotated[Session, Depends(get_db)]
 
-
-@router.post("/geo-search", response_model=PropertyListResponse)
+@router.post("/geo-search")
 def search_properties(
     payload: PropertySearchRequest,
-    db: DBSessionDep,
+    geo_search_service: Annotated[GeoSearchService, Depends(get_geo_search_service)],
 ) -> PropertyListResponse:
-    items = search_properties_service(db, payload)
-    return PropertyListResponse(items=items, total=len(items))
+    return geo_search_service.search(payload)
 
 
 @router.post(
     "/import-csv",
     status_code=STATUS_CREATED,
-    response_model=ImportResponse,
     dependencies=[require_permission(UserPermissions.PROPERTY_CREATE)],
 )
 async def import_csv(
-    db: DBSessionDep,
-    current_user: User = Depends(get_current_user),
-    file: UploadFile = File(...),
-    geocode_missing: bool = Query(
-        False,
-        description="If True, geocode locations that don't have coordinates (slower, rate-limited)"
-    ),
+    current_user: Annotated[User, Depends(get_current_user)],
+    file: Annotated[UploadFile, File(...)],
+    import_service: Annotated[PropertyImportService, Depends(get_property_import_service)],
+    geocode_missing: Annotated[
+        bool,
+        Query(description="If True, geocode locations that don't have coordinates (slower, rate-limited)"),
+    ] = False,
 ) -> ImportResponse:
     """
     Import properties from CSV file.
@@ -53,7 +44,7 @@ async def import_csv(
       Note: This is rate-limited to 1 request/second and will significantly slow down the import.
       Recommended: Pre-enrich CSV with coordinates using the enrich_csv_with_coordinates script.
     """
-    created_count = await import_properties_from_csv_file(db, file, geocode_missing=geocode_missing)
+    created_count = await import_service.import_from_csv(file, geocode_missing=geocode_missing)
     return ImportResponse(created=created_count)
 
 

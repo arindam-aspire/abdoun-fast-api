@@ -363,3 +363,7 @@ local_settings.py
 # Flask (if used)
 instance/
 .webassets-cache
+
+# cursor
+.cursor/
+.ai/

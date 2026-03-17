@@ -1,463 +1,176 @@
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session, selectinload
-from sqlalchemy import select
-
-from app.core.config import get_settings
-from app.db.session import get_db
-from app.services.cognito import cognito_service
-from app.schemas.user import UserCreate, LoginRequest, TokenResponse, OTPRequest, OTPVerify, RefreshRequest, ForgotPasswordRequest, ForgotPasswordConfirm, ConfirmSignupRequest, ResendConfirmationRequest, UserResponse, PermissionsResponse, SetPasswordRequest
-from app.models.user import User, Role
-from app.utils.responses import StandardResponse, create_success_response
-from app.api.v1.deps.security import get_current_user, get_user_permissions, require_permission, security
-from app.utils.constants import SuccessMessages, ErrorMessages, UserRoles, UserPermissions, Defaults
-from app.utils.log_messages import LogMessages, format_log_message
-from app.utils.status_codes import HTTPStatus
-from app.utils.logger import api_logger
-from botocore.exceptions import ClientError
+from fastapi import APIRouter, Depends
 from fastapi.security import HTTPAuthorizationCredentials
+
+from app.api.v1.deps.auth import get_auth_service
+from app.api.v1.deps.security import get_current_user, require_role, security
+from app.models.user import User
+from app.utils.constants import UserRoles
+from app.schemas.user import (
+    ConfirmSignupRequest,
+    ForgotPasswordConfirm,
+    ForgotPasswordRequest,
+    LoginRequest,
+    OTPRequest,
+    OTPVerify,
+    PermissionsResponse,
+    RefreshRequest,
+    ResendConfirmationRequest,
+    SetPasswordRequest,
+    TokenResponse,
+    UserCreate,
+    UserResponse,
+)
+from app.services.auth_service import AuthService
+from app.utils.responses import StandardResponse
 
 router = APIRouter()
 
 
 @router.post("/signup", response_model=StandardResponse[UserResponse])
-def signup(user_in: UserCreate, db: Session = Depends(get_db)):
+def signup(
+    user_in: UserCreate,
+    service: AuthService = Depends(get_auth_service),
+) -> StandardResponse[UserResponse]:
     """Register a new user. Requires email confirmation via /confirm-signup."""
-    # Check if user exists
-    stmt = select(User).where((User.email == user_in.email) | (User.phone_number == user_in.phone_number))
-    if db.execute(stmt).first():
-        api_logger.warning(format_log_message(LogMessages.Auth.SIGNUP_ATTEMPT_EXISTING, email=user_in.email))
-        raise HTTPException(
-            status_code=HTTPStatus.CONFLICT,
-            detail=ErrorMessages.USER_EXISTS,
-        )
-    
-    try:
-        # Cognito Signup (returns UserSub — we store it so /auth/me can find the user by token)
-        cognito_response = cognito_service.signup(
-            email=user_in.email,
-            password=user_in.password,
-            full_name=user_in.full_name,
-            phone_number=user_in.phone_number
-        )
-        cognito_sub = cognito_response.get("UserSub")
+    return service.signup(user_in)
 
-        # Create user in DB with cognito_sub so login/me works
-        db_user = User(
-            email=user_in.email,
-            full_name=user_in.full_name,
-            phone_number=user_in.phone_number,
-            is_active=True,
-            cognito_sub=cognito_sub,
-        )
-        db.add(db_user)
 
-        # Assign Registered User role
-        stmt_role = select(Role).where(Role.name == UserRoles.REGISTERED_USER)
-        role = db.execute(stmt_role).scalar_one_or_none()
-        if role:
-            db_user.roles.append(role)
-            
-        db.commit()
-        db.refresh(db_user)
-        
-        return create_success_response(data=db_user, message=SuccessMessages.USER_REGISTERED)
-    except Exception as e:
-        db.rollback()
-        server_error = format_log_message(ErrorMessages.COGNITO_ERROR, error=str(e))
-        raise HTTPException(status_code=HTTPStatus.BAD_REQUEST, detail=server_error)
-        
 @router.post("/signup/admin", response_model=StandardResponse[UserResponse])
-def signup_admin(user_in: UserCreate, db: Session = Depends(get_db)):
-    """Register a new Admin user. Same payload as normal signup; assigns Admin role. No authentication required."""
-    # Check if user exists
-    stmt = select(User).where((User.email == user_in.email) | (User.phone_number == user_in.phone_number))
-    if db.execute(stmt).first():
-        api_logger.warning(format_log_message(LogMessages.Auth.SIGNUP_ATTEMPT_EXISTING, email=user_in.email))
-        raise HTTPException(
-            status_code=HTTPStatus.CONFLICT,
-            detail=ErrorMessages.USER_EXISTS,
-        )
-    
-    try:
-        # Cognito Signup (returns UserSub — store for /auth/me)
-        cognito_response = cognito_service.signup(
-            email=user_in.email,
-            password=user_in.password,
-            full_name=user_in.full_name,
-            phone_number=user_in.phone_number
-        )
-        cognito_sub = cognito_response.get("UserSub")
+def signup_admin(
+    user_in: UserCreate,
+    current_user: User = require_role(UserRoles.ADMIN),
+    service: AuthService = Depends(get_auth_service),
+) -> StandardResponse[UserResponse]:
+    """Register a new Admin user. Requires authenticated admin. Same payload as normal signup; assigns Admin role."""
+    return service.signup_admin(user_in)
 
-        # Create user in DB with cognito_sub
-        db_user = User(
-            email=user_in.email,
-            full_name=user_in.full_name,
-            phone_number=user_in.phone_number,
-            is_active=True,
-            cognito_sub=cognito_sub,
-        )
-        db.add(db_user)
-
-        # Assign Admin role
-        stmt_role = select(Role).where(Role.name == UserRoles.ADMIN)
-        role = db.execute(stmt_role).scalar_one_or_none()
-        if role:
-            db_user.roles.append(role)
-            
-        db.commit()
-        db.refresh(db_user)
-        
-        return create_success_response(data=db_user, message=SuccessMessages.ADMIN_REGISTERED)
-    except Exception as e:
-        db.rollback()
-        server_error = format_log_message(ErrorMessages.COGNITO_ERROR, error=str(e))
-        raise HTTPException(status_code=HTTPStatus.BAD_REQUEST, detail=server_error)
 
 @router.post("/confirm-signup", response_model=StandardResponse[bool])
-def confirm_signup(confirm_in: ConfirmSignupRequest, db: Session = Depends(get_db)):
+def confirm_signup(
+    confirm_in: ConfirmSignupRequest,
+    service: AuthService = Depends(get_auth_service),
+) -> StandardResponse[bool]:
     """Confirm sign-up with the code sent by Cognito. Marks email as verified in the app DB."""
-    try:
-        cognito_service.confirm_signup(confirm_in.email, confirm_in.code)
-        # Update local user: email is now verified (Cognito confirmed it)
-        stmt = select(User).where(User.email == confirm_in.email)
-        user = db.execute(stmt).scalar_one_or_none()
-        if user:
-            user.is_email_verified = True
-            db.commit()
-        return create_success_response(data=True, message=SuccessMessages.ACCOUNT_CONFIRMED)
-    except ClientError as e:
-        server_error = format_log_message(ErrorMessages.COGNITO_ERROR, error=str(e))
-        raise HTTPException(status_code=HTTPStatus.BAD_REQUEST, detail=server_error)
+    return service.confirm_signup(confirm_in)
+
 
 @router.post("/resend-confirmation", response_model=StandardResponse[bool])
-def resend_confirmation(req: ResendConfirmationRequest):
+def resend_confirmation(
+    req: ResendConfirmationRequest,
+    service: AuthService = Depends(get_auth_service),
+) -> StandardResponse[bool]:
     """Resend the email confirmation code to the user."""
-    try:
-        cognito_service.resend_confirmation_code(req.email)
-        return create_success_response(data=True, message=SuccessMessages.CONFIRMATION_CODE_SENT)
-    except ClientError as e:
-        server_error = format_log_message(ErrorMessages.COGNITO_ERROR, error=str(e))
-        raise HTTPException(status_code=HTTPStatus.BAD_REQUEST, detail=server_error)
+    return service.resend_confirmation(req)
+
 
 @router.post("/login/password", response_model=StandardResponse[TokenResponse])
-def login_password(login_in: LoginRequest, db: Session = Depends(get_db)):
+def login_password(
+    login_in: LoginRequest,
+    service: AuthService = Depends(get_auth_service),
+) -> StandardResponse[TokenResponse]:
     """Authenticate with email or phone number + password. Returns access and refresh tokens."""
-    # Resolve email or phone to user; Cognito username is always email (pool sign-in identifier)
-    # Eagerly load profile to check password_set_at (though password login means they have a password)
-    stmt = select(User).options(selectinload(User.profile)).where(
-        (User.email == login_in.username) | (User.phone_number == login_in.username)
-    )
-    user = db.execute(stmt).scalar_one_or_none()
-    if not user:
-        api_logger.warning(format_log_message(LogMessages.Auth.LOGIN_FAILED, email=login_in.username, error=ErrorMessages.USER_NOT_FOUND))
-        raise HTTPException(status_code=HTTPStatus.NOT_FOUND, detail=ErrorMessages.USER_NOT_FOUND)
-    cognito_username = user.email
-    try:
-        auth_result = cognito_service.login_password(cognito_username, login_in.password)
-        requires_password_set = bool(
-            user.profile is not None and user.profile.password_set_at is None
-        )
-        return create_success_response(
-            data=TokenResponse(
-                access_token=auth_result["AccessToken"],
-                refresh_token=auth_result.get("RefreshToken"),
-                id_token=auth_result.get("IdToken"),
-                expires_in=auth_result["ExpiresIn"],
-                requires_password_set=requires_password_set
-            ),
-            message=SuccessMessages.LOGIN_SUCCESSFUL
-        )
-    except ClientError as e:
-        error_code = e.response["Error"]["Code"]
-        if error_code == "UserNotFoundException":
-             raise HTTPException(status_code=HTTPStatus.NOT_FOUND, detail=ErrorMessages.USER_NOT_FOUND)
-        if error_code == "UserNotConfirmedException":
-             raise HTTPException(status_code=HTTPStatus.FORBIDDEN, detail=ErrorMessages.USER_NOT_CONFIRMED)
-        raise HTTPException(status_code=HTTPStatus.UNAUTHORIZED, detail=ErrorMessages.INVALID_CREDENTIALS)
-    except Exception:
-        raise HTTPException(status_code=HTTPStatus.UNAUTHORIZED, detail=ErrorMessages.INVALID_CREDENTIALS)
+    return service.login_password(login_in)
+
 
 @router.post("/login/otp/request", response_model=StandardResponse[dict])
-def login_otp_request(otp_req: OTPRequest, db: Session = Depends(get_db)):
-    """Request OTP for passwordless login (email or phone). Requires Cognito custom auth (Lambda).
-    When client sends phone number, OTP can be sent via SMS if Lambda has SNS configured."""
-    # Validate user exists in local DB; resolve to one user for Cognito
-    stmt = select(User).where((User.email == otp_req.username) | (User.phone_number == otp_req.username))
-    user = db.execute(stmt).scalar_one_or_none()
-    if not user:
-         raise HTTPException(status_code=HTTPStatus.NOT_FOUND, detail=ErrorMessages.USER_NOT_FOUND)
-    # Cognito username is always email (pool sign-in identifier); Lambda gets userAttributes and can send SMS to phone_number
-    cognito_username = user.email
-    try:
-        response = cognito_service.login_otp_request(cognito_username)
-        return create_success_response(data={"session": response.get("Session")}, message=SuccessMessages.OTP_SENT)
-    except ClientError as e:
-        error_code = e.response["Error"]["Code"]
-        error_msg = (e.response.get("Error") or {}).get("Message", str(e))
-        if error_code == "UserNotFoundException":
-             raise HTTPException(status_code=HTTPStatus.NOT_FOUND, detail=ErrorMessages.USER_NOT_FOUND)
-        if error_code == "InvalidParameterException" and "Custom auth lambda trigger" in error_msg:
-             raise HTTPException(status_code=HTTPStatus.BAD_REQUEST, detail=ErrorMessages.OTP_NOT_CONFIGURED)
-        server_error = format_log_message(ErrorMessages.COGNITO_ERROR, error=str(e))
-        raise HTTPException(status_code=HTTPStatus.BAD_REQUEST, detail=server_error)
-    except Exception as e:
-        server_error = format_log_message(ErrorMessages.COGNITO_ERROR, error=str(e))
-        raise HTTPException(status_code=HTTPStatus.BAD_REQUEST, detail=server_error)
+def login_otp_request(
+    otp_req: OTPRequest,
+    service: AuthService = Depends(get_auth_service),
+) -> StandardResponse[dict]:
+    """Request OTP for passwordless login (email or phone). Requires Cognito custom auth (Lambda)."""
+    return service.login_otp_request(otp_req)
+
 
 @router.post("/login/otp/verify", response_model=StandardResponse[TokenResponse])
-def login_otp_verify(otp_ver: OTPVerify, db: Session = Depends(get_db)):
-    """Verify OTP and return tokens. Requires session from /login/otp/request. username = same as request (email or phone)."""
-    # Resolve username (email or phone) to Cognito username (email) so RespondToAuthChallenge succeeds
-    # Eagerly load profile to check password_set_at
-    stmt = select(User).options(selectinload(User.profile)).where(
-        (User.email == otp_ver.username) | (User.phone_number == otp_ver.username)
-    )
-    user = db.execute(stmt).scalar_one_or_none()
-    if not user:
-        raise HTTPException(status_code=HTTPStatus.NOT_FOUND, detail=ErrorMessages.USER_NOT_FOUND)
-    cognito_username = user.email
-    try:
-        auth_result = cognito_service.login_otp_verify(otp_ver.session, cognito_username, otp_ver.code)
-        
-        # Check if user needs to set password (for agents who logged in via OTP without password).
-        # This flag is in the response body only (Cognito JWT cannot contain custom claims).
-        requires_password_set = bool(
-            user.profile is not None and user.profile.password_set_at is None
-        )
-        
-        return create_success_response(
-            data=TokenResponse(
-                access_token=auth_result["AccessToken"],
-                refresh_token=auth_result.get("RefreshToken"),
-                id_token=auth_result.get("IdToken"),
-                expires_in=auth_result["ExpiresIn"],
-                requires_password_set=requires_password_set
-            ),
-            message=SuccessMessages.LOGIN_SUCCESSFUL
-        )
-    except Exception:
-        raise HTTPException(status_code=HTTPStatus.UNAUTHORIZED, detail=ErrorMessages.INVALID_OTP)
+def login_otp_verify(
+    otp_ver: OTPVerify,
+    service: AuthService = Depends(get_auth_service),
+) -> StandardResponse[TokenResponse]:
+    """Verify OTP and return tokens. Requires session from /login/otp/request."""
+    return service.login_otp_verify(otp_ver)
+
 
 @router.post("/refresh", response_model=StandardResponse[TokenResponse])
-def refresh_token(body: RefreshRequest, db: Session = Depends(get_db)):
-    """Refresh access token using refresh_token in request body.
-    When Cognito app client has a secret, include username (sub or email) for SECRET_HASH.
-    Returns requires_password_set from DB (agent with no password_set_at) so clients stay in sync after refresh."""
-    settings = get_settings()
-    if settings.cognito_client_secret and not (body.username or "").strip():
-        raise HTTPException(
-            status_code=HTTPStatus.BAD_REQUEST,
-            detail=ErrorMessages.REFRESH_USERNAME_REQUIRED,
-        )
-    try:
-        auth_result = cognito_service.refresh_token(body.refresh_token, (body.username or "").strip())
-        access_token = auth_result["AccessToken"]
+def refresh_token(
+    body: RefreshRequest,
+    service: AuthService = Depends(get_auth_service),
+) -> StandardResponse[TokenResponse]:
+    """Refresh access token using refresh_token in request body."""
+    return service.refresh_token(body)
 
-        # Resolve requires_password_set from DB (single source of truth: agent_profiles.password_set_at)
-        requires_password_set = False
-        payload = cognito_service.verify_token(access_token)
-        if payload:
-            cognito_sub = payload.get("sub")
-            if cognito_sub:
-                stmt = select(User).options(selectinload(User.profile)).where(User.cognito_sub == cognito_sub)
-                user = db.execute(stmt).scalar_one_or_none()
-                if user and user.profile and user.profile.password_set_at is None:
-                    requires_password_set = True
-
-        return create_success_response(
-            data=TokenResponse(
-                access_token=access_token,
-                refresh_token=auth_result.get("RefreshToken"),
-                id_token=auth_result.get("IdToken"),
-                expires_in=auth_result["ExpiresIn"],
-                requires_password_set=requires_password_set,
-            )
-        )
-    except Exception:
-        raise HTTPException(status_code=HTTPStatus.UNAUTHORIZED, detail=ErrorMessages.INVALID_TOKEN)
 
 @router.post("/logout", response_model=StandardResponse[bool])
-def logout(user: User = Depends(get_current_user), auth: HTTPAuthorizationCredentials = Depends(security)):
+def logout(
+    user: User = Depends(get_current_user),
+    auth: HTTPAuthorizationCredentials = Depends(security),
+    service: AuthService = Depends(get_auth_service),
+) -> StandardResponse[bool]:
     """Invalidate the current user's Cognito session."""
-    try:
-        cognito_service.logout(auth.credentials)
-        api_logger.info(format_log_message(LogMessages.Auth.LOGOUT_SUCCESS, email=user.email))
-        return create_success_response(data=True, message=SuccessMessages.LOGOUT_SUCCESSFUL)
-    except Exception as e:
-        api_logger.error(format_log_message(LogMessages.Auth.LOGOUT_FAILED, error=str(e)))
-        return create_success_response(data=False, message=ErrorMessages.LOGOUT_FAILED)
+    return service.logout(user, auth)
+
 
 @router.post("/forgot-password/request", response_model=StandardResponse[bool])
-def forgot_password_request(fp_req: ForgotPasswordRequest):
+def forgot_password_request(
+    fp_req: ForgotPasswordRequest,
+    service: AuthService = Depends(get_auth_service),
+) -> StandardResponse[bool]:
     """Send password reset code to the user's email."""
-    try:
-        cognito_service.forgot_password_request(fp_req.email)
-        return create_success_response(data=True, message=SuccessMessages.OTP_SENT)
-    except Exception as e:
-        server_error = format_log_message(ErrorMessages.COGNITO_ERROR, error=str(e))
-        raise HTTPException(status_code=HTTPStatus.BAD_REQUEST, detail=server_error)
+    return service.forgot_password_request(fp_req)
+
 
 @router.post("/forgot-password/confirm", response_model=StandardResponse[bool])
-def forgot_password_confirm(fp_conf: ForgotPasswordConfirm):
+def forgot_password_confirm(
+    fp_conf: ForgotPasswordConfirm,
+    service: AuthService = Depends(get_auth_service),
+) -> StandardResponse[bool]:
     """Confirm password reset with code and new password."""
-    try:
-        cognito_service.forgot_password_confirm(fp_conf.email, fp_conf.code, fp_conf.new_password)
-        return create_success_response(data=True, message=SuccessMessages.PASSWORD_RESET_SUCCESS)
-    except Exception as e:
-        server_error = format_log_message(ErrorMessages.COGNITO_ERROR, error=str(e))
-        raise HTTPException(status_code=HTTPStatus.BAD_REQUEST, detail=server_error)
+    return service.forgot_password_confirm(fp_conf)
+
 
 @router.post("/set-password", response_model=StandardResponse[bool])
 def set_password(
     password_req: SetPasswordRequest,
     current_user: User = Depends(get_current_user),
     auth: HTTPAuthorizationCredentials = Depends(security),
-    db: Session = Depends(get_db)
-):
+    service: AuthService = Depends(get_auth_service),
+) -> StandardResponse[bool]:
     """
     Set or change password for the authenticated user.
-    
-    For agents created without a password (via admin approval), this sets their initial password.
-    For users with existing passwords, previous_password must be provided.
-    
-    Requires Bearer token in Authorization header.
     """
-    try:
-        access_token = auth.credentials
-        previous_password = password_req.previous_password or ""
-        
-        cognito_service.change_password(
-            access_token=access_token,
-            previous_password=previous_password,
-            proposed_password=password_req.password
-        )
-        
-        # Update password_set_at in agent profile if user is an agent
-        if hasattr(current_user, 'profile') and current_user.profile:
-            from datetime import datetime
-            try:
-                # Refresh the profile to ensure we have the latest version
-                db.refresh(current_user.profile)
-                current_user.profile.password_set_at = datetime.now()
-                db.commit()
-            except Exception as db_error:
-                db.rollback()
-                api_logger.warning(f"Failed to update password_set_at: {str(db_error)}")
-        
-        api_logger.info(format_log_message(LogMessages.Auth.PASSWORD_RESET_SUCCESS, email=current_user.email))
-        return create_success_response(data=True, message=SuccessMessages.PASSWORD_RESET_SUCCESS)
-    except ClientError as e:
-        error_code = e.response.get("Error", {}).get("Code", "")
-        if error_code == "NotAuthorizedException":
-            raise HTTPException(
-                status_code=HTTPStatus.UNAUTHORIZED,
-                detail="Invalid previous password or insufficient permissions"
-            )
-        if error_code == "InvalidPasswordException":
-            raise HTTPException(
-                status_code=HTTPStatus.BAD_REQUEST,
-                detail="Password does not meet requirements"
-            )
-        server_error = format_log_message(ErrorMessages.COGNITO_ERROR, error=str(e))
-        raise HTTPException(status_code=HTTPStatus.BAD_REQUEST, detail=server_error)
-    except Exception as e:
-        server_error = format_log_message(ErrorMessages.COGNITO_ERROR, error=str(e))
-        raise HTTPException(status_code=HTTPStatus.BAD_REQUEST, detail=server_error)
+    return service.set_password(password_req, current_user, auth)
+
 
 @router.get("/social-login", response_model=StandardResponse[dict])
-def social_login(provider: str = "Google"):
+def social_login(
+    provider: str = "Google",
+    service: AuthService = Depends(get_auth_service),
+) -> StandardResponse[dict]:
     """Get the social login URL for a specific provider."""
-    login_url = cognito_service.get_social_login_url(provider)
-    return create_success_response(data={"url": login_url})
+    return service.social_login(provider)
+
 
 @router.get("/me", response_model=StandardResponse[UserResponse])
-def get_current_user_profile(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+def get_current_user_profile(
+    current_user: User = Depends(get_current_user),
+    service: AuthService = Depends(get_auth_service),
+) -> StandardResponse[UserResponse]:
     """Return the currently authenticated user's profile."""
-    # Ensure profile is loaded (it might be lazy-loaded)
-    if current_user.profile is None:
-        # Try to load profile if it exists
-        from app.models.user import AgentProfile
-        profile = db.query(AgentProfile).filter(AgentProfile.user_id == current_user.id).first()
-        if profile:
-            current_user.profile = profile
-    
-    # Check if user needs to set password (for agents who logged in via OTP without password)
-    requires_password_set = False
-    if current_user.profile:
-        # Refresh profile to get latest password_set_at
-        db.refresh(current_user.profile)
-        # Agent user: check if password_set_at is None
-        requires_password_set = current_user.profile.password_set_at is None
-    
-    # Create user response with requires_password_set flag (explicit bool so JSON is always true/false, never null)
-    user_response = UserResponse.model_validate(current_user)
-    user_response.requires_password_set = requires_password_set
-
-    return create_success_response(data=user_response, message=None)
+    return service.get_current_user_profile(current_user)
 
 
 @router.get("/me/permissions", response_model=StandardResponse[PermissionsResponse])
-def get_current_user_permissions(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+def get_current_user_permissions(
+    current_user: User = Depends(get_current_user),
+    service: AuthService = Depends(get_auth_service),
+) -> StandardResponse[PermissionsResponse]:
     """Return the current user's permission codes (from roles and inherited assignments)."""
-    perms = sorted(get_user_permissions(current_user, db))
-    return create_success_response(data=PermissionsResponse(permissions=perms), message=None)
+    return service.get_current_user_permissions(current_user)
 
 
 @router.get("/callback", response_model=StandardResponse[TokenResponse])
-def social_callback(code: str, db: Session = Depends(get_db)):
+def social_callback(
+    code: str,
+    service: AuthService = Depends(get_auth_service),
+) -> StandardResponse[TokenResponse]:
     """Handle the OAuth2 callback and return tokens."""
-    try:
-        auth_result = cognito_service.exchange_code_for_tokens(code)
-        id_token = auth_result.get("id_token")
-        
-        # Verify the token to get user info
-        payload = cognito_service.verify_token(id_token)
-        if not payload:
-            raise HTTPException(status_code=HTTPStatus.UNAUTHORIZED, detail=ErrorMessages.SOCIAL_AUTH_FAILED)
-            
-        email = payload.get("email")
-        cognito_sub = payload.get("sub")
-        full_name = payload.get("name", Defaults.SOCIAL_USER_DEFAULT_NAME)
-        
-        # Check if user exists in local DB
-        stmt = select(User).where((User.cognito_sub == cognito_sub) | (User.email == email))
-        user = db.execute(stmt).scalar_one_or_none()
-        
-        if not user:
-            # Auto-register social user
-            user = User(
-                email=email,
-                full_name=full_name,
-                cognito_sub=cognito_sub,
-                phone_number=f"social_{cognito_sub[:10]}", # Place holder for social users if phone is mandatory in unique constraint
-                is_active=True
-            )
-            db.add(user)
-            
-            # Assign default role
-            stmt_role = select(Role).where(Role.name == UserRoles.REGISTERED_USER)
-            role = db.execute(stmt_role).scalar_one_or_none()
-            if role:
-                user.roles.append(role)
-                
-            db.commit()
-            db.refresh(user)
-            api_logger.info(format_log_message(LogMessages.Auth.SOCIAL_LOGIN_SUCCESS, email=email))
-        elif not user.cognito_sub:
-            # Link existing local user to social account
-            user.cognito_sub = cognito_sub
-            db.commit()
-            db.refresh(user)
-            
-        return create_success_response(
-            data=TokenResponse(
-                access_token=auth_result["access_token"],
-                refresh_token=auth_result.get("refresh_token"),
-                id_token=auth_result.get("id_token"),
-                expires_in=auth_result["expires_in"]
-            ),
-            message=SuccessMessages.SOCIAL_LOGIN_SUCCESSFUL
-        )
-    except Exception as e:
-        api_logger.error(format_log_message(LogMessages.Auth.SOCIAL_AUTH_FAILED_LOG, email=LogMessages.Auth.UNKNOWN_EMAIL, error=str(e)))
-        raise HTTPException(status_code=HTTPStatus.BAD_REQUEST, detail=ErrorMessages.SOCIAL_AUTH_FAILED)
+    return service.social_callback(code)

@@ -1410,6 +1410,27 @@ class PropertyListResponseExtended(BaseModel):
     total: int
 
 
+class PropertySearchParams(BaseModel):
+    """
+    Query parameters for property list/search endpoints (GET /properties, /properties/exclusive).
+    """
+    status: Optional[str] = None
+    category: Optional[str] = None
+    type_slug: Optional[str] = None
+    city: Optional[str] = None
+    locations: Optional[str] = None
+    budget_min: Optional[str] = None
+    budget_max: Optional[str] = None
+    min_price: Optional[str] = None
+    max_price: Optional[str] = None
+    exclusive: Optional[str] = None
+    page: int = 1
+    page_size: int = 12
+    lang: Optional[str] = None
+
+    model_config = {"extra": "ignore"}
+
+
 class PropertySearchResponse(BaseModel):
     """
     Search API response matching the exact frontend contract.
