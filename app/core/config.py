@@ -58,10 +58,7 @@ class Settings(BaseModel):
 
     api_v1_prefix: str = SystemMessages.API_V1_PREFIX
 
-    cors_origins: list[str] = _parse_csv_env(
-        "CORS_ORIGINS",
-        "*",
-    )
+    cors_origins: list[str] = _parse_csv_env("CORS_ORIGINS", "*")
     cors_allow_credentials: bool = os.getenv("CORS_ALLOW_CREDENTIALS", "true").lower() == "true"
     # When credentials=True, CORS spec forbids "*" for methods/headers; use explicit lists.
     cors_allow_methods: list[str] = _parse_csv_env(
@@ -98,4 +95,14 @@ class Settings(BaseModel):
 
 @lru_cache
 def get_settings() -> Settings:
-    return Settings()
+    settings = Settings()
+
+    # Fail fast for insecure CORS in higher environments.
+    if settings.environment in {"production", "staging"} and settings.cors_allow_credentials:
+        if not settings.cors_origins or "*" in settings.cors_origins:
+            raise ValueError(
+                "Invalid CORS configuration: in production/staging with credentials enabled, "
+                "CORS_ORIGINS must be a non-empty explicit list and cannot include '*'."
+            )
+
+    return settings

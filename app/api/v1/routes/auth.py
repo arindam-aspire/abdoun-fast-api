@@ -1,8 +1,9 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from fastapi.security import HTTPAuthorizationCredentials
 
 from app.api.v1.deps.auth import get_auth_service
 from app.api.v1.deps.security import get_current_user, require_role, security
+from app.core.limiter import limiter
 from app.models.user import User
 from app.utils.constants import UserRoles
 from app.schemas.user import (
@@ -27,7 +28,9 @@ router = APIRouter()
 
 
 @router.post("/signup", response_model=StandardResponse[UserResponse])
+@limiter.limit("10/minute")
 def signup(
+    request: Request,
     user_in: UserCreate,
     service: AuthService = Depends(get_auth_service),
 ) -> StandardResponse[UserResponse]:
@@ -36,7 +39,9 @@ def signup(
 
 
 @router.post("/signup/admin", response_model=StandardResponse[UserResponse])
+@limiter.limit("5/minute")
 def signup_admin(
+    request: Request,
     user_in: UserCreate,
     current_user: User = require_role(UserRoles.ADMIN),
     service: AuthService = Depends(get_auth_service),
@@ -64,7 +69,9 @@ def resend_confirmation(
 
 
 @router.post("/login/password", response_model=StandardResponse[TokenResponse])
+@limiter.limit("5/minute")
 def login_password(
+    request: Request,
     login_in: LoginRequest,
     service: AuthService = Depends(get_auth_service),
 ) -> StandardResponse[TokenResponse]:
@@ -73,7 +80,9 @@ def login_password(
 
 
 @router.post("/login/otp/request", response_model=StandardResponse[dict])
+@limiter.limit("3/minute")
 def login_otp_request(
+    request: Request,
     otp_req: OTPRequest,
     service: AuthService = Depends(get_auth_service),
 ) -> StandardResponse[dict]:
@@ -82,7 +91,9 @@ def login_otp_request(
 
 
 @router.post("/login/otp/verify", response_model=StandardResponse[TokenResponse])
+@limiter.limit("5/minute")
 def login_otp_verify(
+    request: Request,
     otp_ver: OTPVerify,
     service: AuthService = Depends(get_auth_service),
 ) -> StandardResponse[TokenResponse]:
@@ -110,7 +121,9 @@ def logout(
 
 
 @router.post("/forgot-password/request", response_model=StandardResponse[bool])
+@limiter.limit("3/minute")
 def forgot_password_request(
+    request: Request,
     fp_req: ForgotPasswordRequest,
     service: AuthService = Depends(get_auth_service),
 ) -> StandardResponse[bool]:
@@ -119,7 +132,9 @@ def forgot_password_request(
 
 
 @router.post("/forgot-password/confirm", response_model=StandardResponse[bool])
+@limiter.limit("3/minute")
 def forgot_password_confirm(
+    request: Request,
     fp_conf: ForgotPasswordConfirm,
     service: AuthService = Depends(get_auth_service),
 ) -> StandardResponse[bool]:

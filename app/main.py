@@ -1,8 +1,13 @@
+from fastapi import Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
 
 from app.core.config import get_settings
+from app.core.limiter import limiter
+from app.middleware.security import SecurityHeadersMiddleware
 from app.api.v1.router import api_router
 from app.utils.constants import SystemMessages
 from app.utils.status_codes import STATUS_OK
@@ -17,6 +22,11 @@ def create_app() -> FastAPI:
         docs_url="/api/v1/docs" if settings.debug else None,
         redoc_url="/api/v1/redoc" if settings.debug else None,
     )
+
+    app.state.limiter = limiter
+    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+    app.add_middleware(SecurityHeadersMiddleware)
 
     app.add_middleware(
         CORSMiddleware,
