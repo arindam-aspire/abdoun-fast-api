@@ -27,16 +27,15 @@ try:
     from app.observability.slow_queries import install_slow_query_logging
 
     install_slow_query_logging(engine=engine, threshold_ms=settings.slow_query_threshold_ms)
-except Exception:
+except Exception:  # pragma: no cover - import-time; slow query logging must not break startup
     pass
 
-if settings.otel_enabled:
+if settings.otel_enabled:  # pragma: no cover - optional OTEL instrumentation at startup
     try:
         from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor
 
         SQLAlchemyInstrumentor().instrument(engine=engine)
     except Exception:
-        # Tracing should never break application startup.
         pass
 
 SessionLocal = sessionmaker(

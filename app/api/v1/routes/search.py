@@ -1,9 +1,10 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, UploadFile, File, Query
+from fastapi import APIRouter, Depends, UploadFile, File, Query, Request
 
 from app.api.v1.deps.security import get_current_user, require_permission
 from app.api.v1.deps.search import get_geo_search_service, get_property_import_service
+from app.core.limiter import limiter
 from app.models.user import User
 from app.schemas.property import PropertySearchRequest, PropertyListResponse
 from app.services.geo_search_service import GeoSearchService
@@ -16,7 +17,9 @@ router = APIRouter()
 
 
 @router.post("/geo-search")
+@limiter.limit("30/minute")
 def search_properties(
+    request: Request,
     payload: PropertySearchRequest,
     geo_search_service: Annotated[GeoSearchService, Depends(get_geo_search_service)],
 ) -> PropertyListResponse:
@@ -28,7 +31,9 @@ def search_properties(
     status_code=STATUS_CREATED,
     dependencies=[require_permission(UserPermissions.PROPERTY_CREATE)],
 )
+@limiter.limit("2/minute")
 async def import_csv(
+    request: Request,
     current_user: Annotated[User, Depends(get_current_user)],
     file: Annotated[UploadFile, File(...)],
     import_service: Annotated[PropertyImportService, Depends(get_property_import_service)],

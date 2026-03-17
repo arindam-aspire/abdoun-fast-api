@@ -15,6 +15,14 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers.setdefault("X-Frame-Options", "DENY")
         response.headers.setdefault("X-XSS-Protection", "1; mode=block")
         response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+        response.headers.setdefault(
+            "Permissions-Policy",
+            "geolocation=(), microphone=(), camera=()",
+        )
+
+        # Conservative baseline CSP for an API-only backend. If you serve docs/HTML
+        # in debug, this can be relaxed via reverse proxy if needed.
+        response.headers.setdefault("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none';")
 
         settings = get_settings()
         if not settings.debug and settings.environment not in {"local", "development"}:

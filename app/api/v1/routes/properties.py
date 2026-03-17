@@ -1,8 +1,9 @@
 from typing import Annotated, Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 
 from app.api.v1.deps.properties import get_property_search_service
+from app.core.limiter import limiter
 from app.schemas.property import (
     PropertyDetail,
     PropertySearchParams,
@@ -78,7 +79,9 @@ def get_exclusive_property_search_params(
 
 
 @router.get("", response_model=PropertySearchResponse)
+@limiter.limit("60/minute")
 def list_properties(
+    request: Request,
     params: Annotated[PropertySearchParams, Depends(get_property_search_params)],
     service: PropertySearchService = Depends(get_property_search_service),
 ) -> PropertySearchResponse:
@@ -92,7 +95,9 @@ def list_properties(
 
 
 @router.get("/exclusive", response_model=PropertySearchResponse)
+@limiter.limit("60/minute")
 def list_exclusive_properties(
+    request: Request,
     params: Annotated[PropertySearchParams, Depends(get_exclusive_property_search_params)],
     service: PropertySearchService = Depends(get_property_search_service),
 ) -> PropertySearchResponse:
@@ -106,7 +111,9 @@ def list_exclusive_properties(
 
 
 @router.get("/{property_id}/similar", response_model=PropertySearchResponse)
+@limiter.limit("30/minute")
 def get_similar_properties(
+    request: Request,
     property_id: str,  # FastAPI path params are always strings
     limit: int = Query(20, ge=1, le=50, description="Maximum number of similar properties to return"),
     lang: Optional[str] = Query(None, description=Defaults.LANG_QUERY_DESCRIPTION),
@@ -119,7 +126,9 @@ def get_similar_properties(
 
 
 @router.get("/{property_id}", response_model=PropertyDetail)
+@limiter.limit("60/minute")
 def get_property(
+    request: Request,
     property_id: str,  # FastAPI path params are always strings
     lang: Optional[str] = Query(None, description=Defaults.LANG_QUERY_DESCRIPTION),
     service: PropertySearchService = Depends(get_property_search_service),

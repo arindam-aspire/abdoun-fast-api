@@ -6,10 +6,11 @@ Admin-only: list users, get/update/delete user, assign/remove roles, list roles 
 import uuid
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 
 from app.api.v1.deps.security import get_current_user, require_permission
 from app.api.v1.deps.users import get_user_service
+from app.core.limiter import limiter
 from app.models.user import User
 from app.schemas.user import (
     RoleAssignmentRequest,
@@ -29,7 +30,9 @@ router = APIRouter()
     response_model=StandardResponse[List[UserResponse]],
     dependencies=[require_permission(UserPermissions.USER_CREATE)],
 )
+@limiter.limit("60/minute")
 def list_users(
+    request: Request,
     current_user: User = Depends(get_current_user),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
@@ -56,7 +59,9 @@ def list_users(
     response_model=StandardResponse[List[RoleResponse]],
     dependencies=[require_permission(UserPermissions.ROLE_ASSIGN)],
 )
+@limiter.limit("60/minute")
 def list_roles(
+    request: Request,
     current_user: User = Depends(get_current_user),
     service: UserService = Depends(get_user_service),
 ):
@@ -70,7 +75,9 @@ def list_roles(
     response_model=StandardResponse[List[dict]],
     dependencies=[require_permission(UserPermissions.ROLE_ASSIGN)],
 )
+@limiter.limit("60/minute")
 def list_permissions(
+    request: Request,
     current_user: User = Depends(get_current_user),
     service: UserService = Depends(get_user_service),
 ):
@@ -84,7 +91,9 @@ def list_permissions(
     response_model=StandardResponse[UserResponse],
     dependencies=[require_permission(UserPermissions.USER_CREATE)],
 )
+@limiter.limit("60/minute")
 def get_user(
+    request: Request,
     id: uuid.UUID,
     current_user: User = Depends(get_current_user),
     service: UserService = Depends(get_user_service),
@@ -99,7 +108,9 @@ def get_user(
     response_model=StandardResponse[UserResponse],
     dependencies=[require_permission(UserPermissions.USER_CREATE)],
 )
+@limiter.limit("30/minute")
 def update_user(
+    request: Request,
     id: uuid.UUID,
     body: UserUpdate,
     current_user: User = Depends(get_current_user),
@@ -115,7 +126,9 @@ def update_user(
     response_model=StandardResponse[bool],
     dependencies=[require_permission(UserPermissions.USER_DELETE)],
 )
+@limiter.limit("10/minute")
 def delete_user(
+    request: Request,
     id: uuid.UUID,
     current_user: User = Depends(get_current_user),
     service: UserService = Depends(get_user_service),
@@ -130,7 +143,9 @@ def delete_user(
     response_model=StandardResponse[bool],
     dependencies=[require_permission(UserPermissions.ROLE_ASSIGN)],
 )
+@limiter.limit("30/minute")
 def assign_role(
+    request: Request,
     id: uuid.UUID,
     body: RoleAssignmentRequest,
     current_user: User = Depends(get_current_user),
@@ -152,7 +167,9 @@ def assign_role(
     response_model=StandardResponse[bool],
     dependencies=[require_permission(UserPermissions.ROLE_ASSIGN)],
 )
+@limiter.limit("30/minute")
 def remove_role(
+    request: Request,
     id: uuid.UUID,
     role_id: uuid.UUID,
     current_user: User = Depends(get_current_user),

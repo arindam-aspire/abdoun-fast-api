@@ -46,8 +46,14 @@ def signup_admin(
     current_user: User = require_role(UserRoles.ADMIN),
     service: AuthService = Depends(get_auth_service),
 ) -> StandardResponse[UserResponse]:
-    """Register a new Admin user. Requires authenticated admin. Same payload as normal signup; assigns Admin role."""
-    return service.signup_admin(user_in)
+    """Deprecated: Admin signup is not available via public API."""
+    from fastapi import HTTPException
+    from app.utils.status_codes import HTTPStatus
+
+    raise HTTPException(
+        status_code=HTTPStatus.NOT_FOUND,
+        detail="Not Found",
+    )
 
 
 @router.post("/confirm-signup", response_model=StandardResponse[bool])

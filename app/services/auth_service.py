@@ -196,6 +196,20 @@ class AuthService:
             auth_result = cognito_service.login_password(
                 cognito_username, login_in.password
             )
+            # Sync verified flags during explicit auth flow (not in request dependencies).
+            access_token = auth_result.get("AccessToken")
+            if access_token:
+                payload = cognito_service.verify_token(access_token)
+                if payload:
+                    updated = False
+                    if payload.get("email_verified") is True and not user.is_email_verified:
+                        user.is_email_verified = True
+                        updated = True
+                    if payload.get("phone_number_verified") is True and not user.is_phone_verified:
+                        user.is_phone_verified = True
+                        updated = True
+                    if updated:
+                        self._repo.commit()
             requires_password_set = bool(
                 user.profile is not None and user.profile.password_set_at is None
             )
@@ -282,6 +296,20 @@ class AuthService:
             auth_result = cognito_service.login_otp_verify(
                 otp_ver.session, cognito_username, otp_ver.code
             )
+            # Sync verified flags during explicit auth flow (not in request dependencies).
+            access_token = auth_result.get("AccessToken")
+            if access_token:
+                payload = cognito_service.verify_token(access_token)
+                if payload:
+                    updated = False
+                    if payload.get("email_verified") is True and not user.is_email_verified:
+                        user.is_email_verified = True
+                        updated = True
+                    if payload.get("phone_number_verified") is True and not user.is_phone_verified:
+                        user.is_phone_verified = True
+                        updated = True
+                    if updated:
+                        self._repo.commit()
             requires_password_set = bool(
                 user.profile is not None and user.profile.password_set_at is None
             )
@@ -321,6 +349,18 @@ class AuthService:
                 cognito_sub = payload.get("sub")
                 if cognito_sub:
                     user = self._repo.get_user_by_cognito_sub_with_profile(cognito_sub)
+                    if user:
+                        # Keep user attributes in sync during explicit auth flows (not in dependencies).
+                        updated = False
+                        if payload.get("email_verified") is True and not user.is_email_verified:
+                            user.is_email_verified = True
+                            updated = True
+                        if payload.get("phone_number_verified") is True and not user.is_phone_verified:
+                            user.is_phone_verified = True
+                            updated = True
+                        if updated:
+                            self._repo.commit()
+
                     if (
                         user
                         and user.profile
@@ -526,6 +566,16 @@ class AuthService:
                 user.cognito_sub = cognito_sub
                 self._repo.commit()
                 self._repo.refresh(user)
+            # Sync verified flags during explicit social auth flow.
+            updated = False
+            if payload.get("email_verified") is True and not user.is_email_verified:
+                user.is_email_verified = True
+                updated = True
+            if payload.get("phone_number_verified") is True and not user.is_phone_verified:
+                user.is_phone_verified = True
+                updated = True
+            if updated:
+                self._repo.commit()
 
             return create_success_response(
                 data=TokenResponse(

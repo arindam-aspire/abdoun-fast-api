@@ -81,7 +81,7 @@ async def get_current_user(
     result = db.execute(stmt)
     user = result.scalar_one_or_none()
     
-    # Fallback: if user not found by cognito_sub, try to find by email and sync
+    # Fallback: if user not found by cognito_sub, try to find by email.
     if not user:
         email = payload.get("email")
         if not email:
@@ -94,11 +94,6 @@ async def get_current_user(
             stmt = select(User).where(User.email == email)
             result = db.execute(stmt)
             user = result.scalar_one_or_none()
-            if user:
-                # Sync cognito_sub for future lookups
-                user.cognito_sub = cognito_sub
-                db.commit()
-                db.refresh(user)
     
     if not user:
         api_logger.warning(format_log_message(LogMessages.Auth.USER_NOT_FOUND_SUB, sub=cognito_sub))
@@ -107,18 +102,10 @@ async def get_current_user(
             detail=ErrorMessages.USER_NOT_FOUND,
         )
     
-    # Sync email/phone verified from Cognito token (Cognito sets these after confirm or social login)
-    updated = False
-    if payload.get("email_verified") is True and not user.is_email_verified:
-        user.is_email_verified = True
-        updated = True
-    if payload.get("phone_number_verified") is True and not user.is_phone_verified:
-        user.is_phone_verified = True
-        updated = True
-    if updated:
-        db.commit()
-        db.refresh(user)
-    
+    # NOTE: This dependency must remain read-only. Any user-sync writes (e.g. cognito_sub,
+    # email_verified, phone_verified) should be performed in explicit service flows (login/signup)
+    # rather than during request authentication.
+
     # Ensure user is active
     if not user.is_active:
         api_logger.warning(format_log_message(LogMessages.Auth.INACTIVE_USER_ATTEMPT, email=user.email))

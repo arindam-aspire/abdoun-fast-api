@@ -25,13 +25,6 @@ class ErrorResponse(BaseModel):
     status_code: Optional[int] = None
 
 
-class SuccessResponse(BaseModel, Generic[T]):
-    """Standard success response format"""
-    success: bool = True
-    data: T
-    message: Optional[str] = None
-
-
 class PaginatedResponse(BaseModel, Generic[T]):
     """Standard paginated response format"""
     items: List[T]
@@ -64,9 +57,9 @@ def create_error_response(
 def create_success_response(
     data: Any,
     message: Optional[str] = None
-) -> SuccessResponse:
+) -> StandardResponse:
     """Helper function to create standardized success responses"""
-    return SuccessResponse(
+    return StandardResponse(
         success=True,
         data=data,
         message=message

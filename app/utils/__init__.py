@@ -16,7 +16,6 @@ from app.utils.status_codes import HTTPStatus, STATUS_OK, STATUS_CREATED, STATUS
 from app.utils.responses import (
     StandardResponse,
     ErrorResponse,
-    SuccessResponse,
     PaginatedResponse,
     ImportResponse,
     create_error_response,
@@ -59,7 +58,6 @@ __all__ = [
     # Responses
     "StandardResponse",
     "ErrorResponse",
-    "SuccessResponse",
     "PaginatedResponse",
     "ImportResponse",
     "create_error_response",

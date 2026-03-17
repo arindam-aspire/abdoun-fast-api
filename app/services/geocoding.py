@@ -10,6 +10,7 @@ from app.utils.logger import get_coord_logger
 from app.utils.constants import GeocodingConstants
 from app.utils.log_messages import LogMessages, format_log_message
 from app.utils.status_codes import HTTPStatus
+from app.utils.resilience import RetryConfig, is_retryable_http_error, retry
 
 
 class GeocodingService:
@@ -58,6 +59,9 @@ class GeocodingService:
             from app.core.config import get_settings
             
             settings = get_settings()
+            assert settings.azure_openai_endpoint is not None
+            assert settings.azure_openai_api_version is not None
+            assert settings.azure_openai_deployment_name is not None
             
             # Configure Azure OpenAI
             openai.api_type = "azure"
@@ -77,22 +81,26 @@ class GeocodingService:
             
             msg = format_log_message(LogMessages.AzureOpenAI.TRYING_GEOCODING, location=location)
             self.logger.info(self.emoji_safe(msg))
-            
-            response = openai.ChatCompletion.create(
-                engine=deployment_name,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": "You are a geocoding assistant. Return only valid JSON with latitude and longitude as decimal numbers, or null if not found."
-                    },
-                    {
-                        "role": "user",
-                        "content": prompt
-                    }
-                ],
-                temperature=0.3,
-                max_tokens=100
-            )
+
+            @retry(cfg=RetryConfig(max_attempts=3))
+            def _call_openai():
+                return openai.ChatCompletion.create(
+                    engine=deployment_name,
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": "You are a geocoding assistant. Return only valid JSON with latitude and longitude as decimal numbers, or null if not found."
+                        },
+                        {
+                            "role": "user",
+                            "content": prompt
+                        }
+                    ],
+                    temperature=0.3,
+                    max_tokens=100
+                )
+
+            response = _call_openai()
             
             content = response['choices'][0]['message']['content'].strip()
             
@@ -199,6 +207,9 @@ class GeocodingService:
         
         if not self._validate_coordinates(lon, lat, location):
             return None
+
+        assert lon is not None
+        assert lat is not None
         
         msg = format_log_message(LogMessages.Geocoding.SUCCESSFULLY_GEOCODED, location=location, lon=lon, lat=lat)
         self.logger.debug(self.emoji_safe(msg))
@@ -218,11 +229,11 @@ class GeocodingService:
         """Make geocoding API request. Returns response or None on error."""
         self._respect_rate_limit()
         
-        params = {
-            'q': location.strip(),
-            'format': 'json',
-            'limit': 1,
-            'addressdetails': 0
+        params: dict[str, str | int] = {
+            "q": location.strip(),
+            "format": "json",
+            "limit": 1,
+            "addressdetails": 0,
         }
         
         headers = {'User-Agent': self.USER_AGENT}
@@ -231,13 +242,20 @@ class GeocodingService:
         self.logger.debug(self.emoji_safe(msg))
         
         try:
-            return requests.get(
-                self.BASE_URL,
-                params=params,
-                headers=headers,
-                timeout=(GeocodingConstants.TIMEOUT_CONNECT, GeocodingConstants.TIMEOUT_READ),
-                verify=True
-            )
+            @retry(cfg=RetryConfig(max_attempts=4), is_retryable=is_retryable_http_error)
+            def _get() -> requests.Response:
+                resp = requests.get(
+                    self.BASE_URL,
+                    params=params,
+                    headers=headers,
+                    timeout=(GeocodingConstants.TIMEOUT_CONNECT, GeocodingConstants.TIMEOUT_READ),
+                    verify=True
+                )
+                if resp.status_code >= 400:
+                    resp.raise_for_status()
+                return resp
+
+            return _get()
         except requests.exceptions.Timeout:
             msg = format_log_message(LogMessages.Geocoding.TIMEOUT_GEOCODING, location=location)
             self.logger.warning(self.emoji_safe(msg))
@@ -245,6 +263,17 @@ class GeocodingService:
         except requests.exceptions.ConnectionError:
             msg = format_log_message(LogMessages.Geocoding.CONNECTION_ERROR, location=location)
             self.logger.warning(self.emoji_safe(msg))
+            return None
+        except requests.exceptions.HTTPError as e:
+            status = getattr(getattr(e, "response", None), "status_code", None)
+            if status == 403:
+                # Preserve existing behavior for Nominatim block behavior
+                msg = format_log_message(LogMessages.Geocoding.ACCESS_FORBIDDEN, location=location)
+                self.logger.error(self.emoji_safe(msg))
+                time.sleep(GeocodingConstants.EXTRA_DELAY_AFTER_403)
+                return None
+            msg = format_log_message(LogMessages.Geocoding.GEOCODING_API_ERROR, location=location, status_code=status)
+            self.logger.error(self.emoji_safe(msg))
             return None
         except requests.exceptions.RequestException as e:
             msg = format_log_message(LogMessages.Geocoding.REQUEST_ERROR, location=location, error=str(e))

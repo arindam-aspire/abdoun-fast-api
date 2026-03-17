@@ -67,7 +67,8 @@ class Settings(BaseModel):
 
     api_v1_prefix: str = SystemMessages.API_V1_PREFIX
 
-    cors_origins: list[str] = _parse_csv_env("CORS_ORIGINS", "*")
+    # Safer default: explicit local frontend origin(s) rather than "*".
+    cors_origins: list[str] = _parse_csv_env("CORS_ORIGINS", "http://localhost:3000")
     cors_allow_credentials: bool = os.getenv("CORS_ALLOW_CREDENTIALS", "true").lower() == "true"
     # When credentials=True, CORS spec forbids "*" for methods/headers; use explicit lists.
     cors_allow_methods: list[str] = _parse_csv_env(
@@ -147,6 +148,13 @@ def get_settings() -> Settings:
                 "Invalid CORS configuration: in production/staging with credentials enabled, "
                 "CORS_ORIGINS must be a non-empty explicit list and cannot include '*'."
             )
+
+    # Also protect local/dev from the unsafe "*" + credentials combination by default.
+    if settings.cors_allow_credentials and ("*" in settings.cors_origins):
+        raise ValueError(
+            "Invalid CORS configuration: when CORS_ALLOW_CREDENTIALS=true, "
+            "CORS_ORIGINS cannot include '*'."
+        )
 
     _apply_observability_defaults(settings)
 

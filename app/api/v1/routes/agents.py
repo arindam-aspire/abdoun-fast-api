@@ -8,11 +8,12 @@ import math
 import uuid
 from typing import List, Optional
 
-from fastapi import APIRouter, Body, Depends, Path, Query
+from fastapi import APIRouter, Body, Depends, Path, Query, Request
 from pydantic import ValidationError
 
 from app.api.v1.deps.agents import get_agent_service
 from app.api.v1.deps.security import require_role
+from app.core.limiter import limiter
 from app.models.user import User
 from app.schemas.user import (
     AdminAgentAssignmentRequest,
@@ -72,7 +73,9 @@ def _sanitize_validation_errors(errors: List[dict]) -> List[dict]:
 
 
 @router.post("/invite", response_model=StandardResponse[AgentInviteResponse])
+@limiter.limit("10/minute")
 def invite_agent(
+    request: Request,
     invite_in: AgentInviteRequest,
     current_user: User = require_role(UserRoles.ADMIN),
     service: AgentService = Depends(get_agent_service),
@@ -89,7 +92,9 @@ def invite_agent(
 
 
 @router.post("/manual-onboard", response_model=StandardResponse[AdminCreateAgentResponse])
+@limiter.limit("5/minute")
 def create_agent_direct(
+    request: Request,
     body: AdminCreateAgentRequest,
     current_user: User = require_role(UserRoles.ADMIN),
     service: AgentService = Depends(get_agent_service),
@@ -105,7 +110,9 @@ def create_agent_direct(
 
 
 @router.get("", response_model=StandardResponse[AgentListPaginatedResponse])
+@limiter.limit("60/minute")
 def list_agents(
+    request: Request,
     current_user: User = require_role(UserRoles.ADMIN),
     service: AgentService = Depends(get_agent_service),
     status: Optional[str] = Query(None, description="Filter by status"),
@@ -141,7 +148,9 @@ def list_agents(
 
 
 @router.get("/invites", response_model=StandardResponse[List[dict]])
+@limiter.limit("60/minute")
 def list_invites(
+    request: Request,
     current_user: User = require_role(UserRoles.ADMIN),
     service: AgentService = Depends(get_agent_service),
     used: Optional[bool] = Query(None, description="Filter by is_used: true/false"),
@@ -152,7 +161,9 @@ def list_invites(
 
 
 @router.get("/assignments", response_model=StandardResponse[List[AdminAgentAssignmentResponse]])
+@limiter.limit("60/minute")
 def get_assignments(
+    request: Request,
     current_user: User = require_role(UserRoles.ADMIN),
     service: AgentService = Depends(get_agent_service),
     agent_id: Optional[uuid.UUID] = Query(None, description="Filter by agent ID"),
@@ -173,7 +184,9 @@ def get_assignments(
 
 
 @router.get("/{agent_id}", response_model=StandardResponse[AgentDetailResponse])
+@limiter.limit("60/minute")
 def get_agent_details(
+    request: Request,
     agent_id: uuid.UUID = Path(..., description=AGENT_ID_DESC),
     current_user: User = require_role(UserRoles.ADMIN),
     service: AgentService = Depends(get_agent_service),
@@ -184,7 +197,9 @@ def get_agent_details(
 
 
 @router.patch("/{agent_id}/accept", response_model=StandardResponse[AgentAcceptResponse])
+@limiter.limit("20/minute")
 def accept_agent(
+    request: Request,
     agent_id: uuid.UUID = Path(..., description=AGENT_ID_DESC),
     current_user: User = require_role(UserRoles.ADMIN),
     service: AgentService = Depends(get_agent_service),
@@ -198,7 +213,9 @@ def accept_agent(
 
 
 @router.patch("/{agent_id}/decline", response_model=StandardResponse[AgentDeclineResponse])
+@limiter.limit("20/minute")
 def decline_agent(
+    request: Request,
     agent_id: uuid.UUID = Path(..., description=AGENT_ID_DESC),
     payload: Optional[dict] = Body(None),
     current_user: User = require_role(UserRoles.ADMIN),
@@ -217,7 +234,9 @@ def decline_agent(
     "/{agent_id}/status",
     response_model=StandardResponse[AgentStatusUpdateResponse],
 )
+@limiter.limit("30/minute")
 def update_agent_status(
+    request: Request,
     agent_id: uuid.UUID = Path(..., description=AGENT_ID_DESC),
     payload: AgentStatusUpdateRequest = Body(...),
     current_user: User = require_role(UserRoles.ADMIN),
@@ -234,7 +253,9 @@ def update_agent_status(
 
 
 @router.delete("/{agent_id}", response_model=StandardResponse[AgentDeleteResponse])
+@limiter.limit("10/minute")
 def delete_agent(
+    request: Request,
     agent_id: uuid.UUID = Path(..., description=AGENT_ID_DESC),
     current_user: User = require_role(UserRoles.ADMIN),
     service: AgentService = Depends(get_agent_service),
@@ -248,7 +269,9 @@ def delete_agent(
 
 
 @router.post("/{agent_id}/resend-invite", response_model=StandardResponse[AgentInviteResponse])
+@limiter.limit("10/minute")
 def resend_invite(
+    request: Request,
     agent_id: uuid.UUID = Path(..., description=AGENT_ID_DESC),
     current_user: User = require_role(UserRoles.ADMIN),
     service: AgentService = Depends(get_agent_service),
@@ -262,7 +285,9 @@ def resend_invite(
 
 
 @router.patch("/{agent_id}/revoke-invite", response_model=StandardResponse[dict])
+@limiter.limit("10/minute")
 def revoke_invite(
+    request: Request,
     agent_id: uuid.UUID = Path(..., description=AGENT_ID_DESC),
     current_user: User = require_role(UserRoles.ADMIN),
     service: AgentService = Depends(get_agent_service),
@@ -281,7 +306,9 @@ def revoke_invite(
 
 
 @router.get("/invite/validate", response_model=StandardResponse[AgentValidateInviteResponse], include_in_schema=False)
+@limiter.limit("60/minute")
 def validate_invite_token_query(
+    request: Request,
     token: str = Query(..., description="Invite token"),
     service: AgentService = Depends(get_agent_service),
 ) -> StandardResponse[AgentValidateInviteResponse]:
@@ -298,7 +325,9 @@ def validate_invite_token_query(
 
 
 @router.post("/onboarding", response_model=StandardResponse[AgentOnboardingFormResponse], include_in_schema=False)
+@limiter.limit("20/minute")
 def submit_onboarding_compat(
+    request: Request,
     payload: dict = Body(...),
     token: Optional[str] = Query(None, description="Invite token"),
     service: AgentService = Depends(get_agent_service),
@@ -343,7 +372,9 @@ def submit_onboarding_compat(
 
 
 @router.post("/assign-agent", response_model=StandardResponse[bool])
+@limiter.limit("30/minute")
 def assign_agent(
+    request: Request,
     assign_in: AdminAgentAssignmentRequest,
     current_user: User = require_role(UserRoles.ADMIN),
     service: AgentService = Depends(get_agent_service),
@@ -356,7 +387,9 @@ def assign_agent(
 
 
 @router.post("/unassign-agent", response_model=StandardResponse[bool])
+@limiter.limit("30/minute")
 def unassign_agent(
+    request: Request,
     unassign_in: AdminAgentAssignmentRequest,
     current_user: User = require_role(UserRoles.ADMIN),
     service: AgentService = Depends(get_agent_service),

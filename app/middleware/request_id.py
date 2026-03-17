@@ -30,7 +30,7 @@ class RequestIdMiddleware(BaseHTTPMiddleware):
                 span = get_current_span()
                 if span is not None:
                     span.set_attribute("request.id", request_id)
-        except Exception:
+        except Exception:  # pragma: no cover - OTEL must not break request handling
             pass
         try:
             response = await call_next(request)

@@ -14,7 +14,7 @@ from app.utils.request_context import get_request_id
 _ORIGINAL_RECORD_FACTORY = logging.getLogRecordFactory()
 
 
-def _record_factory(*args, **kwargs):  # type: ignore[no-untyped-def]
+def _record_factory(*args: object, **kwargs: object) -> logging.LogRecord:
     record = _ORIGINAL_RECORD_FACTORY(*args, **kwargs)
     rid = get_request_id()
     record.request_id = rid if rid else "-"

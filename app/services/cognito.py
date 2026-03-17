@@ -6,12 +6,14 @@ import boto3
 import requests
 from jose import jwt
 from botocore.exceptions import ClientError, NoCredentialsError, BotoCoreError
+from botocore.config import Config
 from typing import Optional, Dict, Any, List
 
 from app.core.config import get_settings
 from app.utils.logger import api_logger
 from app.utils.log_messages import LogMessages, format_log_message
 from app.utils.constants import ErrorMessages
+from app.utils.resilience import retry, is_retryable_http_error, RetryConfig
 
 settings = get_settings()
 
@@ -24,7 +26,14 @@ class CognitoService:
                 "aws_access_key_id": settings.aws_access_key_id,
                 "aws_secret_access_key": settings.aws_secret_access_key
             })
-        
+
+        # Boto3 client-level resilience: standard retries + timeouts
+        client_kwargs["config"] = Config(
+            retries={"max_attempts": 5, "mode": "standard"},
+            connect_timeout=5,
+            read_timeout=15,
+        )
+
         self.client = boto3.client("cognito-idp", **client_kwargs)
         self.user_pool_id = settings.cognito_user_pool_id
         self.client_id = settings.cognito_client_id
@@ -442,10 +451,14 @@ class CognitoService:
             "code": code,
             "redirect_uri": settings.social_redirect_uri,
         }
-        try:
+        @retry(cfg=RetryConfig(max_attempts=4), is_retryable=is_retryable_http_error)
+        def _post() -> Dict[str, Any]:
             response = requests.post(token_url, data=data, timeout=10)
             response.raise_for_status()
             return response.json()
+
+        try:
+            return _post()
         except Exception as e:
             api_logger.error(format_log_message(LogMessages.Auth.SOCIAL_AUTH_FAILED_LOG, email=LogMessages.Auth.UNKNOWN_EMAIL, error=str(e)))
             raise e
@@ -457,10 +470,14 @@ class CognitoService:
             return self._jwks_cache
 
         jwks_url = f"https://cognito-idp.{settings.cognito_region}.amazonaws.com/{self.user_pool_id}/.well-known/jwks.json"
-        try:
+        @retry(cfg=RetryConfig(max_attempts=4), is_retryable=is_retryable_http_error)
+        def _get() -> List[Dict[str, Any]]:
             response = requests.get(jwks_url, timeout=5)
             response.raise_for_status()
-            self._jwks_cache = response.json()["keys"]
+            return response.json()["keys"]
+
+        try:
+            self._jwks_cache = _get()
             self._jwks_last_fetch = time.time()
             return self._jwks_cache
         except Exception as e:
