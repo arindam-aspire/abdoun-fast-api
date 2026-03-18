@@ -11,8 +11,8 @@ from sqlalchemy import select, and_
 
 from app.db.session import get_db
 from app.core.auth import get_current_user
-from app.models.user import User, Role, AdminAgentAssignment
-from app.utils.constants import Defaults, ErrorMessages, UserRoles
+from app.models.user import User, AdminAgentAssignment
+from app.utils.constants import Defaults, ErrorMessages
 from app.utils.log_messages import LogMessages, format_log_message
 from app.utils.status_codes import HTTPStatus
 from app.utils.logger import api_logger

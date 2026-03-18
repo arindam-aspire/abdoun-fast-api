@@ -23,30 +23,16 @@ router = APIRouter()
 def get_property_search_params(
     status: Optional[str] = Query(None, description=ApiDocs.LISTING_TYPE_BUY_RENT),
     category: Optional[str] = Query(None, description=ApiDocs.PROPERTY_CATEGORY),
-    type_slug: Optional[str] = Query(
-        None, alias="type", description=ApiDocs.PROPERTY_TYPE_SLUG
-    ),
+    type_slug: Optional[str] = Query(None, alias="type", description=ApiDocs.PROPERTY_TYPE_SLUG),
     city: Optional[str] = Query(None, description=ApiDocs.CITY_NAME_LOWERCASE),
-    locations: Optional[str] = Query(
-        None, description=ApiDocs.LOCATIONS_CSV_LOWERCASE
-    ),
-    budget_min: Optional[str] = Query(
-        None, alias="budgetMin", description=ApiDocs.BUDGET_MIN_JD_NUMERIC_STRING
-    ),
-    budget_max: Optional[str] = Query(
-        None, alias="budgetMax", description=ApiDocs.BUDGET_MAX_JD_NUMERIC_STRING
-    ),
-    min_price: Optional[str] = Query(
-        None, alias="minPrice", description=ApiDocs.MIN_PRICE_ALIAS
-    ),
-    max_price: Optional[str] = Query(
-        None, alias="maxPrice", description=ApiDocs.MAX_PRICE_ALIAS
-    ),
+    locations: Optional[str] = Query(None, description=ApiDocs.LOCATIONS_CSV_LOWERCASE),
+    budget_min: Optional[str] = Query(None, alias="budgetMin", description=ApiDocs.BUDGET_MIN_JD_NUMERIC_STRING),
+    budget_max: Optional[str] = Query(None, alias="budgetMax", description=ApiDocs.BUDGET_MAX_JD_NUMERIC_STRING),
+    min_price: Optional[str] = Query(None, alias="minPrice", description=ApiDocs.MIN_PRICE_ALIAS),
+    max_price: Optional[str] = Query(None, alias="maxPrice", description=ApiDocs.MAX_PRICE_ALIAS),
     exclusive: Optional[str] = Query(None, description=ApiDocs.EXCLUSIVE_FILTER),
     page: int = Query(1, ge=1, description=ApiDocs.PAGE_NUMBER_1_BASED),
-    page_size: int = Query(
-        12, alias="pageSize", ge=1, le=100, description=ApiDocs.ITEMS_PER_PAGE
-    ),
+    page_size: int = Query(12, alias="pageSize", ge=1, le=100, description=ApiDocs.ITEMS_PER_PAGE),
     lang: Optional[str] = Query(None, description=Defaults.LANG_QUERY_DESCRIPTION),
 ) -> PropertySearchParams:
     """Build property search params from query arguments.
@@ -74,29 +60,15 @@ def get_property_search_params(
 def get_exclusive_property_search_params(
     status: Optional[str] = Query(None, description=ApiDocs.LISTING_TYPE_BUY_RENT),
     category: Optional[str] = Query(None, description=ApiDocs.PROPERTY_CATEGORY),
-    type_slug: Optional[str] = Query(
-        None, alias="type", description=ApiDocs.PROPERTY_TYPE_SLUG
-    ),
+    type_slug: Optional[str] = Query(None, alias="type", description=ApiDocs.PROPERTY_TYPE_SLUG),
     city: Optional[str] = Query(None, description=ApiDocs.CITY_NAME_LOWERCASE),
-    locations: Optional[str] = Query(
-        None, description=ApiDocs.LOCATIONS_CSV_LOWERCASE
-    ),
-    budget_min: Optional[str] = Query(
-        None, alias="budgetMin", description=ApiDocs.BUDGET_MIN_JD_NUMERIC_STRING
-    ),
-    budget_max: Optional[str] = Query(
-        None, alias="budgetMax", description=ApiDocs.BUDGET_MAX_JD_NUMERIC_STRING
-    ),
-    min_price: Optional[str] = Query(
-        None, alias="minPrice", description=ApiDocs.MIN_PRICE_ALIAS
-    ),
-    max_price: Optional[str] = Query(
-        None, alias="maxPrice", description=ApiDocs.MAX_PRICE_ALIAS
-    ),
+    locations: Optional[str] = Query(None, description=ApiDocs.LOCATIONS_CSV_LOWERCASE),
+    budget_min: Optional[str] = Query(None, alias="budgetMin", description=ApiDocs.BUDGET_MIN_JD_NUMERIC_STRING),
+    budget_max: Optional[str] = Query(None, alias="budgetMax", description=ApiDocs.BUDGET_MAX_JD_NUMERIC_STRING),
+    min_price: Optional[str] = Query(None, alias="minPrice", description=ApiDocs.MIN_PRICE_ALIAS),
+    max_price: Optional[str] = Query(None, alias="maxPrice", description=ApiDocs.MAX_PRICE_ALIAS),
     page: int = Query(1, ge=1, description=ApiDocs.PAGE_NUMBER_1_BASED),
-    page_size: int = Query(
-        12, alias="pageSize", ge=1, le=100, description=ApiDocs.ITEMS_PER_PAGE
-    ),
+    page_size: int = Query(12, alias="pageSize", ge=1, le=100, description=ApiDocs.ITEMS_PER_PAGE),
     lang: Optional[str] = Query(None, description=Defaults.LANG_QUERY_DESCRIPTION),
 ) -> PropertySearchParams:
     """Build property search params for exclusive listings only (exclusive=true).

@@ -5,8 +5,8 @@ from typing import List, Optional
 from fastapi import HTTPException
 
 from app.repositories.user_repository import UserRepository
-from app.schemas.user import RoleAssignmentRequest, RoleResponse, UserResponse, UserUpdate
-from app.utils.constants import ErrorMessages, SuccessMessages
+from app.schemas.user import RoleAssignmentRequest, UserUpdate
+from app.utils.constants import ErrorMessages
 from app.utils.log_messages import LogMessages, format_log_message
 from app.utils.logger import api_logger
 from app.utils.status_codes import HTTPStatus

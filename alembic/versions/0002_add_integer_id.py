@@ -26,8 +26,7 @@ def upgrade() -> None:
     # Step 3: Add new integer id column (temporarily nullable)
     op.add_column("properties", sa.Column("id_new", sa.Integer(), nullable=True))
     
-    # Step 4: Populate id_new with sequence numbers for existing rows
-    # Use a cursor-like approach with a function, or simpler: update each row with nextval
+    # Step 4: Populate id_new with sequential numbers for existing rows
     # For simplicity, we'll use a loop in a DO block
     op.execute("""
         DO $$

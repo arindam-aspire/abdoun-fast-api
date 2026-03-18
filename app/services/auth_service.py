@@ -1,8 +1,6 @@
 """Auth service: signup, login (password/OTP), refresh, logout, profile, permissions; uses AuthRepository and Cognito."""
 from __future__ import annotations
 
-from typing import Optional
-
 from fastapi import HTTPException
 from fastapi.security import HTTPAuthorizationCredentials
 from botocore.exceptions import ClientError

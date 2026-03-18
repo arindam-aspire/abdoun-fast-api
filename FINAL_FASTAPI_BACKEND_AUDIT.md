@@ -290,11 +290,9 @@ Benefits:
 
 ## CI/CD
 
-No CI pipeline detected.
+CI/CD is expected to be handled by your chosen platform (e.g., Azure DevOps).
 
-Recommended:
-
-GitHub Actions pipeline including:
+Recommended pipeline stages:
 
 Linting
 Type checking

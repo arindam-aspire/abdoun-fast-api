@@ -6,7 +6,7 @@ All behaviour delegated to AgentService; no DB or business logic in this module.
 import json
 import math
 import uuid
-from typing import List, Optional
+from typing import Annotated, List, Optional
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Path, Query
 from pydantic import ValidationError
@@ -45,6 +45,17 @@ from app.utils.logger import api_logger
 router = APIRouter()
 
 
+def _sanitize_ctx_value(value: object) -> object:
+    """Return a JSON-serializable version of a Pydantic error ctx value."""
+    if isinstance(value, BaseException):
+        return str(value)
+    try:
+        json.dumps(value)
+        return value
+    except TypeError:
+        return str(value)
+
+
 def _sanitize_validation_errors(errors: List[dict]) -> List[dict]:
     """Make validation error context JSON-serializable.
 
@@ -59,17 +70,7 @@ def _sanitize_validation_errors(errors: List[dict]) -> List[dict]:
         clean = dict(err)
         ctx = clean.get("ctx")
         if ctx:
-            clean_ctx = {}
-            for key, value in ctx.items():
-                if isinstance(value, BaseException):
-                    clean_ctx[key] = str(value)
-                else:
-                    try:
-                        json.dumps(value)
-                        clean_ctx[key] = value
-                    except TypeError:
-                        clean_ctx[key] = str(value)
-            clean["ctx"] = clean_ctx
+            clean["ctx"] = {key: _sanitize_ctx_value(value) for key, value in ctx.items()}
         sanitized.append(clean)
     return sanitized
 
@@ -79,11 +80,11 @@ def _sanitize_validation_errors(errors: List[dict]) -> List[dict]:
 # ============================================================================
 
 
-@router.post("/invite", response_model=StandardResponse[AgentInviteResponse])
+@router.post("/invite")
 def invite_agent(
     invite_in: AgentInviteRequest,
-    current_user: User = require_role(UserRoles.ADMIN),
-    service: AgentService = Depends(get_agent_service),
+    current_user: Annotated[User, require_role(UserRoles.ADMIN)],
+    service: Annotated[AgentService, Depends(get_agent_service)],
 ) -> StandardResponse[AgentInviteResponse]:
     """
     Admin: Invite an agent.
@@ -96,11 +97,11 @@ def invite_agent(
     )
 
 
-@router.post("/manual-onboard", response_model=StandardResponse[AdminCreateAgentResponse])
+@router.post("/manual-onboard")
 def create_agent_direct(
     body: AdminCreateAgentRequest,
-    current_user: User = require_role(UserRoles.ADMIN),
-    service: AgentService = Depends(get_agent_service),
+    current_user: Annotated[User, require_role(UserRoles.ADMIN)],
+    service: Annotated[AgentService, Depends(get_agent_service)],
 ) -> StandardResponse[AdminCreateAgentResponse]:
     """
     Admin: directly create an agent (no invite flow) with a temporary password.
@@ -112,16 +113,16 @@ def create_agent_direct(
     )
 
 
-@router.get("", response_model=StandardResponse[AgentListPaginatedResponse])
+@router.get("")
 def list_agents(
-    current_user: User = require_role(UserRoles.ADMIN),
-    service: AgentService = Depends(get_agent_service),
-    status: Optional[str] = Query(None, description=ApiDocs.FILTER_BY_STATUS),
-    search: Optional[str] = Query(None, description=ApiDocs.SEARCH_BY_NAME_OR_EMAIL),
-    page: int = Query(1, ge=1, description=ApiDocs.PAGE_NUMBER),
-    limit: int = Query(20, ge=1, le=100, description=ApiDocs.ITEMS_PER_PAGE),
-    sortBy: str = Query("invitedAt", description=ApiDocs.SORT_FIELD),
-    sortOrder: str = Query("desc", description=ApiDocs.SORT_ORDER),
+    current_user: Annotated[User, require_role(UserRoles.ADMIN)],
+    service: Annotated[AgentService, Depends(get_agent_service)],
+    status: Annotated[Optional[str], Query(description=ApiDocs.FILTER_BY_STATUS)] = None,
+    search: Annotated[Optional[str], Query(description=ApiDocs.SEARCH_BY_NAME_OR_EMAIL)] = None,
+    page: Annotated[int, Query(ge=1, description=ApiDocs.PAGE_NUMBER)] = 1,
+    limit: Annotated[int, Query(ge=1, le=100, description=ApiDocs.ITEMS_PER_PAGE)] = 20,
+    sort_by: Annotated[str, Query(alias="sortBy", description=ApiDocs.SORT_FIELD)] = "invitedAt",
+    sort_order: Annotated[str, Query(alias="sortOrder", description=ApiDocs.SORT_ORDER)] = "desc",
 ) -> StandardResponse[AgentListPaginatedResponse]:
     """Admin: List agents with pagination and filtering."""
     agents_data, total_items = service.list_agents(
@@ -129,8 +130,8 @@ def list_agents(
         search=search,
         page=page,
         limit=limit,
-        sort_by=sortBy,
-        sort_order=sortOrder,
+        sort_by=sort_by,
+        sort_order=sort_order,
     )
     agents = [AgentListResponse(**item) for item in agents_data]
     total_pages = math.ceil(total_items / limit) if total_items > 0 else 0
@@ -148,26 +149,26 @@ def list_agents(
     )
 
 
-@router.get("/invites", response_model=StandardResponse[List[dict]])
+@router.get("/invites")
 def list_invites(
-    current_user: User = require_role(UserRoles.ADMIN),
-    service: AgentService = Depends(get_agent_service),
-    used: Optional[bool] = Query(None, description=ApiDocs.FILTER_BY_IS_USED),
+    current_user: Annotated[User, require_role(UserRoles.ADMIN)],
+    service: Annotated[AgentService, Depends(get_agent_service)],
+    used: Annotated[Optional[bool], Query(description=ApiDocs.FILTER_BY_IS_USED)] = None,
 ) -> StandardResponse[List[dict]]:
     """Admin: List invites created by current admin."""
     data = service.list_invites(current_user, used=used)
     return create_success_response(data=data, message=None)
 
 
-@router.get("/assignments", response_model=StandardResponse[List[AdminAgentAssignmentResponse]])
+@router.get("/assignments")
 def get_assignments(
-    current_user: User = require_role(UserRoles.ADMIN),
-    service: AgentService = Depends(get_agent_service),
-    agent_id: Optional[uuid.UUID] = Query(None, description=ApiDocs.FILTER_BY_AGENT_ID),
-    admin_id: Optional[uuid.UUID] = Query(
-        None,
-        description=ApiDocs.FILTER_BY_ADMIN_ID_DEFAULTS_CURRENT_USER,
-    ),
+    current_user: Annotated[User, require_role(UserRoles.ADMIN)],
+    service: Annotated[AgentService, Depends(get_agent_service)],
+    agent_id: Annotated[Optional[uuid.UUID], Query(description=ApiDocs.FILTER_BY_AGENT_ID)] = None,
+    admin_id: Annotated[
+        Optional[uuid.UUID],
+        Query(description=ApiDocs.FILTER_BY_ADMIN_ID_DEFAULTS_CURRENT_USER),
+    ] = None,
 ) -> StandardResponse[List[AdminAgentAssignmentResponse]]:
     """
     Get admin-agent assignments with detailed information.
@@ -183,22 +184,22 @@ def get_assignments(
     )
 
 
-@router.get("/{agent_id}", response_model=StandardResponse[AgentDetailResponse])
+@router.get("/{agent_id}")
 def get_agent_details(
-    agent_id: uuid.UUID = Path(..., description=ApiDocs.AGENT_ID_DESC),
-    current_user: User = require_role(UserRoles.ADMIN),
-    service: AgentService = Depends(get_agent_service),
+    agent_id: Annotated[uuid.UUID, Path(description=ApiDocs.AGENT_ID_DESC)],
+    current_user: Annotated[User, require_role(UserRoles.ADMIN)],
+    service: Annotated[AgentService, Depends(get_agent_service)],
 ) -> StandardResponse[AgentDetailResponse]:
     """Admin: Get agent details by ID."""
     data = service.get_agent_details(agent_id)
     return create_success_response(data=AgentDetailResponse(**data), message=None)
 
 
-@router.patch("/{agent_id}/accept", response_model=StandardResponse[AgentAcceptResponse])
+@router.patch("/{agent_id}/accept")
 def accept_agent(
-    agent_id: uuid.UUID = Path(..., description=ApiDocs.AGENT_ID_DESC),
-    current_user: User = require_role(UserRoles.ADMIN),
-    service: AgentService = Depends(get_agent_service),
+    agent_id: Annotated[uuid.UUID, Path(description=ApiDocs.AGENT_ID_DESC)],
+    current_user: Annotated[User, require_role(UserRoles.ADMIN)],
+    service: Annotated[AgentService, Depends(get_agent_service)],
 ) -> StandardResponse[AgentAcceptResponse]:
     """Admin: Accept an agent (change status from PENDING_REVIEW to ACTIVE)."""
     data = service.accept_agent(agent_id, current_user)
@@ -208,12 +209,12 @@ def accept_agent(
     )
 
 
-@router.patch("/{agent_id}/decline", response_model=StandardResponse[AgentDeclineResponse])
+@router.patch("/{agent_id}/decline")
 def decline_agent(
-    agent_id: uuid.UUID = Path(..., description=ApiDocs.AGENT_ID_DESC),
-    payload: Optional[dict] = Body(None),
-    current_user: User = require_role(UserRoles.ADMIN),
-    service: AgentService = Depends(get_agent_service),
+    agent_id: Annotated[uuid.UUID, Path(description=ApiDocs.AGENT_ID_DESC)],
+    current_user: Annotated[User, require_role(UserRoles.ADMIN)],
+    service: Annotated[AgentService, Depends(get_agent_service)],
+    payload: Annotated[Optional[dict], Body()] = None,
 ) -> StandardResponse[AgentDeclineResponse]:
     """Admin: Decline an agent (change status from PENDING_REVIEW to DECLINED)."""
     reason = (payload or {}).get("reason") or Defaults.AGENT_DECLINE_REASON_ADMIN
@@ -224,15 +225,12 @@ def decline_agent(
     )
 
 
-@router.patch(
-    "/{agent_id}/status",
-    response_model=StandardResponse[AgentStatusUpdateResponse],
-)
+@router.patch("/{agent_id}/status")
 def update_agent_status(
-    agent_id: uuid.UUID = Path(..., description=ApiDocs.AGENT_ID_DESC),
-    payload: AgentStatusUpdateRequest = Body(...),
-    current_user: User = require_role(UserRoles.ADMIN),
-    service: AgentService = Depends(get_agent_service),
+    agent_id: Annotated[uuid.UUID, Path(description=ApiDocs.AGENT_ID_DESC)],
+    payload: Annotated[AgentStatusUpdateRequest, Body()],
+    current_user: Annotated[User, require_role(UserRoles.ADMIN)],
+    service: Annotated[AgentService, Depends(get_agent_service)],
 ) -> StandardResponse[AgentStatusUpdateResponse]:
     """
     Admin: Update an agent's status (ACTIVE or INACTIVE) with optional reason.
@@ -244,11 +242,11 @@ def update_agent_status(
     )
 
 
-@router.delete("/{agent_id}", response_model=StandardResponse[AgentDeleteResponse])
+@router.delete("/{agent_id}")
 def delete_agent(
-    agent_id: uuid.UUID = Path(..., description=ApiDocs.AGENT_ID_DESC),
-    current_user: User = require_role(UserRoles.ADMIN),
-    service: AgentService = Depends(get_agent_service),
+    agent_id: Annotated[uuid.UUID, Path(description=ApiDocs.AGENT_ID_DESC)],
+    current_user: Annotated[User, require_role(UserRoles.ADMIN)],
+    service: Annotated[AgentService, Depends(get_agent_service)],
 ) -> StandardResponse[AgentDeleteResponse]:
     """Admin: Soft delete an agent."""
     data = service.delete_agent(agent_id, current_user)
@@ -258,11 +256,11 @@ def delete_agent(
     )
 
 
-@router.post("/{agent_id}/resend-invite", response_model=StandardResponse[AgentInviteResponse])
+@router.post("/{agent_id}/resend-invite")
 def resend_invite(
-    agent_id: uuid.UUID = Path(..., description=ApiDocs.AGENT_ID_DESC),
-    current_user: User = require_role(UserRoles.ADMIN),
-    service: AgentService = Depends(get_agent_service),
+    agent_id: Annotated[uuid.UUID, Path(description=ApiDocs.AGENT_ID_DESC)],
+    current_user: Annotated[User, require_role(UserRoles.ADMIN)],
+    service: Annotated[AgentService, Depends(get_agent_service)],
 ) -> StandardResponse[AgentInviteResponse]:
     """Admin: Resend invitation email to an agent."""
     data = service.resend_invite(agent_id, current_user)
@@ -272,11 +270,11 @@ def resend_invite(
     )
 
 
-@router.patch("/{agent_id}/revoke-invite", response_model=StandardResponse[dict])
+@router.patch("/{agent_id}/revoke-invite")
 def revoke_invite(
-    agent_id: uuid.UUID = Path(..., description=ApiDocs.AGENT_ID_DESC),
-    current_user: User = require_role(UserRoles.ADMIN),
-    service: AgentService = Depends(get_agent_service),
+    agent_id: Annotated[uuid.UUID, Path(description=ApiDocs.AGENT_ID_DESC)],
+    current_user: Annotated[User, require_role(UserRoles.ADMIN)],
+    service: Annotated[AgentService, Depends(get_agent_service)],
 ) -> StandardResponse[dict]:
     """Admin: Revoke an invitation that was sent by mistake."""
     data = service.revoke_invite(agent_id, current_user)
@@ -291,10 +289,10 @@ def revoke_invite(
 # ============================================================================
 
 
-@router.get("/invite/validate", response_model=StandardResponse[AgentValidateInviteResponse], include_in_schema=False)
+@router.get("/invite/validate", include_in_schema=False)
 def validate_invite_token_query(
-    token: str = Query(..., description=ApiDocs.INVITE_TOKEN),
-    service: AgentService = Depends(get_agent_service),
+    token: Annotated[str, Query(description=ApiDocs.INVITE_TOKEN)],
+    service: Annotated[AgentService, Depends(get_agent_service)],
 ) -> StandardResponse[AgentValidateInviteResponse]:
     """Compatibility endpoint for query-param token validation."""
     email, status, already_submitted, message = service.validate_invite_token(token)
@@ -308,11 +306,11 @@ def validate_invite_token_query(
     )
 
 
-@router.post("/onboarding", response_model=StandardResponse[AgentOnboardingFormResponse], include_in_schema=False)
+@router.post("/onboarding", include_in_schema=False)
 def submit_onboarding_compat(
-    payload: dict = Body(...),
-    token: Optional[str] = Query(None, description=ApiDocs.INVITE_TOKEN),
-    service: AgentService = Depends(get_agent_service),
+    payload: Annotated[dict, Body()],
+    service: Annotated[AgentService, Depends(get_agent_service)],
+    token: Annotated[Optional[str], Query(description=ApiDocs.INVITE_TOKEN)] = None,
 ) -> StandardResponse[AgentOnboardingFormResponse]:
     """Compatibility endpoint for clients posting onboarding payload to /onboarding."""
     resolved_token = token or payload.get("token")
@@ -359,11 +357,11 @@ def submit_onboarding_compat(
 # ============================================================================
 
 
-@router.post("/assign-agent", response_model=StandardResponse[bool])
+@router.post("/assign-agent")
 def assign_agent(
     assign_in: AdminAgentAssignmentRequest,
-    current_user: User = require_role(UserRoles.ADMIN),
-    service: AgentService = Depends(get_agent_service),
+    current_user: Annotated[User, require_role(UserRoles.ADMIN)],
+    service: Annotated[AgentService, Depends(get_agent_service)],
 ) -> StandardResponse[bool]:
     """
     Assign an agent to the current authenticated admin for permission inheritance.
@@ -372,11 +370,11 @@ def assign_agent(
     return create_success_response(data=True, message=SuccessMessages.AGENT_ASSIGNED)
 
 
-@router.post("/unassign-agent", response_model=StandardResponse[bool])
+@router.post("/unassign-agent")
 def unassign_agent(
     unassign_in: AdminAgentAssignmentRequest,
-    current_user: User = require_role(UserRoles.ADMIN),
-    service: AgentService = Depends(get_agent_service),
+    current_user: Annotated[User, require_role(UserRoles.ADMIN)],
+    service: Annotated[AgentService, Depends(get_agent_service)],
 ) -> StandardResponse[bool]:
     """Revoke an agent's inherited admin privileges."""
     service.unassign_agent(unassign_in, current_user)

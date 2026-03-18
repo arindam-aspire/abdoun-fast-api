@@ -229,17 +229,6 @@ class RateLimits:
     FORGOT_PASSWORD_REQUEST = LOGIN_OTP_REQUEST
     FORGOT_PASSWORD_CONFIRM = LOGIN_OTP_REQUEST
 
-    # Generic API tiers (reuse across routes to avoid per-endpoint constant sprawl)
-    ADMIN_READ = "60/minute"
-    ADMIN_WRITE = "30/minute"
-    ADMIN_ACTION = "20/minute"
-    PUBLIC_READ_HIGH = "120/minute"
-    PUBLIC_READ = "60/minute"
-    PUBLIC_ACTION = "30/minute"
-    PUBLIC_GEO_SEARCH = PUBLIC_ACTION
-    ADMIN_IMPORT = "2/minute"
-    ADMIN_DELETE = "10/minute"
-
 
 class ApiDocs:
     """OpenAPI documentation strings (Query/Path descriptions)."""
