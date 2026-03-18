@@ -7,26 +7,23 @@ Includes:
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, UploadFile, File, Query, Request
+from fastapi import APIRouter, Depends, UploadFile, File, Query
 
 from app.api.v1.deps.security import get_current_user, require_permission
 from app.api.v1.deps.search import get_geo_search_service, get_property_import_service
-from app.core.limiter import limiter
 from app.models.user import User
 from app.schemas.property import PropertySearchRequest, PropertyListResponse
 from app.services.geo_search_service import GeoSearchService
 from app.services.property_import_service import PropertyImportService
 from app.utils.status_codes import STATUS_CREATED
 from app.utils.responses import ImportResponse
-from app.utils.constants import ApiDocs, RateLimits, UserPermissions
+from app.utils.constants import ApiDocs, UserPermissions
 
 router = APIRouter()
 
 
 @router.post("/geo-search")
-@limiter.limit(RateLimits.PUBLIC_GEO_SEARCH)
 def search_properties(
-    request: Request,
     payload: PropertySearchRequest,
     geo_search_service: Annotated[GeoSearchService, Depends(get_geo_search_service)],
 ) -> PropertyListResponse:
@@ -39,9 +36,7 @@ def search_properties(
     status_code=STATUS_CREATED,
     dependencies=[require_permission(UserPermissions.PROPERTY_CREATE)],
 )
-@limiter.limit(RateLimits.ADMIN_IMPORT)
 async def import_csv(
-    request: Request,
     current_user: Annotated[User, Depends(get_current_user)],
     file: Annotated[UploadFile, File(...)],
     import_service: Annotated[PropertyImportService, Depends(get_property_import_service)],

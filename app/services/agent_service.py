@@ -348,7 +348,9 @@ class AgentService:
                 invited_by=current_user.email,
             )
         )
-        api_logger.info(LogMessages.RBAC.DIRECT_CREATE_AGENT_TEMP_PASSWORD_ISSUED)
+        api_logger.info(
+            format_log_message(LogMessages.RBAC.DIRECT_CREATE_AGENT_TEMP_PASSWORD_ISSUED)
+        )
         return {
             "id": db_user.id,
             "email": db_user.email,

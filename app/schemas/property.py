@@ -3,13 +3,11 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Dict, List, Literal, Optional, Union
+from typing import Any, List, Literal, Optional
 import json
 import hashlib
 
 from pydantic import BaseModel, Field, model_serializer
-from sqlalchemy import select, func
-from sqlalchemy.orm import Session
 
 import uuid
 from app.models.property_normalized import PropertyNormalized as Property

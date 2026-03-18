@@ -372,7 +372,7 @@ def _insert_records_individually(
     skipped_duplicates: int
 ) -> int:
     """Insert records one by one, skipping duplicates."""
-    logger.warning(LogMessages.CSVImport.BATCH_INSERT_FAILED)
+    logger.warning(format_log_message(LogMessages.CSVImport.BATCH_INSERT_FAILED))
     imported_count = 0
     
     for prop in records:
@@ -490,7 +490,7 @@ def _get_geocoding_service(geocode_missing: bool):
         from app.services.geocoding import geocoding_service
         return geocoding_service
     except ImportError:
-        logger.warning(LogMessages.CSVImport.GEOCODING_UNAVAILABLE)
+        logger.warning(format_log_message(LogMessages.CSVImport.GEOCODING_UNAVAILABLE))
         return None
 
 

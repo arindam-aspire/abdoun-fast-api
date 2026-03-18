@@ -7,6 +7,8 @@ from sqlalchemy.orm import sessionmaker, Session
 
 from app.core.config import get_settings
 from app.utils.constants import DbConstants
+from app.utils.log_messages import LogMessages, format_log_message
+from app.utils.logger import api_logger
 
 settings = get_settings()
 
@@ -38,16 +40,24 @@ try:
     from app.observability.slow_queries import install_slow_query_logging
 
     install_slow_query_logging(engine=engine, threshold_ms=settings.slow_query_threshold_ms)
-except Exception:  # pragma: no cover - import-time; slow query logging must not break startup
+except ImportError:  # pragma: no cover - optional dependency/module
     pass
+except Exception as exc:  # pragma: no cover - import-time; must not break startup
+    api_logger.warning(
+        format_log_message(LogMessages.Database.SLOW_QUERY_LOGGING_INSTALL_FAILED, error=str(exc))
+    )
 
 if settings.otel_enabled:  # pragma: no cover - optional OTEL instrumentation at startup
     try:
         from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor
 
         SQLAlchemyInstrumentor().instrument(engine=engine)
-    except Exception:
+    except ImportError:  # pragma: no cover - optional dependency
         pass
+    except Exception as exc:  # pragma: no cover - must not break startup
+        api_logger.warning(
+            format_log_message(LogMessages.Database.OTEL_INSTRUMENTATION_FAILED, error=str(exc))
+        )
 
 SessionLocal = sessionmaker(
     autocommit=False,

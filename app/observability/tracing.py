@@ -3,6 +3,9 @@ from __future__ import annotations
 
 import os
 
+from app.utils.log_messages import LogMessages, format_log_message
+from app.utils.logger import api_logger
+
 
 def init_tracing(*, service_name: str) -> None:
     """Initialize OpenTelemetry tracing; OTLP if OTEL_EXPORTER_OTLP_ENDPOINT set, else console in debug.
@@ -10,10 +13,16 @@ def init_tracing(*, service_name: str) -> None:
     Args:
         service_name: Service name for the trace resource.
     """
-    from opentelemetry import trace
-    from opentelemetry.sdk.resources import Resource
-    from opentelemetry.sdk.trace import TracerProvider
-    from opentelemetry.sdk.trace.export import BatchSpanProcessor, ConsoleSpanExporter
+    try:
+        from opentelemetry import trace
+        from opentelemetry.sdk.resources import Resource
+        from opentelemetry.sdk.trace import TracerProvider
+        from opentelemetry.sdk.trace.export import BatchSpanProcessor, ConsoleSpanExporter
+    except ImportError as exc:  # pragma: no cover - optional dependency
+        api_logger.warning(
+            format_log_message(LogMessages.Observability.OTEL_TRACING_INIT_SKIPPED, error=str(exc))
+        )
+        return
 
     resource = Resource.create({"service.name": service_name})
     provider = TracerProvider(resource=resource)

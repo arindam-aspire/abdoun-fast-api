@@ -9,7 +9,7 @@ from sqlalchemy.engine import Engine
 
 from app.utils.constants import RequestIdConstants
 from app.utils.logger import db_logger
-from app.utils.log_messages import LogMessages
+from app.utils.log_messages import LogMessages, format_log_message
 from app.utils.request_context import get_request_id
 
 
@@ -44,11 +44,13 @@ def install_slow_query_logging(*, engine: Engine, threshold_ms: int) -> None:
         if duration_ms >= threshold_ms:
             rid = get_request_id() or RequestIdConstants.EMPTY_PLACEHOLDER
             db_logger.warning(
-                LogMessages.SlowQuery.LOG_TEMPLATE,
-                duration_ms,
-                threshold_ms,
-                rid,
-                _normalize_statement(statement),
+                format_log_message(
+                    LogMessages.SlowQuery.SLOW_QUERY,
+                    duration_ms=duration_ms,
+                    threshold_ms=threshold_ms,
+                    request_id=rid,
+                    statement=_normalize_statement(statement),
+                )
             )
 
 

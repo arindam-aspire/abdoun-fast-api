@@ -1,7 +1,5 @@
 """Normalized property ORM models: categories, types, cities, areas, features, properties, translations, media."""
 import uuid
-from datetime import datetime
-from typing import Any
 
 from geoalchemy2 import Geometry
 from sqlalchemy import (
@@ -20,7 +18,7 @@ from sqlalchemy import (
     UniqueConstraint,
     func,
 )
-from sqlalchemy.orm import DeclarativeBase, relationship
+from sqlalchemy.orm import relationship
 
 from app.models.property import Base
 

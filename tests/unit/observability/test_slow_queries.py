@@ -22,14 +22,26 @@ def test_install_slow_query_logging_logs_slow_query() -> None:
     engine = create_engine("sqlite:///:memory:")
     install_slow_query_logging(engine=engine, threshold_ms=1)
     from app.observability import slow_queries as mod
+    from app.utils.constants import RequestIdConstants
+    from app.utils.log_messages import LogMessages, format_log_message
 
     with patch.object(mod, "db_logger") as mock_log:
         with patch.object(time, "perf_counter", side_effect=[0.0, 1.0]):
             with engine.connect() as conn:
                 conn.execute(text("SELECT 1"))
-        mock_log.warning.assert_called()
-        call_args = str(mock_log.warning.call_args)
-        assert "slow_query" in call_args or "duration_ms" in call_args
+        mock_log.warning.assert_called_once()
+        logged_msg = mock_log.warning.call_args[0][0]
+        assert isinstance(logged_msg, str)
+        assert (
+            logged_msg
+            == format_log_message(
+                LogMessages.SlowQuery.SLOW_QUERY,
+                duration_ms=1000.0,
+                threshold_ms=1,
+                request_id=RequestIdConstants.EMPTY_PLACEHOLDER,
+                statement="SELECT 1",
+            )
+        )
 
 
 def test_normalize_statement_returns_unprintable_on_error() -> None:

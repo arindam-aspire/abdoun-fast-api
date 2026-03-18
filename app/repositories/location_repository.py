@@ -22,7 +22,7 @@ class LocationRepository:
         """Return all active cities ordered by name."""
         stmt: Select = (
             select(City)
-            .where(City.is_active == True)  # noqa: E712
+            .where(City.is_active.is_(True))
             .order_by(City.name)
         )
         return list(self._db.execute(stmt).scalars().all())
@@ -36,7 +36,7 @@ class LocationRepository:
             stmt = stmt.where(func.lower(City.name).contains(city_lower))
 
         stmt = (
-            stmt.where(Area.is_active == True)  # noqa: E712
+            stmt.where(Area.is_active.is_(True))
             .order_by(City.name, Area.name)
         )
         return list(self._db.execute(stmt).scalars().all())

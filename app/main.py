@@ -44,7 +44,6 @@ def create_app() -> FastAPI:
     # Correlation IDs should be set as early as possible.
     app.add_middleware(RequestIdMiddleware)
     if settings.metrics_enabled:
-        from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
         from app.middleware.metrics import PrometheusMetricsMiddleware
 
         # Avoid collecting metrics about the scrape itself.

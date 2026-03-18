@@ -152,8 +152,35 @@ class LogMessages:
     # Slow query logging (observability)
     class SlowQuery:
         """Slow SQL query log messages"""
-        LOG_TEMPLATE = "slow_query duration_ms=%.2f threshold_ms=%d request_id=%s statement=%s"
+        SLOW_QUERY = (
+            "slow_query duration_ms={duration_ms:.2f} threshold_ms={threshold_ms} "
+            "request_id={request_id} statement={statement}"
+        )
         UNPRINTABLE_STATEMENT = "<unprintable>"
+
+    # Database / SQLAlchemy initialization (engine, instrumentation)
+    class Database:
+        """Database initialization and instrumentation logs."""
+
+        SLOW_QUERY_LOGGING_INSTALL_FAILED = (
+            "Slow query logging install failed (non-fatal): {error}"
+        )
+        OTEL_INSTRUMENTATION_FAILED = (
+            "OpenTelemetry SQLAlchemy instrumentation failed (non-fatal): {error}"
+        )
+
+    class Middleware:
+        """Middleware-related logs (should not change request behavior)."""
+
+        REQUEST_ID_OTEL_ATTRIBUTE_FAILED = (
+            "Request-ID OTEL attribute set failed (non-fatal): {error}"
+        )
+
+    class Observability:
+        """Observability initialization logs (must not break startup)."""
+
+        SENTRY_INIT_SKIPPED = "Sentry init skipped (non-fatal): {error}"
+        OTEL_TRACING_INIT_SKIPPED = "OpenTelemetry tracing init skipped (non-fatal): {error}"
 
     # Exception handlers (main.py)
     class AppException:
@@ -180,6 +207,20 @@ class LogMessages:
         HASH_NOT_FOUND_AFTER_CHECK = "Property with hash {target_hash} not found after checking {checked} properties. Sample hashes: {sample_hashes}"
         IMPORT_PROPERTY_ERROR = "Error importing property {url}: {error}"
         IMPORTED_SKIPPED = "Imported {imported_count} properties, skipped {skipped_duplicates} duplicates"
+
+    # API routes (edge/compat/deprecated paths)
+    class ApiRoutes:
+        """API route logs for deprecated or compat branches (avoid PII)."""
+
+        AUTH_DEPRECATED_ADMIN_SIGNUP = (
+            "Deprecated auth endpoint called: signup_admin"
+        )
+        AGENTS_ONBOARDING_COMPAT_MISSING_TOKEN = (
+            "Agents onboarding compat missing token (query/body)."
+        )
+        AGENTS_ONBOARDING_COMPAT_VALIDATION_FAILED = (
+            "Agents onboarding compat validation failed: {error_count} errors"
+        )
 
 
 def format_log_message(template: str, **kwargs) -> str:

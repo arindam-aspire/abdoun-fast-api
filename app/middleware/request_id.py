@@ -9,11 +9,15 @@ from starlette.requests import Request
 from starlette.responses import Response
 
 from app.utils.constants import RequestIdConstants
+from app.utils.log_messages import LogMessages, format_log_message
+from app.utils.logger import api_logger
 from app.utils.request_context import (
     new_request_id,
     sanitize_incoming_request_id,
     set_request_id,
 )
+
+_OTEL_AVAILABLE = importlib.util.find_spec("opentelemetry") is not None
 
 
 class RequestIdMiddleware(BaseHTTPMiddleware):
@@ -36,14 +40,21 @@ class RequestIdMiddleware(BaseHTTPMiddleware):
 
         set_request_id(request_id)
         try:
-            if importlib.util.find_spec("opentelemetry") is not None:
+            if _OTEL_AVAILABLE:
                 from opentelemetry.trace import get_current_span
 
                 span = get_current_span()
                 if span is not None:
                     span.set_attribute(RequestIdConstants.OTEL_ATTRIBUTE_REQUEST_ID, request_id)
-        except Exception:  # pragma: no cover - OTEL must not break request handling
+        except ImportError:  # pragma: no cover - optional dependency
             pass
+        except Exception as exc:  # pragma: no cover - OTEL must not break request handling
+            api_logger.warning(
+                format_log_message(
+                    LogMessages.Middleware.REQUEST_ID_OTEL_ATTRIBUTE_FAILED,
+                    error=str(exc),
+                )
+            )
         try:
             response = await call_next(request)
         finally:

@@ -103,12 +103,11 @@ def get_coord_logger() -> Tuple[logging.Logger, Callable[[str], str]]:
     Returns:
         Tuple of (logger, emoji_safe_function)
     """
+    # These helpers are defined in this module; avoid self-import, but preserve
+    # the historical ImportError fallback behavior (used by unit tests).
     try:
-        # Try to import custom logger if it exists
-        from app.utils.logger import get_coordinate_update_logger, get_emoji_safe_text
         return get_coordinate_update_logger(), get_emoji_safe_text
     except ImportError:
-        # Fallback to standard logger
         logger = logging.getLogger(__name__)
         return logger, lambda x: x
 

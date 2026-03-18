@@ -139,11 +139,12 @@ class AgentRepository:
         self, email: str
     ) -> Optional[AgentInvite]:
         """Find an existing unused, non-revoked, non-expired invite for email."""
+        now = datetime.now()
         stmt = select(AgentInvite).where(
             and_(
                 AgentInvite.email == email,
-                AgentInvite.is_used == False,
-                AgentInvite.expires_at > datetime.now(),
+                AgentInvite.is_used.is_(False),
+                AgentInvite.expires_at > now,
                 AgentInvite.revoked_at.is_(None),
             )
         )
@@ -195,10 +196,11 @@ class AgentRepository:
         self, token: str
     ) -> Optional[AgentInvite]:
         """Find invite by token that is not expired and not revoked."""
+        now = datetime.now()
         stmt = select(AgentInvite).where(
             and_(
                 AgentInvite.token == token,
-                AgentInvite.expires_at > datetime.now(),
+                AgentInvite.expires_at > now,
                 AgentInvite.revoked_at.is_(None),
             )
         )
