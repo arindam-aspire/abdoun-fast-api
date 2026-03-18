@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field, model_serializer
 
 import uuid
 from app.models.property_normalized import PropertyNormalized as Property
-from app.utils.constants import Defaults
+from app.utils.constants import Defaults, PropertyListingType
 from app.services.translation_service import (
     get_title_description_for_language,
     get_title_description_all_languages,
