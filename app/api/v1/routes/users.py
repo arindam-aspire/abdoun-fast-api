@@ -19,7 +19,7 @@ from app.schemas.user import (
     UserUpdate,
 )
 from app.services.user_service import UserService
-from app.utils.constants import SuccessMessages, UserPermissions
+from app.utils.constants import ApiDocs, RateLimits, SuccessMessages, UserPermissions
 from app.utils.responses import StandardResponse, create_success_response
 
 router = APIRouter()
@@ -30,17 +30,17 @@ router = APIRouter()
     response_model=StandardResponse[List[UserResponse]],
     dependencies=[require_permission(UserPermissions.USER_CREATE)],
 )
-@limiter.limit("60/minute")
+@limiter.limit(RateLimits.ADMIN_READ)
 def list_users(
     request: Request,
     current_user: User = Depends(get_current_user),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     role_name: Optional[str] = Query(
-        None, description="Filter by role (admin, agent, registered_user)"
+        None, description=ApiDocs.FILTER_BY_ROLE
     ),
     search: Optional[str] = Query(
-        None, description="Search by email, phone number, or full_name"
+        None, description=ApiDocs.SEARCH_USERS
     ),
     service: UserService = Depends(get_user_service),
 ):
@@ -59,7 +59,7 @@ def list_users(
     response_model=StandardResponse[List[RoleResponse]],
     dependencies=[require_permission(UserPermissions.ROLE_ASSIGN)],
 )
-@limiter.limit("60/minute")
+@limiter.limit(RateLimits.ADMIN_READ)
 def list_roles(
     request: Request,
     current_user: User = Depends(get_current_user),
@@ -75,7 +75,7 @@ def list_roles(
     response_model=StandardResponse[List[dict]],
     dependencies=[require_permission(UserPermissions.ROLE_ASSIGN)],
 )
-@limiter.limit("60/minute")
+@limiter.limit(RateLimits.ADMIN_READ)
 def list_permissions(
     request: Request,
     current_user: User = Depends(get_current_user),
@@ -91,7 +91,7 @@ def list_permissions(
     response_model=StandardResponse[UserResponse],
     dependencies=[require_permission(UserPermissions.USER_CREATE)],
 )
-@limiter.limit("60/minute")
+@limiter.limit(RateLimits.ADMIN_READ)
 def get_user(
     request: Request,
     id: uuid.UUID,
@@ -108,7 +108,7 @@ def get_user(
     response_model=StandardResponse[UserResponse],
     dependencies=[require_permission(UserPermissions.USER_CREATE)],
 )
-@limiter.limit("30/minute")
+@limiter.limit(RateLimits.ADMIN_WRITE)
 def update_user(
     request: Request,
     id: uuid.UUID,
@@ -126,7 +126,7 @@ def update_user(
     response_model=StandardResponse[bool],
     dependencies=[require_permission(UserPermissions.USER_DELETE)],
 )
-@limiter.limit("10/minute")
+@limiter.limit(RateLimits.ADMIN_DELETE)
 def delete_user(
     request: Request,
     id: uuid.UUID,
@@ -143,7 +143,7 @@ def delete_user(
     response_model=StandardResponse[bool],
     dependencies=[require_permission(UserPermissions.ROLE_ASSIGN)],
 )
-@limiter.limit("30/minute")
+@limiter.limit(RateLimits.ADMIN_WRITE)
 def assign_role(
     request: Request,
     id: uuid.UUID,
@@ -167,7 +167,7 @@ def assign_role(
     response_model=StandardResponse[bool],
     dependencies=[require_permission(UserPermissions.ROLE_ASSIGN)],
 )
-@limiter.limit("30/minute")
+@limiter.limit(RateLimits.ADMIN_WRITE)
 def remove_role(
     request: Request,
     id: uuid.UUID,

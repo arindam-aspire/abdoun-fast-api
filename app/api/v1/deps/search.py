@@ -15,17 +15,38 @@ DBSessionDep = Annotated[Session, Depends(get_db)]
 
 
 def get_search_property_repository(db: DBSessionDep) -> PropertyRepository:
-    """PropertyRepository for geo-search (no DB in router)."""
+    """Provide a PropertyRepository for geo-search and import flows.
+
+    Args:
+        db: Injected database session (from get_db).
+
+    Returns:
+        PropertyRepository instance.
+    """
     return PropertyRepository(db)
 
 
 def get_geo_search_service(
     repo: PropertyRepository = Depends(get_search_property_repository),
 ) -> GeoSearchService:
-    """GeoSearchService for POST /geo-search."""
+    """Provide a GeoSearchService for POST /properties/geo-search.
+
+    Args:
+        repo: Injected PropertyRepository (from get_search_property_repository).
+
+    Returns:
+        GeoSearchService instance.
+    """
     return GeoSearchService(repo)
 
 
 def get_property_import_service(db: DBSessionDep) -> PropertyImportService:
-    """PropertyImportService for POST /import-csv."""
+    """Provide a PropertyImportService for POST /properties/import-csv.
+
+    Args:
+        db: Injected database session (from get_db).
+
+    Returns:
+        PropertyImportService instance.
+    """
     return PropertyImportService(db)

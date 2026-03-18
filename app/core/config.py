@@ -1,3 +1,13 @@
+"""Application configuration (env-driven).
+
+This module provides:
+- `Settings`: a Pydantic model describing configuration values
+- `get_settings()`: cached accessor for settings with validation and defaults
+
+Defaults and validation messages are centralized in `app/utils/constants.py` to avoid
+hardcoded text in this module.
+"""
+
 import os
 import importlib.util
 from functools import lru_cache
@@ -10,15 +20,28 @@ from pydantic import BaseModel
 # load_dotenv() automatically searches current directory and parent directories
 load_dotenv()
 
-from app.utils.constants import SystemMessages
+from app.utils.constants import ConfigDefaults, ConfigErrorMessages, SystemMessages
 
 
 def _get_database_url() -> str:
-    """Get database URL from environment variable."""
-    return os.getenv("DATABASE_URL", "postgresql+psycopg2://postgres:postgres@localhost:5432/realestate")
+    """Return the database URL.
+
+    Returns:
+        Database URL from `DATABASE_URL` env var, otherwise a safe local default.
+    """
+    return os.getenv("DATABASE_URL", ConfigDefaults.DATABASE_URL)
 
 
 def _parse_csv_env(name: str, default: str = "") -> list[str]:
+    """Parse a comma-separated environment variable into a list of non-empty strings.
+
+    Args:
+        name: Environment variable name.
+        default: Default value if the variable is not set.
+
+    Returns:
+        List of stripped, non-empty segments from the value (or default).
+    """
     raw = os.getenv(name, default)
     return [item.strip() for item in raw.split(",") if item.strip()]
 
@@ -29,7 +52,16 @@ def _get_env_str(
     *,
     default: Optional[str] = None,
 ) -> str:
-    """Get required or optional string from env: try primary key, then fallback key, then default."""
+    """Get a string from the environment with optional fallback key and default.
+
+    Args:
+        primary: Primary environment variable name.
+        fallback_key: Optional alternate env key to try if primary is unset.
+        default: Optional default value when both primary and fallback are unset.
+
+    Returns:
+        The value from primary, fallback_key, or default; empty string if none set.
+    """
     value = os.getenv(primary)
     if value:
         return value
@@ -41,7 +73,15 @@ def _get_env_str(
 
 
 def _get_env_optional_str(primary: str, fallback_key: Optional[str] = None) -> Optional[str]:
-    """Get optional string from env: try primary key, then fallback key."""
+    """Get an optional string from the environment with optional fallback key.
+
+    Args:
+        primary: Primary environment variable name.
+        fallback_key: Optional alternate env key to try if primary is unset.
+
+    Returns:
+        The value from primary or fallback_key, or None if neither is set.
+    """
     value = os.getenv(primary)
     if value:
         return value
@@ -51,9 +91,16 @@ def _get_env_optional_str(primary: str, fallback_key: Optional[str] = None) -> O
 
 
 class Settings(BaseModel):
+    """Application settings loaded from environment variables.
+
+    Notes:
+        This model is instantiated by `get_settings()` and may be post-processed by
+        `_apply_observability_defaults()` to disable features when dependencies are missing.
+    """
+
     app_name: str = SystemMessages.APP_NAME
-    environment: str = os.getenv("ENVIRONMENT", "local")
-    debug: bool = os.getenv("DEBUG", "false").lower() == "true"
+    environment: str = os.getenv("ENVIRONMENT", ConfigDefaults.ENVIRONMENT)
+    debug: bool = os.getenv("DEBUG", ConfigDefaults.DEBUG).lower() == "true"
 
     database_url: str = _get_database_url()
 
@@ -68,18 +115,21 @@ class Settings(BaseModel):
     api_v1_prefix: str = SystemMessages.API_V1_PREFIX
 
     # Safer default: explicit local frontend origin(s) rather than "*".
-    cors_origins: list[str] = _parse_csv_env("CORS_ORIGINS", "http://localhost:3000")
-    cors_allow_credentials: bool = os.getenv("CORS_ALLOW_CREDENTIALS", "true").lower() == "true"
+    cors_origins: list[str] = _parse_csv_env("CORS_ORIGINS", ConfigDefaults.CORS_ORIGINS)
+    cors_allow_credentials: bool = os.getenv(
+        "CORS_ALLOW_CREDENTIALS",
+        ConfigDefaults.CORS_ALLOW_CREDENTIALS,
+    ).lower() == "true"
     # When credentials=True, CORS spec forbids "*" for methods/headers; use explicit lists.
     cors_allow_methods: list[str] = _parse_csv_env(
         "CORS_ALLOW_METHODS",
-        "GET,POST,PUT,PATCH,DELETE,OPTIONS",
+        ConfigDefaults.CORS_ALLOW_METHODS,
     )
     cors_allow_headers: list[str] = _parse_csv_env(
         "CORS_ALLOW_HEADERS",
-        "Authorization,Content-Type,Accept,Origin,X-Requested-With",
+        ConfigDefaults.CORS_ALLOW_HEADERS,
     )
-    cors_max_age: int = 600  # Preflight cache (seconds)
+    cors_max_age: int = ConfigDefaults.CORS_MAX_AGE_SECONDS  # Preflight cache (seconds)
     
     # Azure OpenAI settings (optional, for geocoding fallback)
     azure_openai_key: Optional[str] = os.getenv("AZURE_OPENAI_KEY")
@@ -93,20 +143,23 @@ class Settings(BaseModel):
     cognito_client_secret: Optional[str] = _get_env_optional_str("COGNITO_APP_CLIENT_SECRET", "COGNITO_CLIENT_SECRET")
     cognito_region: str = _get_env_str("COGNITO_REGION", default="us-east-1")
     cognito_domain: str = _get_env_str("COGNITO_DOMAIN")
-    social_redirect_uri: str = os.getenv("SOCIAL_REDIRECT_URI", "http://localhost:8000/api/v1/auth/callback")
+    social_redirect_uri: str = os.getenv(
+        "SOCIAL_REDIRECT_URI",
+        ConfigDefaults.SOCIAL_REDIRECT_URI,
+    )
     
     # AWS Credentials (optional - boto3 will also check environment variables and ~/.aws/credentials)
     aws_access_key_id: Optional[str] = _get_env_optional_str("AWS_ACCESS_KEY_ID")
     aws_secret_access_key: Optional[str] = _get_env_optional_str("AWS_SECRET_ACCESS_KEY")
 
     # Base URL for invite links (e.g. https://app.example.com)
-    app_base_url: str = _get_env_str("APP_BASE_URL", default="http://localhost:3000")
+    app_base_url: str = _get_env_str("APP_BASE_URL", default=ConfigDefaults.APP_BASE_URL)
 
     # -----------------------------------------------------------------------
     # Observability (opt-in / env-driven)
     # -----------------------------------------------------------------------
     metrics_enabled: bool = os.getenv("METRICS_ENABLED", "").lower() == "true"
-    metrics_path: str = os.getenv("METRICS_PATH", "/metrics")
+    metrics_path: str = os.getenv("METRICS_PATH", ConfigDefaults.METRICS_PATH)
 
     otel_enabled: bool = os.getenv("OTEL_ENABLED", "").lower() == "true"
     otel_service_name: str = os.getenv("OTEL_SERVICE_NAME", "")
@@ -114,10 +167,17 @@ class Settings(BaseModel):
     sentry_dsn: str = os.getenv("SENTRY_DSN", "")
     sentry_enabled: bool = os.getenv("SENTRY_ENABLED", "").lower() == "true"
 
-    slow_query_threshold_ms: int = int(os.getenv("SLOW_QUERY_THRESHOLD_MS", "500"))
+    slow_query_threshold_ms: int = int(
+        os.getenv("SLOW_QUERY_THRESHOLD_MS", ConfigDefaults.SLOW_QUERY_THRESHOLD_MS)
+    )
 
 
 def _apply_observability_defaults(settings: Settings) -> None:
+    """Apply safe observability defaults and dependency-based disables.
+
+    Args:
+        settings: Settings instance to mutate in-place.
+    """
     # Sensible default: enable metrics in local/dev unless explicitly set.
     if "METRICS_ENABLED" not in os.environ:
         settings.metrics_enabled = settings.debug or settings.environment in {"local", "development"}
@@ -139,22 +199,27 @@ def _apply_observability_defaults(settings: Settings) -> None:
 
 @lru_cache
 def get_settings() -> Settings:
+    """Return cached application settings.
+
+    Loads env-driven Settings, validates CORS for production/staging, applies
+    observability defaults (metrics/OTEL/Sentry), and caches the result.
+
+    Returns:
+        Validated Settings instance.
+
+    Raises:
+        ValueError: If CORS is misconfigured (e.g. "*" with credentials enabled).
+    """
     settings = Settings()
 
     # Fail fast for insecure CORS in higher environments.
     if settings.environment in {"production", "staging"} and settings.cors_allow_credentials:
         if not settings.cors_origins or "*" in settings.cors_origins:
-            raise ValueError(
-                "Invalid CORS configuration: in production/staging with credentials enabled, "
-                "CORS_ORIGINS must be a non-empty explicit list and cannot include '*'."
-            )
+            raise ValueError(ConfigErrorMessages.INVALID_CORS_PROD_STAGING_WITH_CREDENTIALS)
 
     # Also protect local/dev from the unsafe "*" + credentials combination by default.
     if settings.cors_allow_credentials and ("*" in settings.cors_origins):
-        raise ValueError(
-            "Invalid CORS configuration: when CORS_ALLOW_CREDENTIALS=true, "
-            "CORS_ORIGINS cannot include '*'."
-        )
+        raise ValueError(ConfigErrorMessages.INVALID_CORS_WITH_CREDENTIALS)
 
     _apply_observability_defaults(settings)
 

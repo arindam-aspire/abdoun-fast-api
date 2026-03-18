@@ -1,3 +1,4 @@
+"""Request correlation ID: context var, get/set/new/sanitize for middleware and logging."""
 from __future__ import annotations
 
 import re

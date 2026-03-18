@@ -1,25 +1,27 @@
-import time
+"""Geocoding via Nominatim with rate limiting; Azure OpenAI fallback for unresolved locations."""
 import json
 import re
-from typing import Optional, Tuple
+import time
 from functools import lru_cache
+from typing import Optional, Tuple
 
 import requests
 
-from app.utils.logger import get_coord_logger
 from app.utils.constants import GeocodingConstants
+from app.utils.logger import get_coord_logger
 from app.utils.log_messages import LogMessages, format_log_message
 from app.utils.status_codes import HTTPStatus
 from app.utils.resilience import RetryConfig, is_retryable_http_error, retry
 
 
 class GeocodingService:
-    """Service for geocoding locations using Nominatim API with Azure OpenAI fallback"""
-    
+    """Geocodes locations via Nominatim; fallback to Azure OpenAI when needed."""
+
     BASE_URL = GeocodingConstants.NOMINATIM_BASE_URL
     USER_AGENT = GeocodingConstants.USER_AGENT
-    
-    def __init__(self):
+
+    def __init__(self) -> None:
+        """Initialize rate limit state and optional Azure OpenAI availability check."""
         self.last_request_time = 0
         self.rate_limit_delay = GeocodingConstants.RATE_LIMIT_DELAY
         self.logger, self.emoji_safe = get_coord_logger()
@@ -70,15 +72,7 @@ class GeocodingService:
             openai.api_version = settings.azure_openai_api_version
             deployment_name = settings.azure_openai_deployment_name
             
-            # Build prompt for geocoding
-            prompt = (
-                f"Find the exact geographic coordinates (latitude and longitude) for this location: '{location}'. "
-                f"This location is likely in Jordan, specifically in or near Amman. "
-                f"Return ONLY a valid JSON object with 'latitude' and 'longitude' as decimal numbers. "
-                f"If you cannot find the exact location, return null for both values. "
-                f"Example format: {{\"latitude\": 31.9539, \"longitude\": 35.9106}} or {{\"latitude\": null, \"longitude\": null}}"
-            )
-            
+            prompt = GeocodingConstants.AZURE_GEOCODE_USER_TEMPLATE.format(location=location)
             msg = format_log_message(LogMessages.AzureOpenAI.TRYING_GEOCODING, location=location)
             self.logger.info(self.emoji_safe(msg))
 
@@ -87,14 +81,8 @@ class GeocodingService:
                 return openai.ChatCompletion.create(
                     engine=deployment_name,
                     messages=[
-                        {
-                            "role": "system",
-                            "content": "You are a geocoding assistant. Return only valid JSON with latitude and longitude as decimal numbers, or null if not found."
-                        },
-                        {
-                            "role": "user",
-                            "content": prompt
-                        }
+                        {"role": "system", "content": GeocodingConstants.AZURE_GEOCODE_SYSTEM},
+                        {"role": "user", "content": prompt},
                     ],
                     temperature=0.3,
                     max_tokens=100

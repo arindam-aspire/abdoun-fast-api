@@ -1,15 +1,26 @@
+"""Database engine and session lifecycle; provides get_db for request-scoped sessions."""
+
 from collections.abc import Generator
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, Session
 
 from app.core.config import get_settings
+from app.utils.constants import DbConstants
 
 settings = get_settings()
 
+
 def _build_engine_kwargs(database_url: str) -> dict:
-    # SQLite (used in tests/local) doesn't use these pool settings consistently.
-    if database_url.startswith("sqlite"):
+    """Build keyword arguments for create_engine; SQLite gets only future=True, others use pool settings from config.
+
+    Args:
+        database_url: The database URL (e.g. postgresql+psycopg2://... or sqlite:///...).
+
+    Returns:
+        Dict of keyword arguments for sqlalchemy.create_engine.
+    """
+    if database_url.startswith(DbConstants.SQLITE_URL_PREFIX):
         return {"future": True}
     return {
         "future": True,
@@ -47,6 +58,11 @@ SessionLocal = sessionmaker(
 
 
 def get_db() -> Generator[Session, None, None]:
+    """Provide a request-scoped database session (FastAPI dependency).
+
+    Yields:
+        Session: Request-scoped SQLAlchemy Session; use via Depends(get_db).
+    """
     db = SessionLocal()
     try:
         yield db

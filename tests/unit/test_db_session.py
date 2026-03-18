@@ -5,10 +5,12 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 from app.db import session as session_mod
+from app.utils.constants import DbConstants
 
 
 def test_build_engine_kwargs_sqlite() -> None:
-    out = session_mod._build_engine_kwargs("sqlite:///file.db")
+    url = f"{DbConstants.SQLITE_URL_PREFIX}:///file.db"
+    out = session_mod._build_engine_kwargs(url)
     assert out == {"future": True}
 
 

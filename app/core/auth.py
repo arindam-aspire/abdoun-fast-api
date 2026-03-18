@@ -28,23 +28,20 @@ async def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(security),
     db: Session = Depends(get_db)
 ) -> User:
-    """
-    FastAPI dependency that validates Cognito JWT token and returns the current user.
-    
-    Flow:
-    1. Extract Bearer token from Authorization header
-    2. Verify token against Cognito issuer
-    3. Validate token_use == "access"
-    4. Extract 'sub' claim
-    5. Load user from database by cognito_sub
-    6. Ensure user is active
-    
+    """FastAPI dependency that validates Cognito JWT and returns the current user.
+
+    Flow: extract Bearer token → verify with Cognito → validate token_use "access"
+    → resolve user by cognito_sub (or email fallback) → ensure user is active.
+
+    Args:
+        credentials: Injected by HTTPBearer; holds the Bearer token.
+        db: Injected database session for user lookup.
+
     Returns:
-        User: SQLAlchemy User model instance
-        
+        The authenticated, active User model instance.
+
     Raises:
-        HTTPException 401: If token is invalid, missing, or user not found
-        HTTPException 403: If user is inactive
+        HTTPException: 401 if token invalid/missing or user not found; 403 if user inactive.
     """
     token = credentials.credentials
     
@@ -61,7 +58,15 @@ async def get_current_user(
     # Validate token_use == "access" (as per spec requirement)
     token_use = payload.get("token_use")
     if token_use != "access":
-        api_logger.warning(format_log_message(LogMessages.Auth.TOKEN_VERIFICATION_FAILED, error=f"Invalid token_use: {token_use}, expected 'access'"))
+        api_logger.warning(
+            format_log_message(
+                LogMessages.Auth.TOKEN_VERIFICATION_FAILED,
+                error=format_log_message(
+                    ErrorMessages.INVALID_TOKEN_USE,
+                    token_use=token_use,
+                ),
+            )
+        )
         raise HTTPException(
             status_code=HTTPStatus.UNAUTHORIZED,
             detail=ErrorMessages.INVALID_TOKEN,

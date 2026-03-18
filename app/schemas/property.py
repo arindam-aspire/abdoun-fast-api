@@ -1,9 +1,4 @@
-"""
-Property schemas for API request/response models.
-
-This module defines Pydantic models for property-related API operations,
-including search results, property details, search requests, and responses.
-"""
+"""Pydantic schemas for property search, detail, list, geo search, and structured blocks (location, pricing, media)."""
 
 from __future__ import annotations
 
@@ -99,8 +94,8 @@ def uuid_to_int_hash(uuid_obj: uuid.UUID) -> int:
 
 class PropertyLocationDetail(BaseModel):
     """Nested location for API: country, city, region, address, coordinates, map link."""
-    country_id: Optional[int] = 1  # Jordan
-    country: Optional[str] = "Jordan"
+    country_id: Optional[int] = Defaults.DEFAULT_COUNTRY_ID
+    country: Optional[str] = Defaults.DEFAULT_COUNTRY
     city_id: Optional[int] = None
     city: Optional[str] = None
     region_id: Optional[int] = None
@@ -288,12 +283,12 @@ def _determine_listing_type(obj: Property) -> str:
     has_selling = getattr(obj, "selling_price_amount", None) is not None
     has_rent = getattr(obj, "rent_price_amount", None) is not None
     if has_selling and has_rent:
-        return "sale_rent"
+        return PropertyListingType.SALE_RENT
     if has_selling:
-        return "sale"
+        return PropertyListingType.SALE
     if has_rent:
-        return "rent"
-    return "rent"  # default when no price
+        return PropertyListingType.RENT
+    return PropertyListingType.RENT  # default when no price
 
 
 def _parse_images_list_from_orm(obj: Property) -> list[str]:
@@ -421,7 +416,7 @@ def _build_pricing_from_orm(obj: Property) -> Optional[PropertyPricingStructured
         getattr(obj, "currency", None)
         or getattr(obj, "rent_price_currency", None)
         or getattr(obj, "selling_price_currency", None)
-        or "JOD"
+        or Defaults.DEFAULT_CURRENCY
     )
 
     annual_rent = float(rent) if rent is not None else None
@@ -856,10 +851,12 @@ def _extract_city_area(obj: Property) -> tuple[Optional[str], Optional[str]]:
 
 
 def _derive_status(has_selling_price: bool, has_rent_price: bool) -> Optional[str]:
+    """Return listing status for display: buy or rent."""
+    from app.utils.constants import ListingStatus
     if has_selling_price:
-        return "buy"
+        return ListingStatus.BUY
     if has_rent_price:
-        return "rent"
+        return ListingStatus.RENT
     return None
 
 
@@ -867,7 +864,7 @@ def _format_price_string(amount: Any, currency: Optional[str]) -> Optional[str]:
     if amount is None:
         return None
     price_val = float(amount)
-    code = currency or "JD"
+    code = currency or Defaults.DEFAULT_CURRENCY_DISPLAY
     if price_val == int(price_val):
         return f"{int(price_val):,} {code}"
     return f"{price_val:,.2f} {code}"
@@ -979,7 +976,7 @@ def _coerce_property_id(obj: Property) -> Any:
 def _map_embed_url(lat: Optional[float], lng: Optional[float]) -> Optional[str]:
     if lat is None or lng is None:
         return None
-    return f"https://maps.google.com/?q={lat},{lng}"
+    return Defaults.MAP_EMBED_URL_TEMPLATE.format(lat=lat, lng=lng)
 
 
 def _build_location_detail(obj: Property) -> Optional[PropertyLocationDetail]:
@@ -996,8 +993,8 @@ def _build_location_detail(obj: Property) -> Optional[PropertyLocationDetail]:
 
     if is_normalized:
         return PropertyLocationDetail(
-            country_id=1,
-            country="Jordan",
+            country_id=Defaults.DEFAULT_COUNTRY_ID,
+            country=Defaults.DEFAULT_COUNTRY,
             city_id=getattr(obj, "city_id", None),
             city=obj.city.name if obj.city else None,
             region_id=getattr(obj, "location_id", None),
@@ -1009,8 +1006,8 @@ def _build_location_detail(obj: Property) -> Optional[PropertyLocationDetail]:
         )
 
     return PropertyLocationDetail(
-        country_id=1,
-        country="Jordan",
+        country_id=Defaults.DEFAULT_COUNTRY_ID,
+        country=Defaults.DEFAULT_COUNTRY,
         address=address_by_lang,
         latitude=lat,
         longitude=lng,
@@ -1118,7 +1115,7 @@ class PropertySearchResultExtended(BaseModel):
             handover=None,  # Not available in current data model
             paymentPlan=None,  # Not available in current data model
             validatedDate=validated_date_str,
-            brokerName="Abdoun Real Estate",  # Default broker name
+            brokerName=Defaults.DEFAULT_BROKER_NAME,
             brokerLogo=None,  # Not available in current data model
             is_exclusive=getattr(obj, "is_exclusive", None),
             location_detail=location_detail,

@@ -1,23 +1,20 @@
-"""
-Centralized logging system configuration.
-All logging setup and utilities should be defined here.
-"""
-
+"""Logging setup: request_id in LogRecord, get_logger, coordinate/API/DB loggers, emoji-safe text and Windows UTF-8."""
 import logging
 import sys
 from typing import Callable, Tuple
 
 # Ensure every LogRecord includes a request_id field (for correlation IDs).
+from app.utils.constants import LoggerDefaults
 from app.utils.request_context import get_request_id
-
 
 _ORIGINAL_RECORD_FACTORY = logging.getLogRecordFactory()
 
 
 def _record_factory(*args: object, **kwargs: object) -> logging.LogRecord:
+    """Inject request_id into every LogRecord for correlation."""
     record = _ORIGINAL_RECORD_FACTORY(*args, **kwargs)
     rid = get_request_id()
-    record.request_id = rid if rid else "-"
+    record.request_id = rid if rid else LoggerDefaults.REQUEST_ID_EMPTY
     return record
 
 

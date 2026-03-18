@@ -1,7 +1,4 @@
-"""
-Notification service: agent onboarding (approved/rejected), invite emails, etc.
-Production: wire to SES/SNS or email provider. For now: log and optional placeholder.
-"""
+"""Notification service: agent approved/rejected/invite; log for now, wire to SES/email in production."""
 
 from typing import Optional
 
@@ -31,7 +28,12 @@ def notify_agent_rejected(agent_email: str, agent_full_name: str, decline_reason
         )
     )
     if decline_reason:
-        api_logger.info(f"Decline reason: {decline_reason}")
+        api_logger.info(
+            format_log_message(
+                LogMessages.Notification.DECLINE_REASON,
+                decline_reason=decline_reason,
+            )
+        )
     # TODO: send email with decline_reason
 
 

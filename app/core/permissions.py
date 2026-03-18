@@ -12,7 +12,7 @@ from sqlalchemy import select, and_
 from app.db.session import get_db
 from app.core.auth import get_current_user
 from app.models.user import User, Role, AdminAgentAssignment
-from app.utils.constants import ErrorMessages, UserRoles
+from app.utils.constants import Defaults, ErrorMessages, UserRoles
 from app.utils.log_messages import LogMessages, format_log_message
 from app.utils.status_codes import HTTPStatus
 from app.utils.logger import api_logger
@@ -94,8 +94,13 @@ def get_user_roles(user: User, db: Session) -> set[str]:
 
 class RoleChecker:
     """FastAPI dependency that enforces a required role for the current user."""
-    
+
     def __init__(self, required_role: str):
+        """Store the role name to enforce.
+
+        Args:
+            required_role: Role name (e.g. "admin", "agent") the user must have.
+        """
         self.required_role = required_role
     
     def __call__(self, user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> User:
@@ -112,10 +117,16 @@ class RoleChecker:
         user_role_names = get_user_roles(user, db)
         
         if self.required_role not in user_role_names:
-            api_logger.warning(format_log_message(LogMessages.RBAC.PERMISSION_DENIED, user_id=str(user.id), permission=f"role:{self.required_role}"))
+            api_logger.warning(
+                format_log_message(
+                    LogMessages.RBAC.PERMISSION_DENIED,
+                    user_id=str(user.id),
+                    permission=f"{Defaults.ROLE_PERMISSION_PREFIX}{self.required_role}",
+                )
+            )
             raise HTTPException(
                 status_code=HTTPStatus.FORBIDDEN,
-                detail=f"Missing required role: {self.required_role}",
+                detail=format_log_message(ErrorMessages.MISSING_ROLE, role=self.required_role),
             )
         
         return user
@@ -123,8 +134,13 @@ class RoleChecker:
 
 class PermissionChecker:
     """FastAPI dependency that enforces a required permission for the current user."""
-    
+
     def __init__(self, required_permission: str):
+        """Store the permission code to enforce.
+
+        Args:
+            required_permission: Permission code (e.g. "agent:approve") the user must have.
+        """
         self.required_permission = required_permission
     
     def __call__(self, user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> User:

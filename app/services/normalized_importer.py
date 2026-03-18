@@ -1,7 +1,4 @@
-"""
-CSV importer service for normalized property structure.
-Handles mapping CSV data to normalized database tables.
-"""
+"""Import CSV into normalized property tables (categories, types, cities, areas, features, translations, media)."""
 from __future__ import annotations
 import json
 import re
@@ -36,6 +33,7 @@ from app.services.csv_importer import (
     _parse_int,
     logger,
 )
+from app.utils.constants import ImportDefaults
 from app.utils.log_messages import LogMessages, format_log_message
 from app.utils.logger import get_logger
 
@@ -140,7 +138,7 @@ def _slugify(text: str) -> str:
 def get_or_create_category(db: Session, category_name: str) -> PropertyCategory:
     """Get or create a property category."""
     if not category_name:
-        category_name = "Other"
+        category_name = ImportDefaults.CATEGORY_OTHER
     
     slug = _slugify(category_name)
     
@@ -162,7 +160,7 @@ def get_or_create_category(db: Session, category_name: str) -> PropertyCategory:
 def get_or_create_type(db: Session, type_name: str, category_id: int) -> PropertyType:
     """Get or create a property type."""
     if not type_name:
-        type_name = "Other"
+        type_name = ImportDefaults.TYPE_OTHER
     
     slug = _slugify(type_name)
     
@@ -192,7 +190,7 @@ def get_or_create_type(db: Session, type_name: str, category_id: int) -> Propert
 def get_or_create_city(db: Session, city_name: str) -> City:
     """Get or create a city."""
     if not city_name:
-        city_name = "Unknown"
+        city_name = ImportDefaults.LOCATION_UNKNOWN
     
     city_name = city_name.strip()
     
@@ -214,7 +212,7 @@ def get_or_create_city(db: Session, city_name: str) -> City:
 def get_or_create_area(db: Session, area_name: str, city_id: int) -> Area:
     """Get or create an area."""
     if not area_name:
-        area_name = "Unknown"
+        area_name = ImportDefaults.LOCATION_UNKNOWN
     
     area_name = area_name.strip()
     
@@ -239,7 +237,7 @@ def get_or_create_area(db: Session, area_name: str, city_id: int) -> Area:
 def get_or_create_status(db: Session, status_name: str) -> PropertyStatus:
     """Get or create a property status."""
     if not status_name:
-        status_name = "pending"
+        status_name = ImportDefaults.STATUS_PENDING
     
     slug = _slugify(status_name)
     
@@ -283,19 +281,17 @@ def get_or_create_feature(db: Session, feature_name: str) -> Optional[Feature]:
 def parse_location(location_str: str) -> tuple[str, str]:
     """Parse location string like 'Dabouq - Amman' into (area, city)."""
     if not location_str:
-        return ("Unknown", "Unknown")
-    
+        return (ImportDefaults.LOCATION_UNKNOWN, ImportDefaults.LOCATION_UNKNOWN)
     parts = location_str.split(" - ")
     if len(parts) >= 2:
         area = parts[0].strip()
         city = parts[-1].strip()
     elif len(parts) == 1:
         area = parts[0].strip()
-        city = "Amman"  # Default city
+        city = ImportDefaults.DEFAULT_CITY
     else:
-        area = "Unknown"
-        city = "Unknown"
-    
+        area = ImportDefaults.LOCATION_UNKNOWN
+        city = ImportDefaults.LOCATION_UNKNOWN
     return (area, city)
 
 
@@ -344,9 +340,9 @@ def parse_category_type(category_str: str) -> tuple[str, str]:
 def determine_property_status(row: pd.Series) -> str:
     """Determine property status from CSV row."""
     status = _normalize_string(row.get("status"))
-    if status and status.lower() == "ok":
-        return "verified"
-    return "pending"
+    if status and status.lower() == ImportDefaults.STATUS_OK_LOWER:
+        return ImportDefaults.STATUS_VERIFIED
+    return ImportDefaults.STATUS_PENDING
 
 
 def create_property_normalized_from_row(
@@ -366,7 +362,7 @@ def create_property_normalized_from_row(
     """Create a PropertyNormalized object from a CSV row."""
     
     # Parse category and type
-    category_str = _normalize_string(row.get("category")) or "Other"
+    category_str = _normalize_string(row.get("category")) or ImportDefaults.CATEGORY_OTHER
     category_name, type_name = parse_category_type(category_str)
     
     # Get or create category and type
@@ -425,7 +421,7 @@ def create_property_normalized_from_row(
         url=url if url else None,
         title=title,
         description=_normalize_string(row.get("description")),
-        is_verified=(status_name == "verified"),
+        is_verified=(status_name == ImportDefaults.STATUS_VERIFIED),
         latitude=lat_f,
         longitude=lng_f,
         location_name=location_str,  # Keep for backward compatibility

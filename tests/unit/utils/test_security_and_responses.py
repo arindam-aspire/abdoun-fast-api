@@ -6,6 +6,9 @@ import pytest
 
 from app.utils.responses import create_error_response, create_success_response
 from app.utils.security import validate_input_length
+from app.utils.status_codes import HTTPStatus
+from app.utils.constants import ErrorMessages
+from app.utils.constants import SuccessMessages
 
 
 def test_validate_input_length_raises_on_none() -> None:
@@ -22,16 +25,20 @@ def test_validate_input_length_strips_and_returns_when_within_limit() -> None:
 
 
 def test_create_success_response_wraps_data_and_message() -> None:
-    r = create_success_response(data={"k": "v"}, message="ok")
+    r = create_success_response(data={"k": "v"}, message=SuccessMessages.LOGIN_SUCCESSFUL)
     assert r.success is True
     assert r.data == {"k": "v"}
-    assert r.message == "ok"
+    assert r.message == SuccessMessages.LOGIN_SUCCESSFUL
 
 
 def test_create_error_response_sets_error_fields() -> None:
-    r = create_error_response(error="bad", detail="nope", status_code=400)
+    r = create_error_response(
+        error=ErrorMessages.REQUEST_FAILED,
+        detail=ErrorMessages.VALIDATION_ERROR,
+        status_code=HTTPStatus.BAD_REQUEST,
+    )
     assert r.success is False
-    assert r.error == "bad"
-    assert r.detail == "nope"
-    assert r.status_code == 400
+    assert r.error == ErrorMessages.REQUEST_FAILED
+    assert r.detail == ErrorMessages.VALIDATION_ERROR
+    assert r.status_code == HTTPStatus.BAD_REQUEST
 

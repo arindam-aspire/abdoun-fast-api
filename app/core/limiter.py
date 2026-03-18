@@ -1,3 +1,8 @@
+"""Rate limiting configuration.
+
+This module exposes the shared SlowAPI `limiter` instance used by route modules.
+"""
+
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 

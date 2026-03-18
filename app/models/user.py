@@ -1,3 +1,4 @@
+"""User, role, permission, agent profile, invite, and admin-agent assignment ORM models."""
 import uuid
 from datetime import datetime
 from typing import List, Optional
@@ -8,6 +9,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
 from app.models.property import Base
+from app.utils.constants import AgentStatus
 
 # Association table for Many-to-Many relationship between Roles and Permissions
 role_permissions = Table(
@@ -30,6 +32,7 @@ user_roles = Table(
 
 
 class Permission(Base):
+    """Permission code (e.g. user:create) that can be assigned to roles."""
     __tablename__ = "permissions"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -46,6 +49,7 @@ class Permission(Base):
 
 
 class Role(Base):
+    """Role (e.g. admin, agent) with many-to-many permissions and users."""
     __tablename__ = "roles"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -72,6 +76,7 @@ class Role(Base):
 
 
 class User(Base):
+    """User account (Cognito-linked) with roles, optional agent profile, and assignments."""
     __tablename__ = "users"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -116,6 +121,7 @@ class User(Base):
 
 
 class AgentProfile(Base):
+    """Agent-specific profile: service area, approval state, status, decline/review metadata."""
     __tablename__ = "agent_profiles"
 
     user_id: Mapped[uuid.UUID] = mapped_column(
@@ -138,7 +144,7 @@ class AgentProfile(Base):
     deleted_by: Mapped[Optional[uuid.UUID]] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
-    status: Mapped[str] = mapped_column(String(20), default="INVITED", index=True)  # INVITED, PENDING_REVIEW, APPROVED, DECLINED, ACTIVE,INACTIVE,DELETED
+    status: Mapped[str] = mapped_column(String(20), default=AgentStatus.INVITED, index=True)
     user: Mapped["User"] = relationship("User", back_populates="profile", foreign_keys=[user_id])
     approved_by_user: Mapped[Optional["User"]] = relationship("User", foreign_keys=[approved_by])
     reviewed_by_user: Mapped[Optional["User"]] = relationship("User", foreign_keys=[reviewed_by])
@@ -146,6 +152,7 @@ class AgentProfile(Base):
 
 
 class AgentInvite(Base):
+    """Invitation record for agent signup (token, expiry, used/revoked)."""
     __tablename__ = "agent_invites"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -168,6 +175,7 @@ class AgentInvite(Base):
 
 
 class AdminAgentAssignment(Base):
+    """Assignment of an agent to an admin for privilege inheritance."""
     __tablename__ = "admin_agent_assignments"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)

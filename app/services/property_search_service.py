@@ -1,3 +1,4 @@
+"""Property search and detail service: search by params, get detail/similar by id; uses PropertyRepository."""
 import uuid
 from typing import List, Optional
 
@@ -19,10 +20,16 @@ class PropertySearchService:
     """Service encapsulating property search and lookup behaviour."""
 
     def __init__(self, db: Session) -> None:
+        """Store DB session and property repository for all operations.
+
+        Args:
+            db: SQLAlchemy Session (request-scoped).
+        """
         self._db = db
         self._repo = PropertyRepository(db)
 
     def search(self, params: PropertySearchParams) -> PropertySearchResponse:
+        """Search properties with filters and pagination; returns extended list response."""
         filters = self._repo.build_property_filters(
             status=params.status,
             category=params.category,
@@ -58,6 +65,7 @@ class PropertySearchService:
         *,
         for_detail: bool,
     ):
+        """Resolve property_id (UUID or hash) to Property or None."""
         try:
             property_uuid = uuid.UUID(property_id)
         except (ValueError, TypeError):
@@ -105,6 +113,7 @@ class PropertySearchService:
         *,
         lang: Optional[str],
     ) -> PropertyDetail:
+        """Return full property detail for the given property_id; 404 if not found."""
         prop = self._resolve_property_identifier(property_id, for_detail=True)
         if not prop:
             raise HTTPException(

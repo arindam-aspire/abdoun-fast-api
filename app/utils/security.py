@@ -1,6 +1,4 @@
-"""
-Security utilities for input validation and ReDoS prevention.
-"""
+"""Input validation and ReDoS prevention: validate_input_length, MAX_* length constants."""
 
 from app.utils.constants import ErrorMessages
 

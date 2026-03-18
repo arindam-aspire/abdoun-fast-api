@@ -1,5 +1,6 @@
-from typing import List, Optional
+"""Repository for users, roles, permissions, and role assignment; list/get/update/delete."""
 import uuid
+from typing import List, Optional
 
 from sqlalchemy import Select, and_, insert, or_, select
 from sqlalchemy.orm import Session, selectinload
@@ -11,11 +12,17 @@ class UserRepository:
     """Repository for user, role and permission persistence operations."""
 
     def __init__(self, db: Session) -> None:
+        """Store the database session for all operations.
+
+        Args:
+            db: SQLAlchemy Session (request-scoped).
+        """
         self._db = db
 
     # Users
 
     def _base_user_query(self) -> Select:
+        """Base user query with roles eagerly loaded."""
         return select(User).options(selectinload(User.roles))
 
     def list_users(
@@ -26,6 +33,7 @@ class UserRepository:
         role_name: Optional[str] = None,
         search: Optional[str] = None,
     ) -> List[User]:
+        """List users with optional role and search filters; paginated."""
         stmt = self._base_user_query()
 
         if role_name:
@@ -46,6 +54,7 @@ class UserRepository:
         return list(result)
 
     def get_user_with_roles_and_profile(self, user_id: uuid.UUID) -> Optional[User]:
+        """Get user by ID with roles and profile loaded."""
         stmt = (
             select(User)
             .where(User.id == user_id)
@@ -58,19 +67,23 @@ class UserRepository:
         return self._db.execute(stmt).scalar_one_or_none()
 
     def soft_delete_user(self, user: User) -> None:
+        """Set user.is_active to False (soft delete)."""
         user.is_active = False
 
     # Roles and permissions
 
     def list_roles_with_permissions(self) -> List[Role]:
+        """List all roles with permissions eagerly loaded."""
         stmt = select(Role).options(selectinload(Role.permissions)).order_by(Role.name)
         return list(self._db.execute(stmt).scalars().unique().all())
 
     def list_permissions(self) -> List[Permission]:
+        """List all permissions ordered by code."""
         stmt = select(Permission).order_by(Permission.code)
         return list(self._db.execute(stmt).scalars().all())
 
     def get_role_by_id(self, role_id: uuid.UUID) -> Optional[Role]:
+        """Get role by ID."""
         stmt = select(Role).where(Role.id == role_id)
         return self._db.execute(stmt).scalar_one_or_none()
 
@@ -83,6 +96,7 @@ class UserRepository:
         role: Role,
         assigned_by: uuid.UUID,
     ) -> None:
+        """Insert user_roles row (user, role, assigned_by)."""
         self._db.execute(
             insert(user_roles).values(
                 user_id=user.id,
@@ -92,17 +106,21 @@ class UserRepository:
         )
 
     def remove_role_from_user(self, *, user: User, role: Role) -> None:
+        """Remove role from user's roles (many-to-many)."""
         if role in user.roles:
             user.roles.remove(role)
 
     # Transactions
 
     def commit(self) -> None:
+        """Commit the current transaction."""
         self._db.commit()
 
     def rollback(self) -> None:
+        """Roll back the current transaction."""
         self._db.rollback()
 
     def refresh(self, instance: object) -> None:
+        """Refresh instance from the DB."""
         self._db.refresh(instance)
 

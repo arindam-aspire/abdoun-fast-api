@@ -1,8 +1,4 @@
-"""
-Agent business logic: invites, onboarding, admin CRUD, assignments.
-Orchestrates AgentRepository; calls Cognito and notification where needed.
-No FastAPI or Pydantic response schemas; returns domain data for routers to map.
-"""
+"""Agent business logic: invites, onboarding, admin CRUD, assignments; uses AgentRepository, Cognito, notification."""
 
 import math
 import secrets
@@ -26,10 +22,12 @@ from app.schemas.user import (
 from app.services import cognito as cognito_module
 from app.services import notification as notification_module
 from app.utils.constants import (
+    AgentAssignmentStatus,
     AgentStatus,
     ErrorMessages,
     SuccessMessages,
     UserRoles,
+    ValidationMessages,
 )
 from app.utils.log_messages import LogMessages, format_log_message
 from app.utils.logger import api_logger
@@ -37,15 +35,14 @@ from app.utils.status_codes import HTTPStatus
 
 
 def _generate_temporary_password(length: int = 16) -> str:
-    """Generate a strong temporary password for Cognito."""
+    """Generate a strong temporary password for Cognito (upper, lower, digit, special)."""
     import string
     upper = secrets.choice(string.ascii_uppercase)
     lower = secrets.choice(string.ascii_lowercase)
     digit = secrets.choice(string.digits)
-    special_chars = "!@#$%^&*()-_=+[]{}|;:,.<>?"
-    special = secrets.choice(special_chars)
+    special = secrets.choice(ValidationMessages.PASSWORD_SPECIAL_CHARS)
     remaining_length = max(length - 4, 4)
-    alphabet = string.ascii_letters + string.digits + special_chars
+    alphabet = string.ascii_letters + string.digits + ValidationMessages.PASSWORD_SPECIAL_CHARS
     remaining = [secrets.choice(alphabet) for _ in range(remaining_length)]
     chars = [upper, lower, digit, special] + remaining
     secrets.SystemRandom().shuffle(chars)
@@ -54,7 +51,6 @@ def _generate_temporary_password(length: int = 16) -> str:
 
 def _try_create_cognito_user_for_agent(
     user: User,
-    current_user: User,
     agent_id: uuid.UUID,
 ) -> None:
     """Create Cognito user for agent on approval if configured; skip if already has cognito_sub."""
@@ -66,11 +62,9 @@ def _try_create_cognito_user_for_agent(
     if not pool_id or not client_id:
         api_logger.warning(
             format_log_message(
-                LogMessages.RBAC.NOTIFICATION_FAILED,
-                context="cognito create user skipped (missing config)",
-                error=f"user_id={user.id}",
+                LogMessages.RBAC.COGNITO_CREATE_USER_SKIPPED_MISSING_CONFIG,
+                user_id=str(user.id),
             )
-            + " - Set COGNITO_USER_POOL_ID and COGNITO_APP_CLIENT_ID to enable Cognito user creation."
         )
         return
     try:
@@ -81,15 +75,14 @@ def _try_create_cognito_user_for_agent(
             phone_number=user.phone_number or "",
         )
         if response and "User" in response:
-            cognito_sub = response["User"]["Username"]
+            cognito_sub = response["User"].get("Username")
             user.cognito_sub = cognito_sub
             api_logger.info(
                 format_log_message(
-                    LogMessages.RBAC.AGENT_APPROVED,
+                    LogMessages.RBAC.COGNITO_USER_CREATED,
                     agent_id=str(agent_id),
-                    approver_id=current_user.email,
+                    cognito_sub=cognito_sub,
                 )
-                + f" | Cognito user created with sub: {cognito_sub}"
             )
         else:
             api_logger.warning(
@@ -102,20 +95,19 @@ def _try_create_cognito_user_for_agent(
     except NoCredentialsError:
         api_logger.warning(
             format_log_message(
-                LogMessages.RBAC.NOTIFICATION_FAILED,
-                context="cognito create user - AWS credentials not configured",
-                error=f"user_id={user.id}, email={user.email}",
+                LogMessages.RBAC.COGNITO_CREATE_USER_CREDS_NOT_CONFIGURED,
+                user_id=str(user.id),
+                email=user.email,
             )
-            + " - Agent approval will proceed but Cognito user not created"
         )
     except Exception as e:
         api_logger.error(
             format_log_message(
-                LogMessages.RBAC.NOTIFICATION_FAILED,
-                context="cognito create user failed",
-                error=f"user_id={user.id}, email={user.email}, error={str(e)}",
+                LogMessages.RBAC.COGNITO_CREATE_USER_FAILED,
+                user_id=str(user.id),
+                email=user.email,
+                error=str(e),
             )
-            + " - Agent approval will proceed but Cognito user not created"
         )
 
 
@@ -123,6 +115,11 @@ class AgentService:
     """Service for agent invites, onboarding, admin CRUD, and admin-agent assignments."""
 
     def __init__(self, repo: AgentRepository) -> None:
+        """Store the agent repository for all operations.
+
+        Args:
+            repo: AgentRepository instance (request-scoped).
+        """
         self._repo = repo
 
     # ---------- Invite ----------
@@ -273,7 +270,7 @@ class AgentService:
             if not cognito_sub:
                 raise HTTPException(
                     status_code=HTTPStatus.BAD_REQUEST,
-                    detail="Cognito signup did not return UserSub",
+                    detail=ErrorMessages.COGNITO_SIGNUP_MISSING_USERSUB,
                 )
             try:
                 cognito_service.admin_confirm_sign_up(cognito_sub)
@@ -287,7 +284,7 @@ class AgentService:
                 )
                 raise HTTPException(
                     status_code=HTTPStatus.BAD_REQUEST,
-                    detail="Could not confirm user in Cognito. The agent may not be able to log in with the temporary password.",
+                    detail=ErrorMessages.COGNITO_CONFIRM_FAILED_TEMP_PASSWORD,
                 ) from confirm_err
         except HTTPException:
             raise
@@ -339,8 +336,10 @@ class AgentService:
                 )(db_user.cognito_sub, True)
         except Exception as attr_err:
             api_logger.debug(
-                "Could not set Cognito requires_password_set attribute for direct-created agent: %s",
-                attr_err,
+                format_log_message(
+                    LogMessages.RBAC.COGNITO_REQUIRES_PASSWORD_SET_ATTR_FAILED,
+                    error=str(attr_err),
+                )
             )
         api_logger.info(
             format_log_message(
@@ -348,8 +347,8 @@ class AgentService:
                 email=db_user.email,
                 invited_by=current_user.email,
             )
-            + " | Direct-create agent with temporary password issued."
         )
+        api_logger.info(LogMessages.RBAC.DIRECT_CREATE_AGENT_TEMP_PASSWORD_ISSUED)
         return {
             "id": db_user.id,
             "email": db_user.email,
@@ -443,7 +442,11 @@ class AgentService:
         for a in assignments:
             admin_user = a.admin
             agent_user = a.agent
-            status = "ACTIVE" if (a.is_active and a.revoked_at is None) else "INACTIVE/REVOKED"
+            status = (
+                AgentAssignmentStatus.ACTIVE
+                if (a.is_active and a.revoked_at is None)
+                else AgentAssignmentStatus.INACTIVE_REVOKED
+            )
             result.append({
                 "id": a.id,
                 "admin_id": a.admin_id,
@@ -504,7 +507,7 @@ class AgentService:
                 detail=ErrorMessages.INVALID_STATUS_TRANSITION,
             )
         try:
-            _try_create_cognito_user_for_agent(user, current_user, agent_id)
+            _try_create_cognito_user_for_agent(user, agent_id)
             profile.status = AgentStatus.ACTIVE
             profile.reviewed_at = datetime.now()
             profile.reviewed_by = current_user.id
@@ -568,7 +571,9 @@ class AgentService:
                 status_code=HTTPStatus.BAD_REQUEST,
                 detail=ErrorMessages.INVALID_STATUS_TRANSITION,
             )
-        reason = reason or "Application rejected by admin"
+        from app.utils.constants import Defaults
+
+        reason = reason or Defaults.AGENT_DECLINE_REASON_ADMIN
         try:
             profile.status = AgentStatus.DECLINED
             profile.decline_reason = reason
@@ -891,7 +896,7 @@ class AgentService:
         if not user:
             raise HTTPException(
                 status_code=HTTPStatus.NOT_FOUND,
-                detail="User not found for this invite",
+                detail=ErrorMessages.USER_NOT_FOUND_FOR_INVITE,
             )
         if user.profile and user.profile.form_submitted_at:
             raise HTTPException(
@@ -954,18 +959,18 @@ class AgentService:
         if admin_id == assign_in.agent_id:
             raise HTTPException(
                 status_code=HTTPStatus.BAD_REQUEST,
-                detail="An admin cannot assign themselves as an agent",
+                detail=ErrorMessages.ADMIN_CANNOT_ASSIGN_SELF_AS_AGENT,
             )
         role_names = {r.name for r in agent.roles}
         if UserRoles.ADMIN in role_names:
             raise HTTPException(
                 status_code=HTTPStatus.BAD_REQUEST,
-                detail="Admins cannot be assigned as agents",
+                detail=ErrorMessages.ADMINS_CANNOT_BE_ASSIGNED_AS_AGENTS,
             )
         if UserRoles.AGENT not in role_names:
             raise HTTPException(
                 status_code=HTTPStatus.BAD_REQUEST,
-                detail="Only users with AGENT role can be assigned to an admin",
+                detail=ErrorMessages.ONLY_AGENT_ROLE_CAN_BE_ASSIGNED_TO_ADMIN,
             )
         existing = self._repo.find_assignment(admin_id, assign_in.agent_id)
         if existing:

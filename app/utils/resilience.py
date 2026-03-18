@@ -1,9 +1,12 @@
+"""Retry decorator and helpers for transient failures (HTTP, timeouts, connection); exponential backoff and is_retryable_http_error."""
 import random
 import time
 from dataclasses import dataclass
 from typing import Any, Callable, Optional, Sequence, Type, TypeVar
 
 import requests
+
+from app.utils.status_codes import HTTPStatus
 
 T = TypeVar("T")
 
@@ -19,6 +22,7 @@ class RetryConfig:
 
 
 def _sleep_with_backoff(attempt: int, cfg: RetryConfig) -> None:
+    """Sleep with exponential backoff plus jitter before next retry."""
     exp = min(cfg.max_delay_s, cfg.base_delay_s * (2 ** max(0, attempt - 1)))
     jitter = random.uniform(0, cfg.jitter_s)
     time.sleep(exp + jitter)
@@ -64,5 +68,12 @@ def is_retryable_http_error(exc: BaseException) -> bool:
     resp = getattr(exc, "response", None)
     if resp is None:
         return True
-    return resp.status_code in {408, 429, 500, 502, 503, 504}
+    return resp.status_code in {
+        HTTPStatus.GATEWAY_TIMEOUT,
+        HTTPStatus.SERVICE_UNAVAILABLE,
+        HTTPStatus.BAD_GATEWAY,
+        HTTPStatus.INTERNAL_SERVER_ERROR,
+        HTTPStatus.TOO_MANY_REQUESTS,
+        HTTPStatus.REQUEST_TIMEOUT,
+    }
 

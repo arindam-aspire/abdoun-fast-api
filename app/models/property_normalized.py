@@ -1,6 +1,4 @@
-"""
-Normalized property models with separate tables for categories, types, cities, areas, features, etc.
-"""
+"""Normalized property ORM models: categories, types, cities, areas, features, properties, translations, media."""
 import uuid
 from datetime import datetime
 from typing import Any
@@ -53,6 +51,7 @@ class PropertyCategory(Base):
 # ==============================
 
 class PropertyType(Base):
+    """Property type within a category (e.g. apartment, villa)."""
     __tablename__ = "property_types"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -87,6 +86,7 @@ class City(Base):
 # ==============================
 
 class Area(Base):
+    """Area or district within a city."""
     __tablename__ = "areas"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -104,6 +104,7 @@ class Area(Base):
 # ==============================
 
 class SearchField(Base):
+    """Searchable field definition (key, type, range)."""
     __tablename__ = "search_fields"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -120,6 +121,7 @@ class SearchField(Base):
 # ==============================
 
 class CategorySearchField(Base):
+    """Link between category and search field (required/optional)."""
     __tablename__ = "category_search_fields"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -135,6 +137,7 @@ class CategorySearchField(Base):
 # ==============================
 
 class Feature(Base):
+    """Feature or amenity (e.g. pool, parking) that can be attached to properties."""
     __tablename__ = "features"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -150,6 +153,7 @@ class Feature(Base):
 # ==============================
 
 class CategoryFeature(Base):
+    """Link between category and available feature."""
     __tablename__ = "category_features"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -164,6 +168,7 @@ class CategoryFeature(Base):
 # ==============================
 
 class TypeFeature(Base):
+    """Link between property type and feature."""
     __tablename__ = "type_features"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -178,6 +183,7 @@ class TypeFeature(Base):
 # ==============================
 
 class PropertyStatus(Base):
+    """Listing status (e.g. available, sold)."""
     __tablename__ = "property_status"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -193,6 +199,7 @@ class PropertyStatus(Base):
 # ==============================
 
 class PropertyNormalized(Base):
+    """Main property listing with category, type, location, price, and relationships."""
     __tablename__ = "properties_normalized"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -294,6 +301,7 @@ class PropertyNormalized(Base):
 # UNIQUE(property_id, language_code) in DB ensures one row per language per property.
 
 class PropertyTranslation(Base):
+    """Per-language title, description, address for a property (i18n)."""
     __tablename__ = "property_translations"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -316,6 +324,7 @@ class PropertyTranslation(Base):
 # ==============================
 
 class PropertyFeature(Base):
+    """Many-to-many: property to feature with optional value."""
     __tablename__ = "property_features"
 
     property_id = Column(UUID(as_uuid=True), ForeignKey(FK_PROPERTIES_NORMALIZED_ID), primary_key=True)
@@ -336,6 +345,7 @@ class PropertyFeature(Base):
 # ==============================
 
 class PropertyMedia(Base):
+    """Media item (image, video, floor plan) for a property with display order."""
     __tablename__ = "property_media"
 
     id = Column(Integer, primary_key=True, index=True)

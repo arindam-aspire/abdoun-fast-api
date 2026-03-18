@@ -1,3 +1,4 @@
+"""Prometheus metrics: HTTP request count and duration for middleware and scrapers."""
 from __future__ import annotations
 
 from prometheus_client import Counter, Histogram

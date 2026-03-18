@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 
 from app.api.v1.deps.auth import get_auth_service
 from app.main import app
+from app.utils.constants import RequestIdConstants, SecurityHeadersConstants
 
 
 class _FakeAuthService:
@@ -21,17 +22,18 @@ class _FakeAuthService:
 def test_security_headers_present_on_health(client: TestClient) -> None:
     resp = client.get("/health")
     assert resp.status_code == 200
-    assert resp.headers.get("X-Request-ID")
-    assert resp.headers.get("X-Content-Type-Options") == "nosniff"
-    assert resp.headers.get("X-Frame-Options") == "DENY"
-    assert resp.headers.get("X-XSS-Protection") == "1; mode=block"
-    assert resp.headers.get("Referrer-Policy") == "strict-origin-when-cross-origin"
+    assert resp.headers.get(RequestIdConstants.HEADER_NAME)
+    assert resp.headers.get(SecurityHeadersConstants.X_CONTENT_TYPE_OPTIONS) == SecurityHeadersConstants.NOSNIFF
+    assert resp.headers.get(SecurityHeadersConstants.X_FRAME_OPTIONS) == SecurityHeadersConstants.DENY
+    assert resp.headers.get(SecurityHeadersConstants.X_XSS_PROTECTION) == SecurityHeadersConstants.XSS_BLOCK
+    assert resp.headers.get(SecurityHeadersConstants.REFERRER_POLICY) == SecurityHeadersConstants.REFERRER_STRICT_ORIGIN
 
 
 def test_request_id_is_preserved_when_supplied(client: TestClient) -> None:
-    resp = client.get("/health", headers={"X-Request-ID": "test_request_id_123456"})
+    custom_id = "test_request_id_123456"
+    resp = client.get("/health", headers={RequestIdConstants.HEADER_NAME: custom_id})
     assert resp.status_code == 200
-    assert resp.headers.get("X-Request-ID") == "test_request_id_123456"
+    assert resp.headers.get(RequestIdConstants.HEADER_NAME) == custom_id
 
 
 def test_rate_limiting_returns_429_on_login_password(client: TestClient) -> None:

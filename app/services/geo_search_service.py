@@ -1,7 +1,4 @@
-"""
-Geo (spatial) property search service.
-Uses PropertyRepository for DB access; builds response DTOs.
-"""
+"""Geo (spatial) property search: bounds or polygon; uses PropertyRepository, returns PropertyListResponse."""
 
 from __future__ import annotations
 
@@ -21,9 +18,15 @@ class GeoSearchService:
     """Service for geo (bounds/polygon) property search. No DB in router."""
 
     def __init__(self, repository: PropertyRepository) -> None:
+        """Store the property repository for geo queries.
+
+        Args:
+            repository: PropertyRepository instance.
+        """
         self._repo = repository
 
     def search(self, request: PropertySearchRequest) -> PropertyListResponse:
+        """Run geo search by bounds or polygon; return list of PropertySearchResult and total."""
         bounds = None
         polygon_geojson = None
         if request.mode == "bounds" and request.bounds:

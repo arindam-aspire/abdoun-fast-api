@@ -1,11 +1,4 @@
-"""
-Translation service for property title and description (i18n).
-
-Supports: en (English), ar (Arabic), esp (Spanish), fr (French).
-Slug is NOT translated here; derive from title per language when needed for SEO.
-
-Can be wired to AWS Translate or another provider by implementing translate_text().
-"""
+"""Translation service for property title/description/address (en, ar, esp, fr); translate_text and get_* for API."""
 from __future__ import annotations
 
 from typing import Optional
@@ -14,6 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.property_normalized import PropertyNormalized, PropertyTranslation
+from app.utils.constants import Defaults
 
 # Supported language codes (CSV/default is English)
 SUPPORTED_LANGUAGE_CODES = ("en", "ar", "esp", "fr")
@@ -272,7 +266,7 @@ def get_title_description_all_languages(
     """
     fallback_title = (prop.title or "").strip() or ""
     if not fallback_title:
-        fallback_title = "Untitled Property"
+        fallback_title = Defaults.UNTITLED_PROPERTY_FALLBACK
     fallback_desc = (prop.description or "").strip() if getattr(prop, "description", None) else None
 
     title_by_lang: dict[str, str] = {}

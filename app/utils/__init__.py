@@ -1,6 +1,4 @@
-"""
-Utility modules for the application.
-"""
+"""Utility modules: constants, status codes, responses, logging, log messages, security, request context, resilience."""
 
 from app.utils.constants import (
     ErrorMessages,

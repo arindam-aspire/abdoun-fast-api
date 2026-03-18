@@ -1,3 +1,4 @@
+"""User, role, and permission service: list/get/update/delete users, assign/remove roles; uses UserRepository."""
 import uuid
 from typing import List, Optional
 
@@ -16,6 +17,11 @@ class UserService:
     """Service layer for user, role and permission operations."""
 
     def __init__(self, repository: UserRepository) -> None:
+        """Store the user repository for all operations.
+
+        Args:
+            repository: UserRepository instance (request-scoped).
+        """
         self._repo = repository
 
     # Queries
@@ -28,6 +34,7 @@ class UserService:
         role_name: Optional[str],
         search: Optional[str],
     ) -> List[User]:
+        """List users with optional role and search filters; paginated."""
         return self._repo.list_users(
             limit=limit,
             offset=offset,
@@ -36,9 +43,11 @@ class UserService:
         )
 
     def list_roles(self) -> List[Role]:
+        """List all roles with permissions loaded."""
         return self._repo.list_roles_with_permissions()
 
     def list_permissions(self) -> List[dict]:
+        """List all permissions as dicts with id, code, description."""
         perms = self._repo.list_permissions()
         return [
             {"id": str(p.id), "code": p.code, "description": p.description}

@@ -1,3 +1,5 @@
+"""Dependency providers for property routes."""
+
 from typing import Annotated
 
 from fastapi import Depends
@@ -11,6 +13,13 @@ DBSessionDep = Annotated[Session, Depends(get_db)]
 
 
 def get_property_search_service(db: DBSessionDep) -> PropertySearchService:
-    """FastAPI dependency that provides a PropertySearchService instance."""
+    """Provide a PropertySearchService for property list/detail/similar endpoints.
+
+    Args:
+        db: Injected database session (from get_db).
+
+    Returns:
+        PropertySearchService instance.
+    """
     return PropertySearchService(db)
 

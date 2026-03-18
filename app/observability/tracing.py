@@ -1,13 +1,14 @@
+"""Initialize OpenTelemetry tracing from env (OTLP or console in debug); must not break startup."""
 from __future__ import annotations
 
 import os
 
 
 def init_tracing(*, service_name: str) -> None:
-    """Initialize OpenTelemetry tracing if configured via environment.
+    """Initialize OpenTelemetry tracing; OTLP if OTEL_EXPORTER_OTLP_ENDPOINT set, else console in debug.
 
-    This is intentionally conservative: if no exporter is configured, tracing stays
-    local (console in debug) or no-op (in prod) rather than failing startup.
+    Args:
+        service_name: Service name for the trace resource.
     """
     from opentelemetry import trace
     from opentelemetry.sdk.resources import Resource

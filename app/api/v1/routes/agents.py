@@ -8,7 +8,7 @@ import math
 import uuid
 from typing import List, Optional
 
-from fastapi import APIRouter, Body, Depends, Path, Query, Request
+from fastapi import APIRouter, Body, Depends, HTTPException, Path, Query, Request
 from pydantic import ValidationError
 
 from app.api.v1.deps.agents import get_agent_service
@@ -36,17 +36,23 @@ from app.schemas.user import (
     PaginationInfo,
 )
 from app.services.agent_service import AgentService
-from app.utils.constants import UserRoles
+from app.utils.constants import ApiDocs, Defaults, RateLimits, UserRoles
 from app.utils.responses import StandardResponse, create_success_response
-from app.utils.constants import SuccessMessages
+from app.utils.constants import ErrorMessages, SuccessMessages
+from app.utils.status_codes import HTTPStatus
 
 router = APIRouter()
 
-AGENT_ID_DESC = "Agent ID"
-
 
 def _sanitize_validation_errors(errors: List[dict]) -> List[dict]:
-    """Make validation error context JSON-serializable."""
+    """Make validation error context JSON-serializable.
+
+    Args:
+        errors: List of Pydantic error dicts (e.g. from ValidationError.errors()).
+
+    Returns:
+        Copy of errors with ctx values stringified where not JSON-serializable.
+    """
     sanitized = []
     for err in errors:
         clean = dict(err)
@@ -73,7 +79,7 @@ def _sanitize_validation_errors(errors: List[dict]) -> List[dict]:
 
 
 @router.post("/invite", response_model=StandardResponse[AgentInviteResponse])
-@limiter.limit("10/minute")
+@limiter.limit(RateLimits.SIGNUP)
 def invite_agent(
     request: Request,
     invite_in: AgentInviteRequest,
@@ -87,12 +93,12 @@ def invite_agent(
     data = service.invite_agent(invite_in, current_user)
     return create_success_response(
         data=AgentInviteResponse(**data),
-        message=f"Invitation sent to {invite_in.email}",
+        message=SuccessMessages.AGENT_INVITE_SENT_TO.format(email=invite_in.email),
     )
 
 
 @router.post("/manual-onboard", response_model=StandardResponse[AdminCreateAgentResponse])
-@limiter.limit("5/minute")
+@limiter.limit(RateLimits.SIGNUP_ADMIN)
 def create_agent_direct(
     request: Request,
     body: AdminCreateAgentRequest,
@@ -105,22 +111,22 @@ def create_agent_direct(
     data = service.create_agent_direct(body, current_user)
     return create_success_response(
         data=AdminCreateAgentResponse(**data),
-        message="Agent created successfully with a temporary password",
+        message=SuccessMessages.AGENT_CREATED_WITH_TEMP_PASSWORD,
     )
 
 
 @router.get("", response_model=StandardResponse[AgentListPaginatedResponse])
-@limiter.limit("60/minute")
+@limiter.limit(RateLimits.ADMIN_READ)
 def list_agents(
     request: Request,
     current_user: User = require_role(UserRoles.ADMIN),
     service: AgentService = Depends(get_agent_service),
-    status: Optional[str] = Query(None, description="Filter by status"),
-    search: Optional[str] = Query(None, description="Search by name or email"),
-    page: int = Query(1, ge=1, description="Page number"),
-    limit: int = Query(20, ge=1, le=100, description="Items per page"),
-    sortBy: str = Query("invitedAt", description="Sort field"),
-    sortOrder: str = Query("desc", description="Sort order (asc/desc)"),
+    status: Optional[str] = Query(None, description=ApiDocs.FILTER_BY_STATUS),
+    search: Optional[str] = Query(None, description=ApiDocs.SEARCH_BY_NAME_OR_EMAIL),
+    page: int = Query(1, ge=1, description=ApiDocs.PAGE_NUMBER),
+    limit: int = Query(20, ge=1, le=100, description=ApiDocs.ITEMS_PER_PAGE),
+    sortBy: str = Query("invitedAt", description=ApiDocs.SORT_FIELD),
+    sortOrder: str = Query("desc", description=ApiDocs.SORT_ORDER),
 ) -> StandardResponse[AgentListPaginatedResponse]:
     """Admin: List agents with pagination and filtering."""
     agents_data, total_items = service.list_agents(
@@ -148,12 +154,12 @@ def list_agents(
 
 
 @router.get("/invites", response_model=StandardResponse[List[dict]])
-@limiter.limit("60/minute")
+@limiter.limit(RateLimits.ADMIN_READ)
 def list_invites(
     request: Request,
     current_user: User = require_role(UserRoles.ADMIN),
     service: AgentService = Depends(get_agent_service),
-    used: Optional[bool] = Query(None, description="Filter by is_used: true/false"),
+    used: Optional[bool] = Query(None, description=ApiDocs.FILTER_BY_IS_USED),
 ) -> StandardResponse[List[dict]]:
     """Admin: List invites created by current admin."""
     data = service.list_invites(current_user, used=used)
@@ -161,13 +167,16 @@ def list_invites(
 
 
 @router.get("/assignments", response_model=StandardResponse[List[AdminAgentAssignmentResponse]])
-@limiter.limit("60/minute")
+@limiter.limit(RateLimits.ADMIN_READ)
 def get_assignments(
     request: Request,
     current_user: User = require_role(UserRoles.ADMIN),
     service: AgentService = Depends(get_agent_service),
-    agent_id: Optional[uuid.UUID] = Query(None, description="Filter by agent ID"),
-    admin_id: Optional[uuid.UUID] = Query(None, description="Filter by admin ID (defaults to current user)"),
+    agent_id: Optional[uuid.UUID] = Query(None, description=ApiDocs.FILTER_BY_AGENT_ID),
+    admin_id: Optional[uuid.UUID] = Query(
+        None,
+        description=ApiDocs.FILTER_BY_ADMIN_ID_DEFAULTS_CURRENT_USER,
+    ),
 ) -> StandardResponse[List[AdminAgentAssignmentResponse]]:
     """
     Get admin-agent assignments with detailed information.
@@ -184,10 +193,10 @@ def get_assignments(
 
 
 @router.get("/{agent_id}", response_model=StandardResponse[AgentDetailResponse])
-@limiter.limit("60/minute")
+@limiter.limit(RateLimits.ADMIN_READ)
 def get_agent_details(
     request: Request,
-    agent_id: uuid.UUID = Path(..., description=AGENT_ID_DESC),
+    agent_id: uuid.UUID = Path(..., description=ApiDocs.AGENT_ID_DESC),
     current_user: User = require_role(UserRoles.ADMIN),
     service: AgentService = Depends(get_agent_service),
 ) -> StandardResponse[AgentDetailResponse]:
@@ -197,10 +206,10 @@ def get_agent_details(
 
 
 @router.patch("/{agent_id}/accept", response_model=StandardResponse[AgentAcceptResponse])
-@limiter.limit("20/minute")
+@limiter.limit(RateLimits.ADMIN_ACTION)
 def accept_agent(
     request: Request,
-    agent_id: uuid.UUID = Path(..., description=AGENT_ID_DESC),
+    agent_id: uuid.UUID = Path(..., description=ApiDocs.AGENT_ID_DESC),
     current_user: User = require_role(UserRoles.ADMIN),
     service: AgentService = Depends(get_agent_service),
 ) -> StandardResponse[AgentAcceptResponse]:
@@ -213,16 +222,16 @@ def accept_agent(
 
 
 @router.patch("/{agent_id}/decline", response_model=StandardResponse[AgentDeclineResponse])
-@limiter.limit("20/minute")
+@limiter.limit(RateLimits.ADMIN_ACTION)
 def decline_agent(
     request: Request,
-    agent_id: uuid.UUID = Path(..., description=AGENT_ID_DESC),
+    agent_id: uuid.UUID = Path(..., description=ApiDocs.AGENT_ID_DESC),
     payload: Optional[dict] = Body(None),
     current_user: User = require_role(UserRoles.ADMIN),
     service: AgentService = Depends(get_agent_service),
 ) -> StandardResponse[AgentDeclineResponse]:
     """Admin: Decline an agent (change status from PENDING_REVIEW to DECLINED)."""
-    reason = (payload or {}).get("reason") or "Application rejected by admin"
+    reason = (payload or {}).get("reason") or Defaults.AGENT_DECLINE_REASON_ADMIN
     data = service.decline_agent(agent_id, reason=reason, current_user=current_user)
     return create_success_response(
         data=AgentDeclineResponse(**data),
@@ -234,10 +243,10 @@ def decline_agent(
     "/{agent_id}/status",
     response_model=StandardResponse[AgentStatusUpdateResponse],
 )
-@limiter.limit("30/minute")
+@limiter.limit(RateLimits.ADMIN_WRITE)
 def update_agent_status(
     request: Request,
-    agent_id: uuid.UUID = Path(..., description=AGENT_ID_DESC),
+    agent_id: uuid.UUID = Path(..., description=ApiDocs.AGENT_ID_DESC),
     payload: AgentStatusUpdateRequest = Body(...),
     current_user: User = require_role(UserRoles.ADMIN),
     service: AgentService = Depends(get_agent_service),
@@ -253,10 +262,10 @@ def update_agent_status(
 
 
 @router.delete("/{agent_id}", response_model=StandardResponse[AgentDeleteResponse])
-@limiter.limit("10/minute")
+@limiter.limit(RateLimits.SIGNUP)
 def delete_agent(
     request: Request,
-    agent_id: uuid.UUID = Path(..., description=AGENT_ID_DESC),
+    agent_id: uuid.UUID = Path(..., description=ApiDocs.AGENT_ID_DESC),
     current_user: User = require_role(UserRoles.ADMIN),
     service: AgentService = Depends(get_agent_service),
 ) -> StandardResponse[AgentDeleteResponse]:
@@ -269,10 +278,10 @@ def delete_agent(
 
 
 @router.post("/{agent_id}/resend-invite", response_model=StandardResponse[AgentInviteResponse])
-@limiter.limit("10/minute")
+@limiter.limit(RateLimits.SIGNUP)
 def resend_invite(
     request: Request,
-    agent_id: uuid.UUID = Path(..., description=AGENT_ID_DESC),
+    agent_id: uuid.UUID = Path(..., description=ApiDocs.AGENT_ID_DESC),
     current_user: User = require_role(UserRoles.ADMIN),
     service: AgentService = Depends(get_agent_service),
 ) -> StandardResponse[AgentInviteResponse]:
@@ -285,10 +294,10 @@ def resend_invite(
 
 
 @router.patch("/{agent_id}/revoke-invite", response_model=StandardResponse[dict])
-@limiter.limit("10/minute")
+@limiter.limit(RateLimits.SIGNUP)
 def revoke_invite(
     request: Request,
-    agent_id: uuid.UUID = Path(..., description=AGENT_ID_DESC),
+    agent_id: uuid.UUID = Path(..., description=ApiDocs.AGENT_ID_DESC),
     current_user: User = require_role(UserRoles.ADMIN),
     service: AgentService = Depends(get_agent_service),
 ) -> StandardResponse[dict]:
@@ -306,10 +315,10 @@ def revoke_invite(
 
 
 @router.get("/invite/validate", response_model=StandardResponse[AgentValidateInviteResponse], include_in_schema=False)
-@limiter.limit("60/minute")
+@limiter.limit(RateLimits.ADMIN_READ)
 def validate_invite_token_query(
     request: Request,
-    token: str = Query(..., description="Invite token"),
+    token: str = Query(..., description=ApiDocs.INVITE_TOKEN),
     service: AgentService = Depends(get_agent_service),
 ) -> StandardResponse[AgentValidateInviteResponse]:
     """Compatibility endpoint for query-param token validation."""
@@ -325,27 +334,25 @@ def validate_invite_token_query(
 
 
 @router.post("/onboarding", response_model=StandardResponse[AgentOnboardingFormResponse], include_in_schema=False)
-@limiter.limit("20/minute")
+@limiter.limit(RateLimits.ADMIN_ACTION)
 def submit_onboarding_compat(
     request: Request,
     payload: dict = Body(...),
-    token: Optional[str] = Query(None, description="Invite token"),
+    token: Optional[str] = Query(None, description=ApiDocs.INVITE_TOKEN),
     service: AgentService = Depends(get_agent_service),
 ) -> StandardResponse[AgentOnboardingFormResponse]:
     """Compatibility endpoint for clients posting onboarding payload to /onboarding."""
-    from app.utils.status_codes import HTTPStatus
     resolved_token = token or payload.get("token")
     if not resolved_token:
-        from fastapi import HTTPException
         raise HTTPException(
             status_code=HTTPStatus.BAD_REQUEST,
-            detail="Invite token is required",
+            detail=ErrorMessages.INVITE_TOKEN_REQUIRED,
         )
     phone = payload.get("phone") or payload.get("phone_number")
     if isinstance(phone, str):
         phone = phone.strip()
         if phone.isdigit() and len(phone) == 10:
-            phone = f"+91{phone}"
+            phone = f"{Defaults.DEFAULT_PHONE_PREFIX_10_DIGIT}{phone}"
     try:
         form_data = AgentOnboardingFormRequest(
             fullName=payload.get("fullName") or payload.get("full_name"),
@@ -353,16 +360,15 @@ def submit_onboarding_compat(
             serviceArea=payload.get("serviceArea") or payload.get("service_area"),
         )
     except ValidationError as e:
-        from fastapi import HTTPException
         sanitized_errors = _sanitize_validation_errors(e.errors())
         raise HTTPException(
-            status_code=422,
+            status_code=HTTPStatus.UNPROCESSABLE_ENTITY,
             detail=sanitized_errors,
         ) from e
     data = service.submit_onboarding_form(resolved_token, form_data)
     return create_success_response(
         data=AgentOnboardingFormResponse(**data),
-        message="Your application has been submitted and is under review.",
+        message=SuccessMessages.AGENT_ONBOARDING_SUBMITTED_UNDER_REVIEW,
     )
 
 
@@ -372,7 +378,7 @@ def submit_onboarding_compat(
 
 
 @router.post("/assign-agent", response_model=StandardResponse[bool])
-@limiter.limit("30/minute")
+@limiter.limit(RateLimits.ADMIN_WRITE)
 def assign_agent(
     request: Request,
     assign_in: AdminAgentAssignmentRequest,
@@ -387,7 +393,7 @@ def assign_agent(
 
 
 @router.post("/unassign-agent", response_model=StandardResponse[bool])
-@limiter.limit("30/minute")
+@limiter.limit(RateLimits.ADMIN_WRITE)
 def unassign_agent(
     request: Request,
     unassign_in: AdminAgentAssignmentRequest,

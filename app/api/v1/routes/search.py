@@ -1,3 +1,10 @@
+"""Search and import endpoints.
+
+Includes:
+- Geo search endpoint for property discovery.
+- Admin-protected CSV import endpoint for bulk property ingestion.
+"""
+
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, UploadFile, File, Query, Request
@@ -11,18 +18,19 @@ from app.services.geo_search_service import GeoSearchService
 from app.services.property_import_service import PropertyImportService
 from app.utils.status_codes import STATUS_CREATED
 from app.utils.responses import ImportResponse
-from app.utils.constants import UserPermissions
+from app.utils.constants import ApiDocs, RateLimits, UserPermissions
 
 router = APIRouter()
 
 
 @router.post("/geo-search")
-@limiter.limit("30/minute")
+@limiter.limit(RateLimits.PUBLIC_GEO_SEARCH)
 def search_properties(
     request: Request,
     payload: PropertySearchRequest,
     geo_search_service: Annotated[GeoSearchService, Depends(get_geo_search_service)],
 ) -> PropertyListResponse:
+    """Search properties using geo/filters defined by `PropertySearchRequest`."""
     return geo_search_service.search(payload)
 
 
@@ -31,7 +39,7 @@ def search_properties(
     status_code=STATUS_CREATED,
     dependencies=[require_permission(UserPermissions.PROPERTY_CREATE)],
 )
-@limiter.limit("2/minute")
+@limiter.limit(RateLimits.ADMIN_IMPORT)
 async def import_csv(
     request: Request,
     current_user: Annotated[User, Depends(get_current_user)],
@@ -39,7 +47,7 @@ async def import_csv(
     import_service: Annotated[PropertyImportService, Depends(get_property_import_service)],
     geocode_missing: Annotated[
         bool,
-        Query(description="If True, geocode locations that don't have coordinates (slower, rate-limited)"),
+        Query(description=ApiDocs.GEOCODE_MISSING_QUERY),
     ] = False,
 ) -> ImportResponse:
     """

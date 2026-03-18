@@ -1,3 +1,5 @@
+"""Central re-exports of SQLAlchemy Base and ORM models for migrations and app imports."""
+
 from app.models.property import Base  # noqa: F401
 from app.models.property_normalized import *  # noqa: F401
 from app.models.user import *  # noqa: F401

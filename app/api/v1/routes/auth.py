@@ -1,11 +1,18 @@
-from fastapi import APIRouter, Depends, Request
+"""Authentication and user profile endpoints.
+
+This router exposes signup/login flows (password, OTP, social), session management,
+and authenticated profile/permissions endpoints. Most business logic is delegated
+to `AuthService`.
+"""
+
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials
 
 from app.api.v1.deps.auth import get_auth_service
 from app.api.v1.deps.security import get_current_user, require_role, security
 from app.core.limiter import limiter
 from app.models.user import User
-from app.utils.constants import UserRoles
+from app.utils.constants import Defaults, RateLimits, UserRoles
 from app.schemas.user import (
     ConfirmSignupRequest,
     ForgotPasswordConfirm,
@@ -23,12 +30,14 @@ from app.schemas.user import (
 )
 from app.services.auth_service import AuthService
 from app.utils.responses import StandardResponse
+from app.utils.constants import ErrorMessages
+from app.utils.status_codes import HTTPStatus
 
 router = APIRouter()
 
 
 @router.post("/signup", response_model=StandardResponse[UserResponse])
-@limiter.limit("10/minute")
+@limiter.limit(RateLimits.SIGNUP)
 def signup(
     request: Request,
     user_in: UserCreate,
@@ -39,7 +48,7 @@ def signup(
 
 
 @router.post("/signup/admin", response_model=StandardResponse[UserResponse])
-@limiter.limit("5/minute")
+@limiter.limit(RateLimits.SIGNUP_ADMIN)
 def signup_admin(
     request: Request,
     user_in: UserCreate,
@@ -47,12 +56,9 @@ def signup_admin(
     service: AuthService = Depends(get_auth_service),
 ) -> StandardResponse[UserResponse]:
     """Deprecated: Admin signup is not available via public API."""
-    from fastapi import HTTPException
-    from app.utils.status_codes import HTTPStatus
-
     raise HTTPException(
         status_code=HTTPStatus.NOT_FOUND,
-        detail="Not Found",
+        detail=ErrorMessages.NOT_FOUND,
     )
 
 
@@ -75,7 +81,7 @@ def resend_confirmation(
 
 
 @router.post("/login/password", response_model=StandardResponse[TokenResponse])
-@limiter.limit("5/minute")
+@limiter.limit(RateLimits.LOGIN_PASSWORD)
 def login_password(
     request: Request,
     login_in: LoginRequest,
@@ -86,7 +92,7 @@ def login_password(
 
 
 @router.post("/login/otp/request", response_model=StandardResponse[dict])
-@limiter.limit("3/minute")
+@limiter.limit(RateLimits.LOGIN_OTP_REQUEST)
 def login_otp_request(
     request: Request,
     otp_req: OTPRequest,
@@ -97,7 +103,7 @@ def login_otp_request(
 
 
 @router.post("/login/otp/verify", response_model=StandardResponse[TokenResponse])
-@limiter.limit("5/minute")
+@limiter.limit(RateLimits.LOGIN_OTP_VERIFY)
 def login_otp_verify(
     request: Request,
     otp_ver: OTPVerify,
@@ -127,7 +133,7 @@ def logout(
 
 
 @router.post("/forgot-password/request", response_model=StandardResponse[bool])
-@limiter.limit("3/minute")
+@limiter.limit(RateLimits.FORGOT_PASSWORD_REQUEST)
 def forgot_password_request(
     request: Request,
     fp_req: ForgotPasswordRequest,
@@ -138,7 +144,7 @@ def forgot_password_request(
 
 
 @router.post("/forgot-password/confirm", response_model=StandardResponse[bool])
-@limiter.limit("3/minute")
+@limiter.limit(RateLimits.FORGOT_PASSWORD_CONFIRM)
 def forgot_password_confirm(
     request: Request,
     fp_conf: ForgotPasswordConfirm,
@@ -155,15 +161,13 @@ def set_password(
     auth: HTTPAuthorizationCredentials = Depends(security),
     service: AuthService = Depends(get_auth_service),
 ) -> StandardResponse[bool]:
-    """
-    Set or change password for the authenticated user.
-    """
+    """Set or change password for the authenticated user."""
     return service.set_password(password_req, current_user, auth)
 
 
 @router.get("/social-login", response_model=StandardResponse[dict])
 def social_login(
-    provider: str = "Google",
+    provider: str = Defaults.DEFAULT_SOCIAL_PROVIDER,
     service: AuthService = Depends(get_auth_service),
 ) -> StandardResponse[dict]:
     """Get the social login URL for a specific provider."""

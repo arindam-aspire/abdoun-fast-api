@@ -1,7 +1,4 @@
-"""
-Centralized logging messages for the application.
-All log messages should be defined here.
-"""
+"""Centralized log message templates (LogMessages.*) and format_log_message helper."""
 
 
 class LogMessages:
@@ -79,6 +76,7 @@ class LogMessages:
         PASSWORD_RESET_REQUEST = "Password reset requested for: {email}"
         PASSWORD_RESET_SUCCESS = "Password reset successful for: {email}"
         PASSWORD_RESET_FAILED = "Password reset failed for {email}: {error}"
+        PASSWORD_SET_AT_UPDATE_FAILED = "Failed to update password_set_at: {error}"
         TOKEN_VERIFICATION_FAILED = "Token verification failed: {error}"
         JWKS_FETCH_FAILED = "Failed to fetch JWKS from Cognito: {error}"
         JWKS_KEY_NOT_FOUND = "Public key {kid} not found in JWKS."
@@ -90,6 +88,16 @@ class LogMessages:
         SOCIAL_LOGIN_SUCCESS = "Social login successful: {email}"
         SOCIAL_AUTH_FAILED_LOG = "Social authentication failed for {email}: {error}"
         UNKNOWN_EMAIL = "Unknown"  # Placeholder when email is not available in error context
+        FAILED_EXTRACT_USERNAME_FROM_TOKEN = "Failed to extract username from token: {error}"
+        AWS_CREDENTIALS_NOT_CONFIGURED = "AWS credentials not configured: {error}"
+        AGENT_APPROVAL_WILL_PROCEED_NO_COGNITO_USER = (
+            "Agent approval will proceed but Cognito user not created. "
+            "Note: admin_create_user requires AWS credentials, unlike sign_up() which is a public API."
+        )
+        USER_ALREADY_EXISTS_IN_COGNITO = "User already exists in Cognito: {error}"
+        USER_ALREADY_EXISTS_EXPECTED_PROCEED = (
+            "This is expected if user was created via signup. Agent approval will proceed."
+        )
 
     # RBAC Log Messages
     class RBAC:
@@ -123,6 +131,29 @@ class LogMessages:
         ROLE_REMOVED_LOG = "Role {role_name} removed from user {user_id} by {admin_email}"
         ROLE_ASSIGN_FAILED_LOG = "Failed to assign role: {error}"
         ROLE_REMOVED_FAILED_LOG = "Failed to remove role from user: {error}"
+        COGNITO_CREATE_USER_SKIPPED_MISSING_CONFIG = (
+            "Cognito create user skipped (missing config) - user_id={user_id}. "
+            "Set COGNITO_USER_POOL_ID and COGNITO_APP_CLIENT_ID to enable Cognito user creation."
+        )
+        COGNITO_USER_CREATED = "Cognito user created for agent approval - agent_id={agent_id} sub={cognito_sub}"
+        COGNITO_CREATE_USER_CREDS_NOT_CONFIGURED = (
+            "Cognito create user skipped (AWS credentials not configured) - user_id={user_id} email={email}. "
+            "Agent approval will proceed but Cognito user not created."
+        )
+        COGNITO_CREATE_USER_FAILED = (
+            "Cognito create user failed - user_id={user_id} email={email} error={error}. "
+            "Agent approval will proceed but Cognito user not created."
+        )
+        COGNITO_REQUIRES_PASSWORD_SET_ATTR_FAILED = (
+            "Could not set Cognito requires_password_set attribute for direct-created agent: {error}"
+        )
+        DIRECT_CREATE_AGENT_TEMP_PASSWORD_ISSUED = "Direct-create agent with temporary password issued."
+
+    # Slow query logging (observability)
+    class SlowQuery:
+        """Slow SQL query log messages"""
+        LOG_TEMPLATE = "slow_query duration_ms=%.2f threshold_ms=%d request_id=%s statement=%s"
+        UNPRINTABLE_STATEMENT = "<unprintable>"
 
     # Exception handlers (main.py)
     class AppException:
@@ -135,6 +166,7 @@ class LogMessages:
         AGENT_APPROVED = "Notification: agent approved — email={email} name={name} (wire to SES/email in production)"
         AGENT_REJECTED = "Notification: agent rejected — email={email} name={name} (wire to SES/email in production)"
         INVITE_SENT = "Notification: agent invite sent — to={to_email} link={link} by={by_email} (wire to SES/email in production)"
+        DECLINE_REASON = "Decline reason: {decline_reason}"
 
     # Property route (lookup by hash, etc.)
     class Property:
@@ -151,7 +183,7 @@ class LogMessages:
 
 
 def format_log_message(template: str, **kwargs) -> str:
-    """Helper function to format log messages with variables"""
+    """Format a template with kwargs; on KeyError return template as-is. Returns: formatted string."""
     try:
         return template.format(**kwargs)
     except KeyError:

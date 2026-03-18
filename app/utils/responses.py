@@ -1,7 +1,4 @@
-"""
-Standard response formats for the API.
-All API response structures should be defined here.
-"""
+"""Standard API response models and helpers: StandardResponse, ErrorResponse, PaginatedResponse, ImportResponse, create_*."""
 
 from typing import Any, List, TypeVar, Generic, Optional
 from pydantic import BaseModel
@@ -58,7 +55,7 @@ def create_success_response(
     data: Any,
     message: Optional[str] = None
 ) -> StandardResponse:
-    """Helper function to create standardized success responses"""
+    """Build a standardized success StandardResponse. Args: data, optional message. Returns: StandardResponse."""
     return StandardResponse(
         success=True,
         data=data,

@@ -1,4 +1,6 @@
+"""CSV property import: parse price/area/coordinates, optional geocoding; import_properties_from_dataframe is the main entry."""
 from __future__ import annotations
+
 import io
 import re
 from typing import Any

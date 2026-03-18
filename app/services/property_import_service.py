@@ -1,7 +1,4 @@
-"""
-Property CSV import service.
-Wraps CSV importer; router delegates to this service (no direct DB in router).
-"""
+"""Property CSV import service; wraps csv_importer, router delegates here (no direct DB in router)."""
 
 from __future__ import annotations
 
@@ -14,6 +11,11 @@ class PropertyImportService:
     """Service for property CSV import. Uses session for DB access via importer."""
 
     def __init__(self, db: Session) -> None:
+        """Store the database session for import.
+
+        Args:
+            db: SQLAlchemy Session (request-scoped).
+        """
         self._db = db
 
     async def import_from_csv(

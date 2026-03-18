@@ -1,17 +1,18 @@
+"""Initialize Sentry SDK for error tracking; request_id attached as tag when available."""
 from __future__ import annotations
 
 from typing import Any
 
+from app.utils.constants import RequestIdConstants
 from app.utils.request_context import get_request_id
 
 
 def init_sentry(*, dsn: str, environment: str) -> None:
-    """Initialize Sentry error tracking.
+    """Initialize Sentry; must not crash startup. Adds request_id tag; no request bodies/PII.
 
-    Notes:
-        - This must never crash application startup.
-        - We intentionally avoid adding request bodies/PII. Sentry will capture
-          stack traces and request metadata by default; request_id is added as a tag.
+    Args:
+        dsn: Sentry DSN.
+        environment: Environment name (e.g. local, production).
     """
     import sentry_sdk
     from sentry_sdk.integrations.starlette import StarletteIntegration
@@ -20,7 +21,7 @@ def init_sentry(*, dsn: str, environment: str) -> None:
         rid = get_request_id()
         if rid:
             event.setdefault("tags", {})
-            event["tags"]["request_id"] = rid
+            event["tags"][RequestIdConstants.SENTRY_TAG_REQUEST_ID] = rid
         return event
 
     sentry_sdk.init(

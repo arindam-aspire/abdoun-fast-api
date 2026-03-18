@@ -1,6 +1,8 @@
+"""Property search service: bounds or polygon spatial queries returning PropertySearchResult list."""
+import json
+
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, joinedload
-import json
 
 from app.models.property_normalized import PropertyNormalized as Property
 from app.schemas.property import PropertySearchRequest, PropertySearchResult

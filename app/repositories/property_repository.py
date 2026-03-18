@@ -1,3 +1,4 @@
+"""Repository for property search, detail, similar, and geo search; filter building and pagination."""
 from __future__ import annotations
 
 import uuid
@@ -14,15 +15,22 @@ from app.models.property_normalized import (
     PropertyNormalized as Property,
     PropertyType,
 )
+from app.utils.constants import ListingStatus, PropertyExclusiveFilter
 
 
 class PropertyRepository:
     """Repository for property search and lookup operations."""
 
     def __init__(self, db: Session) -> None:
+        """Store the database session for all operations.
+
+        Args:
+            db: SQLAlchemy Session (request-scoped).
+        """
         self._db = db
 
     def _base_detail_query(self, options: Optional[List[Any]] = None) -> Select:
+        """Base property select with optional eager-load options."""
         stmt = select(Property)
         if options:
             stmt = stmt.options(*options)
@@ -34,6 +42,7 @@ class PropertyRepository:
         property_uuid: uuid.UUID,
         options: List[Any],
     ) -> Optional[Property]:
+        """Load property by UUID with given joinedload options."""
         stmt = self._base_detail_query(options=options).where(Property.id == property_uuid)
         return (
             self._db.execute(stmt)
@@ -42,9 +51,8 @@ class PropertyRepository:
         )
 
     def find_property_uuid_by_hash(self, target_hash: int) -> Optional[uuid.UUID]:
+        """Resolve property UUID from integer hash; verifies to guard against collisions."""
         from app.schemas.property import uuid_to_int_hash
-
-        # Indexed lookup by stored hash, then verify to guard against modulo collisions.
         candidate_ids = (
             self._db.execute(
                 select(Property.id).where(Property.property_hash == target_hash)
@@ -73,6 +81,7 @@ class PropertyRepository:
         min_price: Optional[str],
         max_price: Optional[str],
     ) -> List[Any]:
+        """Build list of SQLAlchemy filter expressions from search params."""
         filters: List[Any] = []
         status_lower = status.lower() if status else None
 
@@ -91,12 +100,14 @@ class PropertyRepository:
         return filters
 
     def _append_status_filter(self, filters: List[Any], status_lower: Optional[str]) -> None:
-        if status_lower == "buy":
+        """Append filter for listing type (buy/rent) when status_lower is set."""
+        if status_lower == ListingStatus.BUY:
             filters.append(Property.selling_price_amount.isnot(None))
-        elif status_lower == "rent":
+        elif status_lower == ListingStatus.RENT:
             filters.append(Property.rent_price_amount.isnot(None))
 
     def _append_category_filter(self, filters: List[Any], category: Optional[str]) -> None:
+        """Append category filter (land/residential/commercial or contains)."""
         if not category:
             return
 
@@ -128,6 +139,7 @@ class PropertyRepository:
             filters.append(func.lower(PropertyCategory.name).contains(category_lower))
 
     def _append_type_filter(self, filters: List[Any], type_slug: Optional[str]) -> None:
+        """Append type filter from slug (apartment, villa, office, etc.)."""
         if not type_slug:
             return
 
@@ -159,6 +171,7 @@ class PropertyRepository:
             filters.append(func.lower(PropertyType.name).contains(type_lower))
 
     def _append_city_filter(self, filters: List[Any], city: Optional[str]) -> None:
+        """Append city filter (City.name or location_name contains)."""
         if not city:
             return
 
@@ -171,6 +184,7 @@ class PropertyRepository:
         )
 
     def _append_locations_filter(self, filters: List[Any], locations: Optional[str]) -> None:
+        """Append filter for comma-separated area/location names."""
         if not locations:
             return
 
@@ -188,10 +202,11 @@ class PropertyRepository:
         filters.append(or_(*location_filters))
 
     def _append_exclusive_filter(self, filters: List[Any], exclusive: Optional[str]) -> None:
+        """Append is_exclusive filter when exclusive param is a true-like value."""
         if exclusive is None:
             return
 
-        exclusive_bool = str(exclusive).lower() in ("true", "1", "yes")
+        exclusive_bool = str(exclusive).lower() in PropertyExclusiveFilter.TRUE_VALUES
         filters.append(Property.is_exclusive.is_(exclusive_bool))
 
     def _append_budget_bound_filter(
@@ -202,6 +217,7 @@ class PropertyRepository:
         *,
         is_min: bool,
     ) -> None:
+        """Append min or max price filter (selling/rent by status_lower)."""
         if not value_raw:
             return
 
@@ -210,13 +226,13 @@ class PropertyRepository:
         except (ValueError, TypeError):
             return
 
-        if status_lower == "buy":
+        if status_lower == ListingStatus.BUY:
             condition = (
                 Property.selling_price_amount >= value
                 if is_min
                 else Property.selling_price_amount <= value
             )
-        elif status_lower == "rent":
+        elif status_lower == ListingStatus.RENT:
             condition = (
                 Property.rent_price_amount >= value
                 if is_min
@@ -234,6 +250,7 @@ class PropertyRepository:
         filters.append(condition)
 
     def build_count_statement(self, filters: List[Any], requires_joins: bool) -> Select:
+        """Build count query for properties with optional joins and filters."""
         stmt: Select = select(func.count(Property.id))
         if requires_joins:
             stmt = stmt.join(PropertyCategory, Property.category_id == PropertyCategory.id)
@@ -254,6 +271,7 @@ class PropertyRepository:
         page_size: int,
         requires_joins: bool,
     ) -> tuple[List[Property], int]:
+        """Search properties with filters; returns (items, total_count) with pagination."""
         stmt: Select = select(Property).options(
             joinedload(Property.category),
             joinedload(Property.type),
@@ -285,6 +303,7 @@ class PropertyRepository:
         source_property: Property,
         limit: int,
     ) -> List[Property]:
+        """Return properties similar by category, city, price band, bedrooms/bathrooms, area."""
         stmt: Select = select(Property).options(
             joinedload(Property.category),
             joinedload(Property.type),
@@ -360,6 +379,7 @@ class PropertyRepository:
         *,
         property_uuid: uuid.UUID,
     ) -> Optional[Property]:
+        """Load property by UUID with category, type, city, area, status, translations, features."""
         options: List[Any] = [
             joinedload(Property.category),
             joinedload(Property.type),

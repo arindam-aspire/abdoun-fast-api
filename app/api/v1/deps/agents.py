@@ -14,12 +14,26 @@ DBSessionDep = Annotated[Session, Depends(get_db)]
 
 
 def get_agent_repository(db: DBSessionDep) -> AgentRepository:
-    """FastAPI dependency that provides an AgentRepository instance."""
+    """Provide an AgentRepository bound to the request database session.
+
+    Args:
+        db: Injected database session (from get_db).
+
+    Returns:
+        AgentRepository instance for agent routes.
+    """
     return AgentRepository(db)
 
 
 def get_agent_service(
     repo: AgentRepository = Depends(get_agent_repository),
 ) -> AgentService:
-    """FastAPI dependency that provides an AgentService instance."""
+    """Provide an AgentService for invite, onboarding, and admin CRUD.
+
+    Args:
+        repo: Injected AgentRepository (from get_agent_repository).
+
+    Returns:
+        AgentService instance.
+    """
     return AgentService(repo)

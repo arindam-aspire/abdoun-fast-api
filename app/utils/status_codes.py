@@ -1,7 +1,4 @@
-"""
-Centralized HTTP status codes for the application.
-All HTTP status codes should be defined here.
-"""
+"""Centralized HTTP status codes (HTTPStatus IntEnum and STATUS_* aliases)."""
 
 from enum import IntEnum
 
@@ -20,6 +17,7 @@ class HTTPStatus(IntEnum):
     FORBIDDEN = 403
     NOT_FOUND = 404
     METHOD_NOT_ALLOWED = 405
+    REQUEST_TIMEOUT = 408
     CONFLICT = 409
     UNPROCESSABLE_ENTITY = 422
     TOO_MANY_REQUESTS = 429

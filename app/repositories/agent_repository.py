@@ -1,8 +1,4 @@
-"""
-Repository for agent-related persistence: AgentInvite, AgentProfile, AdminAgentAssignment, and User+AgentProfile queries.
-Encapsulates all DB access for the agents feature; no FastAPI or HTTP concerns.
-"""
-
+"""Repository for agent invites, profiles, assignments, and user+profile persistence; no FastAPI/HTTP."""
 import uuid
 from datetime import datetime
 from typing import List, Optional, Tuple
@@ -17,12 +13,18 @@ from app.models.user import (
     Role,
     User,
 )
+from app.utils.constants import AgentSortField, SortOrder
 
 
 class AgentRepository:
     """Repository for agent invites, profiles, assignments, and user+profile lookups."""
 
     def __init__(self, db: Session) -> None:
+        """Store the database session for all operations.
+
+        Args:
+            db: SQLAlchemy Session (request-scoped).
+        """
         self._db = db
 
     # ---------- User + AgentProfile ----------
@@ -74,9 +76,10 @@ class AgentRepository:
         page: int,
         limit: int,
     ) -> Tuple[List[Tuple[User, AgentProfile]], int]:
-        """
-        List (User, AgentProfile) with filters and pagination.
-        Returns (list of (user, profile), total_count).
+        """List (User, AgentProfile) with filters and pagination.
+
+        Returns:
+            Tuple of (list of (user, profile), total_count).
         """
         base = (
             select(User, AgentProfile)
@@ -93,7 +96,7 @@ class AgentRepository:
         total = self._db.execute(count_stmt).scalar() or 0
 
         order_col = self._get_agent_order_column(sort_by)
-        if sort_order.lower() == "asc":
+        if sort_order.lower() == SortOrder.ASC:
             base = base.order_by(order_col.asc())
         else:
             base = base.order_by(order_col.desc())
@@ -103,6 +106,7 @@ class AgentRepository:
         return [(r[0], r[1]) for r in rows], total
 
     def _apply_agent_filters(self, stmt, status: Optional[str], search: Optional[str]):
+        """Apply status and search (name/email) filters to the given statement."""
         if status:
             stmt = stmt.where(AgentProfile.status == status)
         if search and search.strip():
@@ -116,15 +120,16 @@ class AgentRepository:
         return stmt
 
     def _get_agent_order_column(self, sort_by: str):
-        if sort_by == "invitedAt":
+        """Resolve sort_by API name to SQLAlchemy column for ordering."""
+        if sort_by == AgentSortField.INVITED_AT:
             return (
                 AgentProfile.form_submitted_at
                 if hasattr(AgentProfile, "form_submitted_at")
                 else User.created_at
             )
-        if sort_by == "email":
+        if sort_by == AgentSortField.EMAIL:
             return User.email
-        if sort_by == "fullName":
+        if sort_by == AgentSortField.FULL_NAME:
             return User.full_name
         return User.created_at
 
@@ -223,19 +228,23 @@ class AgentRepository:
     # ---------- User + AgentProfile creation/update ----------
 
     def get_role_by_name(self, name: str) -> Optional[Role]:
+        """Look up role by name (e.g. admin, agent)."""
         stmt = select(Role).where(Role.name == name)
         return self._db.execute(stmt).scalar_one_or_none()
 
     def add_user(self, user: User) -> User:
+        """Persist user and flush to obtain ID."""
         self._db.add(user)
         self._db.flush()
         return user
 
     def add_agent_profile(self, profile: AgentProfile) -> AgentProfile:
+        """Persist agent profile."""
         self._db.add(profile)
         return profile
 
     def assign_role_to_user(self, user: User, role: Role) -> None:
+        """Append role to user's roles (many-to-many)."""
         user.roles.append(role)
 
     # ---------- AdminAgentAssignment ----------
@@ -246,6 +255,7 @@ class AgentRepository:
         agent_id: Optional[uuid.UUID],
         admin_id: Optional[uuid.UUID],
     ) -> List[AdminAgentAssignment]:
+        """List admin-agent assignments with optional filters; includes admin and agent."""
         stmt = (
             select(AdminAgentAssignment)
             .options(
@@ -266,6 +276,7 @@ class AgentRepository:
     def find_assignment(
         self, admin_id: uuid.UUID, agent_id: uuid.UUID
     ) -> Optional[AdminAgentAssignment]:
+        """Find active assignment for (admin_id, agent_id)."""
         stmt = select(AdminAgentAssignment).where(
             and_(
                 AdminAgentAssignment.admin_id == admin_id,
@@ -293,12 +304,15 @@ class AgentRepository:
     # ---------- Transaction ----------
 
     def commit(self) -> None:
+        """Commit the current transaction."""
         self._db.commit()
 
     def rollback(self) -> None:
+        """Roll back the current transaction."""
         self._db.rollback()
 
     def refresh(self, *instances: object) -> None:
+        """Refresh given instances from the DB."""
         for obj in instances:
             self._db.refresh(obj)
 

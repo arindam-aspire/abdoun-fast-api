@@ -1,3 +1,4 @@
+"""Auth service: signup, login (password/OTP), refresh, logout, profile, permissions; uses AuthRepository and Cognito."""
 from __future__ import annotations
 
 from typing import Optional
@@ -26,6 +27,7 @@ from app.schemas.user import (
 )
 from app.services.cognito import cognito_service
 from app.utils.constants import (
+    CognitoConstants,
     Defaults,
     ErrorMessages,
     SuccessMessages,
@@ -68,7 +70,7 @@ class AuthService:
                 full_name=user_in.full_name,
                 phone_number=user_in.phone_number,
             )
-            cognito_sub = cognito_response.get("UserSub")
+            cognito_sub = cognito_response.get(CognitoConstants.USER_SUB)
 
             db_user = self._repo.create_user(
                 email=user_in.email,
@@ -118,7 +120,7 @@ class AuthService:
                 full_name=user_in.full_name,
                 phone_number=user_in.phone_number,
             )
-            cognito_sub = cognito_response.get("UserSub")
+            cognito_sub = cognito_response.get(CognitoConstants.USER_SUB)
 
             db_user = self._repo.create_user(
                 email=user_in.email,
@@ -267,7 +269,7 @@ class AuthService:
                     status_code=HTTPStatus.NOT_FOUND,
                     detail=ErrorMessages.USER_NOT_FOUND,
                 )
-            if error_code == "InvalidParameterException" and "Custom auth lambda trigger" in error_msg:
+            if error_code == "InvalidParameterException" and CognitoConstants.OTP_ERROR_SUBSTRING in error_msg:
                 raise HTTPException(
                     status_code=HTTPStatus.BAD_REQUEST,
                     detail=ErrorMessages.OTP_NOT_CONFIGURED,
@@ -460,7 +462,10 @@ class AuthService:
                 except Exception as db_error:  # pragma: no cover - defensive
                     self._repo.rollback()
                     api_logger.warning(
-                        f"Failed to update password_set_at: {str(db_error)}"
+                        format_log_message(
+                            LogMessages.Auth.PASSWORD_SET_AT_UPDATE_FAILED,
+                            error=str(db_error),
+                        )
                     )
 
             api_logger.info(
@@ -476,12 +481,12 @@ class AuthService:
             if error_code == "NotAuthorizedException":
                 raise HTTPException(
                     status_code=HTTPStatus.UNAUTHORIZED,
-                    detail="Invalid previous password or insufficient permissions",
+                    detail=ErrorMessages.INVALID_PREVIOUS_PASSWORD_OR_PERMISSIONS,
                 )
             if error_code == "InvalidPasswordException":
                 raise HTTPException(
                     status_code=HTTPStatus.BAD_REQUEST,
-                    detail="Password does not meet requirements",
+                    detail=ErrorMessages.PASSWORD_DOES_NOT_MEET_REQUIREMENTS,
                 )
             server_error = format_log_message(ErrorMessages.COGNITO_ERROR, error=str(e))
             raise HTTPException(

@@ -1,11 +1,13 @@
-import uuid
+"""Pydantic schemas for auth, user, role, permission, and agent API request/response."""
 import re
+import uuid
 from datetime import datetime
 from enum import Enum
 from typing import List, Optional
+
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
-from app.utils.constants import ValidationMessages, AgentStatus
+from app.utils.constants import AgentStatus, Defaults, ValidationMessages
 
 
 class AgentStatusEnum(str, Enum):
@@ -21,7 +23,9 @@ class AgentStatusEnum(str, Enum):
 # E.164 phone format for validation reuse
 PHONE_E164_REGEX = r"^\+[1-9]\d{1,14}$"
 
+
 def _normalize_phone(value: str) -> str:
+    """Strip and normalize to digits with leading + for E.164."""
     v = value.strip()
     if v.startswith("+"):
         digits = re.sub(r"\D", "", v[1:])
@@ -29,10 +33,13 @@ def _normalize_phone(value: str) -> str:
     return re.sub(r"\D", "", v)
 
 class PermissionBase(BaseModel):
+    """Base fields for permission (code, description)."""
     code: str
     description: Optional[str] = None
 
+
 class PermissionResponse(PermissionBase):
+    """Permission with id and created_at (from DB)."""
     id: uuid.UUID
     created_at: datetime
 
@@ -43,13 +50,16 @@ class RoleBase(BaseModel):
     description: Optional[str] = None
 
 class RoleResponse(RoleBase):
+    """Role with id, permissions, created_at (from DB)."""
     id: uuid.UUID
     permissions: List[PermissionResponse] = []
     created_at: datetime
 
     model_config = {"from_attributes": True}
 
+
 class UserBase(BaseModel):
+    """Base user fields (email, full_name, phone_number) with E.164 phone validation."""
     email: EmailStr
     full_name: str
     phone_number: Optional[str] = None
@@ -65,13 +75,14 @@ class UserBase(BaseModel):
         return normalized
 
 class UserCreate(UserBase):
+    """Request body for user registration (email, full_name, phone, password)."""
     phone_number: str = Field(..., description="Required for registration")
-    password: str = Field(..., min_length=8)
+    password: str = Field(..., min_length=Defaults.PASSWORD_MIN_LENGTH)
 
     @field_validator("password")
     @classmethod
     def validate_password(cls, v: str) -> str:
-        if len(v) < 8:
+        if len(v) < Defaults.PASSWORD_MIN_LENGTH:
             raise ValueError(ValidationMessages.PASSWORD_MIN_LENGTH)
         if not any(c.isupper() for c in v):
             raise ValueError(ValidationMessages.PASSWORD_UPPERCASE)
@@ -79,11 +90,13 @@ class UserCreate(UserBase):
             raise ValueError(ValidationMessages.PASSWORD_LOWERCASE)
         if not any(c.isdigit() for c in v):
             raise ValueError(ValidationMessages.PASSWORD_NUMBER)
-        if not any(c in "!@#$%^&*()-_=+[]{}|;:,.<>?" for c in v):
+        if not any(c in ValidationMessages.PASSWORD_SPECIAL_CHARS for c in v):
             raise ValueError(ValidationMessages.PASSWORD_SPECIAL)
         return v
 
+
 class UserResponse(UserBase):
+    """User profile response with roles and verification flags."""
     id: uuid.UUID
     is_active: bool
     is_email_verified: bool
@@ -104,14 +117,15 @@ class TokenResponse(BaseModel):
     requires_password_set: bool = Field(False, description="True if user must set a password (e.g. agent who signed in via OTP and has not set one)")
 
 class LoginRequest(BaseModel):
-    username: str # email or phone
+    """Login request (username = email or phone, password)."""
+    username: str  # email or phone
     password: str
 
     @field_validator("username")
     @classmethod
     def validate_username(cls, v: str) -> str:
         if "@" in v:
-            if not re.match(r"[^@]+@[^@]+\.[^@]+", v):
+            if not re.match(ValidationMessages.EMAIL_REGEX_PATTERN, v):
                 raise ValueError(ValidationMessages.INVALID_EMAIL_FORMAT)
             return v
         normalized = _normalize_phone(v)
@@ -119,7 +133,9 @@ class LoginRequest(BaseModel):
             raise ValueError(ValidationMessages.USERNAME_EMAIL_OR_PHONE)
         return normalized
 
+
 class OTPRequest(BaseModel):
+    """Request OTP for passwordless login (username = email or E.164 phone)."""
     username: str  # email or phone (E.164 for phone)
 
     @field_validator("username")
@@ -136,11 +152,13 @@ class OTPRequest(BaseModel):
 
 
 class RefreshRequest(BaseModel):
+    """Refresh token request (refresh_token; optional username for SECRET_HASH)."""
     refresh_token: str
     # Required when Cognito app client has a secret (for SECRET_HASH). Use sub or email from login/id_token.
     username: Optional[str] = None
 
 class OTPVerify(BaseModel):
+    """Verify OTP (username, code, session from /login/otp/request)."""
     username: str  # email or phone (E.164); same as in /login/otp/request
     code: str
     session: str
@@ -149,13 +167,14 @@ class OTPVerify(BaseModel):
     @classmethod
     def validate_username(cls, v: str) -> str:
         if "@" in v:
-            if not re.match(r"[^@]+@[^@]+\.[^@]+", v):
+            if not re.match(ValidationMessages.EMAIL_REGEX_PATTERN, v):
                 raise ValueError(ValidationMessages.INVALID_EMAIL_FORMAT)
             return v
         normalized = _normalize_phone(v)
         if not re.match(PHONE_E164_REGEX, normalized):
             raise ValueError(ValidationMessages.USERNAME_EMAIL_OR_E164)
         return normalized
+
 
 class ForgotPasswordRequest(BaseModel):
     email: EmailStr
@@ -175,7 +194,7 @@ class ForgotPasswordConfirm(BaseModel):
     @field_validator("new_password")
     @classmethod
     def validate_password(cls, v: str) -> str:
-        if len(v) < 8:
+        if len(v) < Defaults.PASSWORD_MIN_LENGTH:
             raise ValueError(ValidationMessages.PASSWORD_MIN_LENGTH)
         if not any(c.isupper() for c in v):
             raise ValueError(ValidationMessages.PASSWORD_UPPERCASE)
@@ -183,9 +202,10 @@ class ForgotPasswordConfirm(BaseModel):
             raise ValueError(ValidationMessages.PASSWORD_LOWERCASE)
         if not any(c.isdigit() for c in v):
             raise ValueError(ValidationMessages.PASSWORD_NUMBER)
-        if not any(c in "!@#$%^&*()-_=+[]{}|;:,.<>?" for c in v):
+        if not any(c in ValidationMessages.PASSWORD_SPECIAL_CHARS for c in v):
             raise ValueError(ValidationMessages.PASSWORD_SPECIAL)
         return v
+
 
 class SetPasswordRequest(BaseModel):
     """Request schema for setting initial password (for agents without password)."""
@@ -208,6 +228,7 @@ class SetPasswordRequest(BaseModel):
         return v
 
 class AgentRegister(BaseModel):
+    """Agent self-registration (full_name, phone, service_area, token)."""
     full_name: str
     phone_number: str
     service_area: str
@@ -268,7 +289,7 @@ class AdminAgentAssignmentResponse(BaseModel):
     can_inherit_privileges: bool
     assigned_at: datetime
     revoked_at: Optional[datetime] = None
-    status: str  # "ACTIVE" or "INACTIVE/REVOKED" (not an AgentStatus enum)
+    status: str  # See `app.utils.constants.AgentAssignmentStatus` (not an AgentStatus enum)
 
     model_config = {"from_attributes": True}
 

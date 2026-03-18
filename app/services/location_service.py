@@ -1,3 +1,4 @@
+"""Service for cities and areas: list active cities/areas with optional city filter; returns payloads for API."""
 from typing import Dict, List, Optional, TypedDict
 
 from app.models.property_normalized import Area, City
@@ -20,9 +21,15 @@ class LocationService:
     """Service for preparing location responses."""
 
     def __init__(self, repository: LocationRepository) -> None:
+        """Store the location repository for all operations.
+
+        Args:
+            repository: LocationRepository instance (request-scoped).
+        """
         self._repo = repository
 
     def list_cities(self) -> Dict[str, object]:
+        """Return active cities as {data: [...], total: n}."""
         cities: List[City] = self._repo.list_active_cities()
         data: List[CityPayload] = [
             {"id": city.id, "name": city.name}
@@ -31,6 +38,7 @@ class LocationService:
         return {"data": data, "total": len(cities)}
 
     def list_areas(self, *, city: Optional[str]) -> Dict[str, object]:
+        """Return active areas as {data: [...], total: n}; optionally filter by city name."""
         areas: List[Area] = self._repo.list_active_areas(city_name=city)
         data: List[AreaPayload] = [
             {
