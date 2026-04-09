@@ -16,6 +16,7 @@ import secrets
 import string
 
 import boto3
+from botocore.exceptions import ClientError
 
 FROM_EMAIL = os.environ.get("SES_FROM_EMAIL", "YOUR_VERIFIED_EMAIL")
 SKIP_SES_FOR_TESTING = os.environ.get("SKIP_SES_FOR_TESTING", "").lower() in ("1", "true", "yes")
@@ -41,6 +42,7 @@ def is_valid_e164(phone: str) -> bool:
 
 def send_otp_email(email: str, otp: str) -> bool:
     if not FROM_EMAIL or FROM_EMAIL == "YOUR_VERIFIED_EMAIL":
+        print("SES skipped: SES_FROM_EMAIL is missing or still placeholder value")
         return False
     try:
         ses.send_email(
@@ -56,8 +58,22 @@ def send_otp_email(email: str, otp: str) -> bool:
             },
         )
         return True
+    except ClientError as e:
+        err = e.response.get("Error", {}) if hasattr(e, "response") else {}
+        code = err.get("Code", "Unknown")
+        message = err.get("Message", str(e))
+        print(
+            "SES send failed | "
+            f"code={code} message={message} "
+            f"from={FROM_EMAIL} to={email} region={os.environ.get('AWS_REGION', 'unknown')}"
+        )
+        return False
     except Exception as e:
-        print(f"SES send failed: {e}")
+        print(
+            "SES send failed | "
+            f"unexpected_error={e} from={FROM_EMAIL} to={email} "
+            f"region={os.environ.get('AWS_REGION', 'unknown')}"
+        )
         return False
 
 
