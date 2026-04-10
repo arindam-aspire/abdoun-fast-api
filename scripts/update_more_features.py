@@ -12,9 +12,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import json
 import pandas as pd
-from sqlalchemy import select, text, Table, MetaData
-from sqlalchemy.orm import Session
+from sqlalchemy import select, text
 from app.db.session import SessionLocal
+from app.models.property_normalized import PropertyNormalized
 
 # Import functions directly to avoid model import issues
 def _split_pipe(value):
@@ -87,9 +87,16 @@ def update_more_features_from_csv(csv_path: str = "data/abdoun_merged_properties
     db = SessionLocal()
     
     try:
+        batch_size = 500
         updated_count = 0
         not_found_count = 0
         error_count = 0
+        pending_updates = 0
+        existing_urls = set(
+            db.execute(
+                select(PropertyNormalized.url).where(PropertyNormalized.url.isnot(None))
+            ).scalars().all()
+        )
         
         print("Updating more_features column...")
         
@@ -114,13 +121,7 @@ def update_more_features_from_csv(csv_path: str = "data/abdoun_merged_properties
                 if not more_features_json:
                     continue
                 
-                # Find property by URL using raw SQL to avoid model import issues
-                result = db.execute(
-                    text("SELECT id FROM properties_normalized WHERE url = :url"),
-                    {"url": url}
-                ).fetchone()
-                
-                if not result:
+                if url not in existing_urls:
                     not_found_count += 1
                     continue
                 
@@ -132,9 +133,12 @@ def update_more_features_from_csv(csv_path: str = "data/abdoun_merged_properties
                         "url": url
                     }
                 )
-                db.commit()
-                
+                pending_updates += 1
                 updated_count += 1
+
+                if pending_updates >= batch_size:
+                    db.commit()
+                    pending_updates = 0
                 
                 # Progress indicator
                 if (idx + 1) % 100 == 0:
@@ -145,6 +149,9 @@ def update_more_features_from_csv(csv_path: str = "data/abdoun_merged_properties
                 error_count += 1
                 print(f"  [ERROR] Error processing row {idx + 1}: {e}")
                 continue
+
+        if pending_updates:
+            db.commit()
         
         print("\n" + "=" * 60)
         print("[OK] Update completed!")

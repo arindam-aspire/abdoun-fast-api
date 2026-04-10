@@ -39,9 +39,15 @@ def backfill_en_translations(dry_run: bool = False) -> int:
     """
     db = SessionLocal()
     try:
-        # All properties (list of PropertyNormalized instances)
-        result = db.execute(select(PropertyNormalized))
-        props = result.scalars().all()
+        # Load only fields needed for EN backfill to avoid pulling large columns.
+        props = db.execute(
+            select(
+                PropertyNormalized.id,
+                PropertyNormalized.title,
+                PropertyNormalized.description,
+                PropertyNormalized.location_name,
+            )
+        ).all()
         if not props:
             print("No properties in database.")
             return 0
@@ -55,33 +61,33 @@ def backfill_en_translations(dry_run: bool = False) -> int:
         existing_en = {row.property_id: row for row in result_existing.scalars().all()}
 
         added = 0
-        for prop in props:
-            address = (getattr(prop, "location_name", None) or "").strip() or None
-            existing_row = existing_en.get(prop.id)
+        for prop_id, prop_title, prop_description, prop_location in props:
+            address = (prop_location or "").strip() or None
+            existing_row = existing_en.get(prop_id)
 
             # Existing EN row: backfill address when empty
             if existing_row is not None:
                 has_address = (existing_row.address or "").strip()
                 if not has_address and address:
                     if dry_run:
-                        print(f"  [dry-run] would update en address for {prop.id}: address={address!r}")
+                        print(f"  [dry-run] would update en address for {prop_id}: address={address!r}")
                     else:
                         existing_row.address = address
                     added += 1
                 continue
 
             # Missing EN row: create full translation row
-            title = (prop.title or "").strip() or None
-            description = (prop.description or "").strip() if getattr(prop, "description", None) else None
+            title = (prop_title or "").strip() or None
+            description = (prop_description or "").strip() if prop_description else None
             if not title and not description and not address:
                 title = "Untitled Property"
             if dry_run:
-                print(f"  [dry-run] would add en translation for {prop.id}: title={title!r}")
+                print(f"  [dry-run] would add en translation for {prop_id}: title={title!r}")
                 added += 1
                 continue
             get_or_create_translation(
                 db,
-                property_id=prop.id,
+                property_id=prop_id,
                 language_code="en",
                 title=title,
                 description=description,

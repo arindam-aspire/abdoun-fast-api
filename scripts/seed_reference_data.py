@@ -39,14 +39,17 @@ def seed_categories(db: Session):
         {"name": "Land", "slug": "land"},
     ]
     
+    existing_slugs = {
+        slug for (slug,) in db.query(PropertyCategory.slug).all()
+    }
+
     for cat_data in categories:
-        existing = db.query(PropertyCategory).filter(
-            PropertyCategory.slug == cat_data["slug"]
-        ).first()
+        existing = cat_data["slug"] in existing_slugs
         if not existing:
             category = PropertyCategory(**cat_data, is_active=True)
             db.add(category)
             print(f"Created category: {cat_data['name']}")
+            existing_slugs.add(cat_data["slug"])
         else:
             print(f"Category already exists: {cat_data['name']}")
     
@@ -86,19 +89,23 @@ def seed_property_types(db: Session):
         {"name": "Commercial Land", "slug": "commercial-land", "category": land},
     ]
     
+    existing_type_keys = {
+        (slug, category_id)
+        for slug, category_id in db.query(PropertyType.slug, PropertyType.category_id).all()
+    }
+
     for type_data in types:
         category = type_data.pop("category")
         if not category:
             continue
-        
-        existing = db.query(PropertyType).filter(
-            PropertyType.slug == type_data["slug"],
-            PropertyType.category_id == category.id
-        ).first()
+
+        type_key = (type_data["slug"], category.id)
+        existing = type_key in existing_type_keys
         if not existing:
             prop_type = PropertyType(**type_data, category_id=category.id, is_active=True)
             db.add(prop_type)
             print(f"Created type: {type_data['name']} ({category.name})")
+            existing_type_keys.add(type_key)
         else:
             print(f"Type already exists: {type_data['name']}")
     
@@ -115,14 +122,18 @@ def seed_cities(db: Session):
         {"name": "Madaba"},
     ]
     
+    existing_city_names = {
+        (name or "").strip().lower() for (name,) in db.query(City.name).all()
+    }
+
     for city_data in cities:
-        existing = db.query(City).filter(
-            City.name.ilike(city_data["name"])
-        ).first()
+        city_key = city_data["name"].strip().lower()
+        existing = city_key in existing_city_names
         if not existing:
             city = City(**city_data, is_active=True)
             db.add(city)
             print(f"Created city: {city_data['name']}")
+            existing_city_names.add(city_key)
         else:
             print(f"City already exists: {city_data['name']}")
     
@@ -154,15 +165,19 @@ def seed_areas(db: Session):
         "Wadi Al Seer",
     ]
     
+    existing_areas = {
+        (name or "").strip().lower()
+        for (name,) in db.query(Area.name).filter(Area.city_id == amman.id).all()
+    }
+
     for area_name in areas:
-        existing = db.query(Area).filter(
-            Area.name.ilike(area_name),
-            Area.city_id == amman.id
-        ).first()
+        area_key = area_name.strip().lower()
+        existing = area_key in existing_areas
         if not existing:
             area = Area(name=area_name, city_id=amman.id, is_active=True)
             db.add(area)
             print(f"Created area: {area_name} (Amman)")
+            existing_areas.add(area_key)
         else:
             print(f"Area already exists: {area_name}")
     
@@ -179,14 +194,17 @@ def seed_property_statuses(db: Session):
         {"name": "Available", "slug": "available"},
     ]
     
+    existing_status_slugs = {
+        slug for (slug,) in db.query(PropertyStatus.slug).all()
+    }
+
     for status_data in statuses:
-        existing = db.query(PropertyStatus).filter(
-            PropertyStatus.slug == status_data["slug"]
-        ).first()
+        existing = status_data["slug"] in existing_status_slugs
         if not existing:
             status = PropertyStatus(**status_data, is_active=True)
             db.add(status)
             print(f"Created status: {status_data['name']}")
+            existing_status_slugs.add(status_data["slug"])
         else:
             print(f"Status already exists: {status_data['name']}")
     
@@ -224,13 +242,18 @@ def seed_features(db: Session):
         "Deluxe Finishing",
     ]
     
+    existing_feature_slugs = {
+        slug for (slug,) in db.query(Feature.slug).all()
+    }
+
     for feature_name in features:
         slug = feature_name.lower().replace("'", "").replace(" ", "-").replace("/", "-")
-        existing = db.query(Feature).filter(Feature.slug == slug).first()
+        existing = slug in existing_feature_slugs
         if not existing:
             feature = Feature(name=feature_name, slug=slug, is_active=True)
             db.add(feature)
             print(f"Created feature: {feature_name}")
+            existing_feature_slugs.add(slug)
         else:
             print(f"Feature already exists: {feature_name}")
     
@@ -250,14 +273,17 @@ def seed_search_fields(db: Session):
         {"name": "Category", "field_key": "category", "field_type": "string", "is_range": False},
     ]
     
+    existing_field_keys = {
+        key for (key,) in db.query(SearchField.field_key).all()
+    }
+
     for field_data in search_fields:
-        existing = db.query(SearchField).filter(
-            SearchField.field_key == field_data["field_key"]
-        ).first()
+        existing = field_data["field_key"] in existing_field_keys
         if not existing:
             field = SearchField(**field_data)
             db.add(field)
             print(f"Created search field: {field_data['name']}")
+            existing_field_keys.add(field_data["field_key"])
         else:
             print(f"Search field already exists: {field_data['name']}")
     
@@ -279,24 +305,32 @@ def seed_category_features(db: Session):
     
     # Get common features
     common_features = ["Elevator", "Parking", "Garden", "Swimming Pool"]
+    features_by_name = {
+        name: feat
+        for name, feat in (
+            db.query(Feature.name, Feature).all()
+        )
+    }
+    existing_pairs = {
+        (category_id, feature_id)
+        for category_id, feature_id in db.query(CategoryFeature.category_id, CategoryFeature.feature_id).all()
+    }
     
     for category in [residential, commercial]:
         if not category:
             continue
         for feature_name in common_features:
-            feature = db.query(Feature).filter(Feature.name == feature_name).first()
+            feature = features_by_name.get(feature_name)
             if feature:
-                existing = db.query(CategoryFeature).filter(
-                    CategoryFeature.category_id == category.id,
-                    CategoryFeature.feature_id == feature.id
-                ).first()
-                if not existing:
+                pair = (category.id, feature.id)
+                if pair not in existing_pairs:
                     cat_feature = CategoryFeature(
                         category_id=category.id,
                         feature_id=feature.id
                     )
                     db.add(cat_feature)
                     print(f"Linked feature '{feature_name}' to category '{category.name}'")
+                    existing_pairs.add(pair)
     
     db.commit()
 
@@ -311,6 +345,16 @@ def seed_type_features(db: Session):
     apartment_features = ["Elevator", "Parking", "Balcony", "Central Air Conditioning"]
     # Features common to villas
     villa_features = ["Garden", "Swimming Pool", "Parking", "Maid's Room", "Guard's Room"]
+    features_by_name = {
+        name: feat
+        for name, feat in (
+            db.query(Feature.name, Feature).all()
+        )
+    }
+    existing_pairs = {
+        (type_id, feature_id)
+        for type_id, feature_id in db.query(TypeFeature.property_type_id, TypeFeature.feature_id).all()
+    }
     
     type_feature_map = {
         apartment: apartment_features if apartment else [],
@@ -321,19 +365,17 @@ def seed_type_features(db: Session):
         if not prop_type:
             continue
         for feature_name in feature_names:
-            feature = db.query(Feature).filter(Feature.name == feature_name).first()
+            feature = features_by_name.get(feature_name)
             if feature:
-                existing = db.query(TypeFeature).filter(
-                    TypeFeature.property_type_id == prop_type.id,
-                    TypeFeature.feature_id == feature.id
-                ).first()
-                if not existing:
+                pair = (prop_type.id, feature.id)
+                if pair not in existing_pairs:
                     type_feature = TypeFeature(
                         property_type_id=prop_type.id,
                         feature_id=feature.id
                     )
                     db.add(type_feature)
                     print(f"Linked feature '{feature_name}' to type '{prop_type.name}'")
+                    existing_pairs.add(pair)
     
     db.commit()
 
@@ -357,17 +399,19 @@ def seed_category_search_fields(db: Session):
     area_field = db.query(SearchField).filter(SearchField.field_key == "area").first()
     city_field = db.query(SearchField).filter(SearchField.field_key == "city").first()
     
+    existing_pairs = {
+        (category_id, field_id)
+        for category_id, field_id in db.query(CategorySearchField.category_id, CategorySearchField.field_id).all()
+    }
+
     # Link common fields to all categories
     for category in [residential, commercial, land]:
         if not category:
             continue
         for field in [price_field, area_field, city_field]:
             if field:
-                existing = db.query(CategorySearchField).filter(
-                    CategorySearchField.category_id == category.id,
-                    CategorySearchField.field_id == field.id
-                ).first()
-                if not existing:
+                pair = (category.id, field.id)
+                if pair not in existing_pairs:
                     cat_search_field = CategorySearchField(
                         category_id=category.id,
                         field_id=field.id,
@@ -375,14 +419,12 @@ def seed_category_search_fields(db: Session):
                     )
                     db.add(cat_search_field)
                     print(f"Linked search field '{field.name}' to category '{category.name}'")
+                    existing_pairs.add(pair)
         
         # Bedrooms only for residential
         if category == residential and bedrooms_field:
-            existing = db.query(CategorySearchField).filter(
-                CategorySearchField.category_id == category.id,
-                CategorySearchField.field_id == bedrooms_field.id
-            ).first()
-            if not existing:
+            pair = (category.id, bedrooms_field.id)
+            if pair not in existing_pairs:
                 cat_search_field = CategorySearchField(
                     category_id=category.id,
                     field_id=bedrooms_field.id,
@@ -390,6 +432,7 @@ def seed_category_search_fields(db: Session):
                 )
                 db.add(cat_search_field)
                 print(f"Linked search field 'Bedrooms' to category 'Residential'")
+                existing_pairs.add(pair)
     
     db.commit()
 

@@ -99,13 +99,16 @@ def _load_properties_by_url(db, urls: list[str]) -> Dict[str, Property]:
     return {p.url: p for p in props if p.url}
 
 
-def _get_property_feature_row(db, property_id, feature_id) -> PropertyFeature | None:
-    return db.execute(
+def _load_property_feature_map(db, property_ids: list, feature_ids: list[int]) -> Dict[tuple, PropertyFeature]:
+    if not property_ids or not feature_ids:
+        return {}
+    rows = db.execute(
         select(PropertyFeature).where(
-            PropertyFeature.property_id == property_id,
-            PropertyFeature.feature_id == feature_id,
+            PropertyFeature.property_id.in_(property_ids),
+            PropertyFeature.feature_id.in_(feature_ids),
         )
-    ).scalar_one_or_none()
+    ).scalars().all()
+    return {(row.property_id, row.feature_id): row for row in rows}
 
 
 def _upsert_property_feature_value(
@@ -115,8 +118,10 @@ def _upsert_property_feature_value(
     value: str,
     url: str,
     dry_run: bool,
+    existing_map: Dict[tuple, PropertyFeature],
 ) -> int:
-    pf = _get_property_feature_row(db, prop.id, feature.id)
+    key = (prop.id, feature.id)
+    pf = existing_map.get(key)
     if pf is None:
         pf = PropertyFeature(property_id=prop.id, feature_id=feature.id, value=value)
         if dry_run:
@@ -126,6 +131,7 @@ def _upsert_property_feature_value(
             )
         else:
             db.add(pf)
+            existing_map[key] = pf
         return 1
 
     if pf.value == value:
@@ -149,13 +155,22 @@ def _apply_property_feature_values(
     feature_by_name: Dict[str, Feature],
     url: str,
     dry_run: bool,
+    existing_map: Dict[tuple, PropertyFeature],
 ) -> int:
     updated = 0
     for key, val in kv.items():
         feature = feature_by_name.get(key)
         if not feature:
             continue
-        updated += _upsert_property_feature_value(db, prop, feature, val, url, dry_run)
+        updated += _upsert_property_feature_value(
+            db,
+            prop,
+            feature,
+            val,
+            url,
+            dry_run,
+            existing_map,
+        )
     return updated
 
 
@@ -181,6 +196,18 @@ def backfill_feature_values(csv_path: Path, dry_run: bool = False) -> tuple[int,
 
         feature_by_name = _load_feature_map(db)
         props_by_url = _load_properties_by_url(db, list(url_to_feature_values.keys()))
+        relevant_feature_names = {
+            key
+            for kv in url_to_feature_values.values()
+            for key in kv.keys()
+            if key in feature_by_name
+        }
+        relevant_feature_ids = [feature_by_name[name].id for name in relevant_feature_names]
+        existing_map = _load_property_feature_map(
+            db,
+            [prop.id for prop in props_by_url.values()],
+            relevant_feature_ids,
+        )
 
         updated = 0
         skipped_no_match = 0
@@ -198,6 +225,7 @@ def backfill_feature_values(csv_path: Path, dry_run: bool = False) -> tuple[int,
                 feature_by_name=feature_by_name,
                 url=url,
                 dry_run=dry_run,
+                existing_map=existing_map,
             )
 
         if not dry_run and updated:
