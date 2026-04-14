@@ -478,7 +478,7 @@ class AuthService:
             error_code = e.response.get("Error", {}).get("Code", "")
             if error_code == "NotAuthorizedException":
                 raise HTTPException(
-                    status_code=HTTPStatus.UNAUTHORIZED,
+                    status_code=HTTPStatus.BAD_REQUEST,
                     detail=ErrorMessages.INVALID_PREVIOUS_PASSWORD_OR_PERMISSIONS,
                 )
             if error_code == "InvalidPasswordException":

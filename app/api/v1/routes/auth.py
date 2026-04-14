@@ -168,6 +168,17 @@ def set_password(
     return service.set_password(password_req, current_user, auth)
 
 
+@router.post("/change-password")
+def change_password(
+    password_req: SetPasswordRequest,
+    current_user: Annotated[User, Depends(get_current_user)],
+    auth: Annotated[HTTPAuthorizationCredentials, Depends(security)],
+    service: Annotated[AuthService, Depends(get_auth_service)],
+) -> StandardResponse[bool]:
+    """Change password for the authenticated user using the current password."""
+    return service.set_password(password_req, current_user, auth)
+
+
 @router.get("/social-login")
 def social_login(
     service: Annotated[AuthService, Depends(get_auth_service)],

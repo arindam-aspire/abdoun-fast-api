@@ -637,6 +637,23 @@ def test_auth_set_password(client, mock_db):
         app.dependency_overrides.pop(get_auth_service, None)
 
 
+def test_auth_change_password(client, mock_db):
+    app.dependency_overrides[get_current_user] = _fake_admin_user_sync
+    app.dependency_overrides[get_db] = _fake_get_db(mock_db)
+    app.dependency_overrides[get_auth_service] = _fake_auth_service
+    try:
+        r = client.post(
+            "/api/v1/auth/change-password",
+            json={"password": "NewPass1!", "previous_password": "OldPass1!"},
+            headers={"Authorization": "Bearer x"},
+        )
+        assert r.status_code == 200
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
+        app.dependency_overrides.pop(get_db, None)
+        app.dependency_overrides.pop(get_auth_service, None)
+
+
 def test_auth_me(client, mock_db):
     app.dependency_overrides[get_current_user] = _fake_admin_user_sync
     app.dependency_overrides[get_db] = _fake_get_db(mock_db)
