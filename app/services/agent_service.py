@@ -635,7 +635,7 @@ class AgentService:
                 status_code=HTTPStatus.BAD_REQUEST,
                 detail=ErrorMessages.INVALID_AGENT_STATUS,
             )
-        pair = self._repo.get_agent_with_profile(agent_id, include_deleted=True)
+        pair = self._repo.get_agent_with_profile(agent_id)
         if not pair:
             raise HTTPException(
                 status_code=HTTPStatus.NOT_FOUND,
@@ -685,7 +685,7 @@ class AgentService:
 
     def delete_agent(self, agent_id: uuid.UUID, current_user: User) -> Dict[str, Any]:
         """Soft-delete agent. Returns dict for AgentDeleteResponse."""
-        pair = self._repo.get_agent_with_profile(agent_id, include_deleted=True)
+        pair = self._repo.get_agent_with_profile(agent_id)
         if not pair:
             raise HTTPException(
                 status_code=HTTPStatus.NOT_FOUND,
@@ -730,7 +730,7 @@ class AgentService:
 
     def resend_invite(self, agent_id: uuid.UUID, current_user: User) -> Dict[str, Any]:
         """Resend invite email. Returns dict for AgentInviteResponse."""
-        pair = self._repo.get_agent_with_profile(agent_id)
+        pair = self._repo.get_agent_with_profile(agent_id, include_deleted=True)
         if not pair:
             raise HTTPException(
                 status_code=HTTPStatus.NOT_FOUND,
@@ -800,7 +800,7 @@ class AgentService:
 
     def revoke_invite(self, agent_id: uuid.UUID, current_user: User) -> Dict[str, Any]:
         """Revoke invite. Returns dict with revoked, revokedAt."""
-        pair = self._repo.get_agent_with_profile(agent_id)
+        pair = self._repo.get_agent_with_profile(agent_id, include_deleted=True)
         if not pair:
             raise HTTPException(
                 status_code=HTTPStatus.NOT_FOUND,

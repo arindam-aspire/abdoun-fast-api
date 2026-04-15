@@ -270,6 +270,20 @@ def resend_invite(
     )
 
 
+@router.post("/{agent_id}/resend-invitation")
+def resend_invitation(
+    agent_id: Annotated[uuid.UUID, Path(description=ApiDocs.AGENT_ID_DESC)],
+    current_user: Annotated[User, require_role(UserRoles.ADMIN)],
+    service: Annotated[AgentService, Depends(get_agent_service)],
+) -> StandardResponse[AgentInviteResponse]:
+    """Admin: Resend invitation email to an agent (compat endpoint)."""
+    data = service.resend_invite(agent_id, current_user)
+    return create_success_response(
+        data=AgentInviteResponse(**data),
+        message=SuccessMessages.INVITE_RESENT,
+    )
+
+
 @router.patch("/{agent_id}/revoke-invite")
 def revoke_invite(
     agent_id: Annotated[uuid.UUID, Path(description=ApiDocs.AGENT_ID_DESC)],
