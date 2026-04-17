@@ -345,11 +345,13 @@ class ApiRoutes:
     AUTH_PREFIX = "/auth"
     AGENTS_PREFIX = "/agents"
     USERS_PREFIX = "/users"
+    OWNERS_PREFIX = "/owners"
     PROPERTIES_PREFIX = "/properties"
 
     AUTH_TAG = "auth"
     AGENTS_TAG = "agents"
     USERS_TAG = "users"
+    OWNERS_TAG = "owners"
     PROPERTIES_TAG = "properties"
     SEARCH_TAG = "search"
     LOCATIONS_TAG = "locations"

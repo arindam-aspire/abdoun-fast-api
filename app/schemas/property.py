@@ -240,6 +240,18 @@ class PropertyOwnerMock(BaseModel):
     is_private: bool = False
 
 
+class PropertyOwnerDetails(BaseModel):
+    owner_id: str
+    full_name: Optional[str] = None
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    nationality: Optional[str] = None
+    ssi: Optional[str] = None
+    address: Optional[str] = None
+    documents: list[dict[str, Any]] = Field(default_factory=list)
+    is_active: bool = False
+
+
 class PropertyCreatedByMock(BaseModel):
     id: int
     name: str
@@ -1043,12 +1055,18 @@ class PropertySearchResultExtended(BaseModel):
     validatedDate: Optional[str] = None
     brokerName: Optional[str] = None
     brokerLogo: Optional[str] = None
+    owners: list[PropertyOwnerDetails] = Field(default_factory=list)
     is_exclusive: Optional[bool] = None  # From DB; None if not available
     location: Optional[PropertyLocationDetail] = None  # Preferred key per response guide
     location_detail: Optional[PropertyLocationDetail] = None  # Nested: country, city, region, map_embed_url
 
     @classmethod
-    def from_orm_obj(cls, obj: Property, lang: Optional[str] = None) -> "PropertySearchResultExtended":
+    def from_orm_obj(
+        cls,
+        obj: Property,
+        lang: Optional[str] = None,
+        owner_details: Optional[list[dict[str, Any]]] = None,
+    ) -> "PropertySearchResultExtended":
         """
         Create PropertySearchResultExtended from a Property ORM object.
 
@@ -1115,6 +1133,7 @@ class PropertySearchResultExtended(BaseModel):
             validatedDate=validated_date_str,
             brokerName=Defaults.DEFAULT_BROKER_NAME,
             brokerLogo=None,  # Not available in current data model
+            owners=[PropertyOwnerDetails(**owner) for owner in (owner_details or [])],
             is_exclusive=getattr(obj, "is_exclusive", None),
             location_detail=location_detail,
         )

@@ -15,6 +15,7 @@ from app.models.property_normalized import (
     PropertyNormalized as Property,
     PropertyType,
 )
+from app.models.owner import Owner, PropertyOwner
 from app.utils.constants import ListingStatus, PropertyExclusiveFilter
 
 
@@ -417,4 +418,35 @@ class PropertyRepository:
         stmt = stmt.limit(limit)
         results = self._db.execute(stmt).unique().scalars().all()
         return list(results)
+
+    def get_owner_details_by_property_ids(
+        self, property_ids: List[uuid.UUID]
+    ) -> dict[uuid.UUID, List[dict[str, Any]]]:
+        """Return owner details grouped by property_id for search/list responses."""
+        if not property_ids:
+            return {}
+
+        stmt = (
+            select(PropertyOwner, Owner)
+            .join(Owner, Owner.owner_id == PropertyOwner.owner_id)
+            .where(PropertyOwner.property_id.in_(property_ids))
+        )
+        rows = self._db.execute(stmt).all()
+
+        owner_map: dict[uuid.UUID, List[dict[str, Any]]] = {}
+        for mapping, owner in rows:
+            owner_map.setdefault(mapping.property_id, []).append(
+                {
+                    "owner_id": str(owner.owner_id),
+                    "full_name": owner.full_name,
+                    "email": owner.email,
+                    "phone": owner.phone,
+                    "nationality": owner.nationality,
+                    "ssi": owner.ssi,
+                    "address": owner.address,
+                    "documents": owner.documents or [],
+                    "is_active": bool(mapping.is_active),
+                }
+            )
+        return owner_map
 

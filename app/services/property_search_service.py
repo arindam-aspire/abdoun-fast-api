@@ -52,8 +52,21 @@ class PropertySearchService:
             page_size=params.page_size,
             requires_joins=requires_joins,
         )
+        owner_map = {}
+        try:
+            property_ids = [p.id for p in properties if isinstance(getattr(p, "id", None), uuid.UUID)]
+            owner_map = self._repo.get_owner_details_by_property_ids(property_ids)
+        except Exception:
+            # Owner mapping must not break property listing endpoint.
+            owner_map = {}
+
         data: List[PropertySearchResultExtended] = [
-            PropertySearchResultExtended.from_orm_obj(p, lang=params.lang) for p in properties
+            PropertySearchResultExtended.from_orm_obj(
+                p,
+                lang=params.lang,
+                owner_details=owner_map.get(getattr(p, "id", None), []),
+            )
+            for p in properties
         ]
         return PropertySearchResponse(
             data=data, total=total, page=params.page, pageSize=params.page_size
