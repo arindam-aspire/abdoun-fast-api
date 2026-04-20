@@ -87,6 +87,10 @@ class ErrorMessages:
     ONLY_ACTIVE_PROPERTIES_CAN_BE_FAVORITED = "Only active properties can be favorited"
     PROPERTY_ALREADY_FAVORITED = "Property is already in favorites"
     FAVORITE_NOT_FOUND = "Favorite not found"
+    SAVED_SEARCH_NOT_FOUND = "Saved search not found"
+    SAVED_SEARCH_NAME_EXISTS = "Saved search name already exists"
+    INVALID_SAVED_SEARCH_NAME = "Saved search name is required"
+    INVALID_SEARCH_CRITERIA = "search_criteria must be a non-empty JSON object"
 
     # Generic / HTTP (exception handlers, fallbacks)
     REQUEST_FAILED = "Request failed"
@@ -354,6 +358,7 @@ class ApiRoutes:
     OWNERS_PREFIX = "/owners"
     PROPERTIES_PREFIX = "/properties"
     FAVORITES_PREFIX = "/favorites"
+    SAVED_SEARCHES_PREFIX = "/saved-searches"
 
     AUTH_TAG = "auth"
     AGENTS_TAG = "agents"
@@ -361,6 +366,7 @@ class ApiRoutes:
     OWNERS_TAG = "owners"
     PROPERTIES_TAG = "properties"
     FAVORITES_TAG = "favorites"
+    SAVED_SEARCHES_TAG = "saved-searches"
     SEARCH_TAG = "search"
     LOCATIONS_TAG = "locations"
 

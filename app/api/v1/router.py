@@ -15,6 +15,7 @@ from app.api.v1.routes import (
     users,
     owners,
     favorites,
+    saved_searches,
 )
 from app.utils.constants import ApiRoutes
 
@@ -48,6 +49,12 @@ api_router.include_router(
     favorites.router,
     prefix=ApiRoutes.FAVORITES_PREFIX,
     tags=[ApiRoutes.FAVORITES_TAG],
+)
+
+api_router.include_router(
+    saved_searches.router,
+    prefix=ApiRoutes.SAVED_SEARCHES_PREFIX,
+    tags=[ApiRoutes.SAVED_SEARCHES_TAG],
 )
 
 api_router.include_router(
