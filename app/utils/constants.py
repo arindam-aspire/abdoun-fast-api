@@ -84,6 +84,9 @@ class ErrorMessages:
     ONLY_AGENT_ROLE_CAN_BE_ASSIGNED_TO_ADMIN = "Only users with AGENT role can be assigned to an admin"
     INVALID_PREVIOUS_PASSWORD_OR_PERMISSIONS = "Invalid previous password or insufficient permissions"
     PASSWORD_DOES_NOT_MEET_REQUIREMENTS = "Password does not meet requirements"
+    ONLY_ACTIVE_PROPERTIES_CAN_BE_FAVORITED = "Only active properties can be favorited"
+    PROPERTY_ALREADY_FAVORITED = "Property is already in favorites"
+    FAVORITE_NOT_FOUND = "Favorite not found"
 
     # Generic / HTTP (exception handlers, fallbacks)
     REQUEST_FAILED = "Request failed"
@@ -159,6 +162,9 @@ class SuccessMessages:
     INVITE_REVOKED = "Invitation revoked successfully"
     AGENT_CREATED_WITH_TEMP_PASSWORD = "Agent created successfully with a temporary password"
     AGENT_ONBOARDING_SUBMITTED_UNDER_REVIEW = "Your application has been submitted and is under review."
+    PROPERTY_FAVORITED = "Property added to favorites successfully"
+    PROPERTIES_FAVORITED_BULK = "Bulk favorites processed successfully"
+    PROPERTY_UNFAVORITED = "Property removed from favorites successfully"
 
 
 # Info Messages
@@ -347,12 +353,14 @@ class ApiRoutes:
     USERS_PREFIX = "/users"
     OWNERS_PREFIX = "/owners"
     PROPERTIES_PREFIX = "/properties"
+    FAVORITES_PREFIX = "/favorites"
 
     AUTH_TAG = "auth"
     AGENTS_TAG = "agents"
     USERS_TAG = "users"
     OWNERS_TAG = "owners"
     PROPERTIES_TAG = "properties"
+    FAVORITES_TAG = "favorites"
     SEARCH_TAG = "search"
     LOCATIONS_TAG = "locations"
 
