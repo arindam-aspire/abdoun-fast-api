@@ -4,6 +4,8 @@
 class ErrorMessages:
     """Error messages returned to API clients"""
     PROPERTY_NOT_FOUND = "Property not found"
+    RECENT_VIEWS_UPDATE_FAILED = "Failed to update recent views"
+    RECENT_VIEWS_CLEAR_FAILED = "Failed to clear recent views"
     GEOCODING_SERVICE_UNAVAILABLE = "Geocoding service not available, skipping geocoding"
     ERROR_UPDATING_PROPERTIES = "Error updating properties"
     BATCH_INSERT_FAILED = "Batch insert failed due to duplicates, trying individual inserts..."
@@ -159,6 +161,9 @@ class SuccessMessages:
     USER_DELETED = "User deactivated successfully"
     ROLE_ASSIGNED_TO_USER = "Role assigned to user successfully"
     ROLE_REMOVED_FROM_USER = "Role removed from user successfully"
+    RECENT_VIEW_UPDATED = "Recent view updated"
+    RECENT_VIEWS_CLEARED = "Recent views cleared"
+    RECENT_VIEW_REMOVED = "Recent view removed"
     AGENT_DELETED = "Agent has been deleted"
     AGENT_ACCEPTED = "Agent accepted. Approval email sent."
     AGENT_DECLINED = "Agent declined. Rejection email sent with the reason."

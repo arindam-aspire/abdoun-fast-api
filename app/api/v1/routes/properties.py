@@ -9,13 +9,18 @@ from typing import Annotated, Optional
 from fastapi import APIRouter, Depends, Query
 
 from app.api.v1.deps.properties import get_property_search_service
+from app.api.v1.deps.recent_views import get_recent_view_service
+from app.api.v1.deps.security import get_current_user_optional
+from app.models.user import User
 from app.schemas.property import (
     PropertyDetail,
     PropertySearchParams,
     PropertySearchResponse,
 )
 from app.services.property_search_service import PropertySearchService
+from app.services.recent_view_service import RecentViewService
 from app.utils.constants import ApiDocs, Defaults
+from app.utils.logger import api_logger
 
 router = APIRouter()
 
@@ -126,7 +131,21 @@ def get_similar_properties(
 def get_property(
     property_id: str,  # FastAPI path params are always strings
     service: Annotated[PropertySearchService, Depends(get_property_search_service)],
+    recent_view_service: Annotated[RecentViewService, Depends(get_recent_view_service)],
+    current_user: Annotated[Optional[User], Depends(get_current_user_optional)],
     lang: Annotated[Optional[str], Query(description=Defaults.LANG_QUERY_DESCRIPTION)] = None,
 ) -> PropertyDetail:
-    """Get detailed information for a specific property."""
-    return service.get_detail(property_id, lang=lang)
+    """Get detailed property data and auto-track recent view for logged-in users."""
+    detail, prop = service.get_detail_with_entity(property_id, lang=lang)
+
+    # Non-blocking tracking: property detail response must not fail if tracking fails.
+    if current_user is not None:
+        try:
+            recent_view_service.add_or_refresh(
+                user_id=current_user.id,
+                property_id=prop.id,
+            )
+        except Exception as exc:  # pragma: no cover - defensive logging path
+            api_logger.warning("Failed to track recent view for user %s: %s", current_user.id, exc)
+
+    return detail

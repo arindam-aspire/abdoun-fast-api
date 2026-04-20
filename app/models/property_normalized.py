@@ -290,6 +290,11 @@ class PropertyNormalized(Base):
         lazy="selectin",
         order_by="PropertyMedia.display_order",
     )
+    recently_viewed_by = relationship(
+        "RecentlyViewedProperty",
+        back_populates="property",
+        cascade="all, delete-orphan",
+    )
 
 
 # ==============================

@@ -1,6 +1,6 @@
 """Property search and detail service: search by params, get detail/similar by id; uses PropertyRepository."""
 import uuid
-from typing import List, Optional
+from typing import Any, List, Optional
 
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
@@ -134,4 +134,19 @@ class PropertySearchService:
                 detail=ErrorMessages.PROPERTY_NOT_FOUND,
             )
         return PropertyDetail.from_orm_obj(prop, lang=lang)
+
+    def get_detail_with_entity(
+        self,
+        property_id: str,
+        *,
+        lang: Optional[str],
+    ) -> tuple[PropertyDetail, Any]:
+        """Return property detail DTO plus underlying ORM entity."""
+        prop = self._resolve_property_identifier(property_id, for_detail=True)
+        if not prop:
+            raise HTTPException(
+                status_code=STATUS_NOT_FOUND,
+                detail=ErrorMessages.PROPERTY_NOT_FOUND,
+            )
+        return PropertyDetail.from_orm_obj(prop, lang=lang), prop
 

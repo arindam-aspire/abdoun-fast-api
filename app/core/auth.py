@@ -23,6 +23,7 @@ from app.utils.status_codes import HTTPStatus
 from app.utils.logger import api_logger
 
 security = HTTPBearer()
+optional_security = HTTPBearer(auto_error=False)
 
 
 async def get_current_user(
@@ -122,4 +123,14 @@ async def get_current_user(
         )
 
     return user
+
+
+async def get_current_user_optional(
+    credentials: HTTPAuthorizationCredentials | None = Depends(optional_security),
+    db: Session = Depends(get_db),
+) -> User | None:
+    """Resolve current user when Authorization exists; otherwise return None."""
+    if credentials is None:
+        return None
+    return await get_current_user(credentials=credentials, db=db)
 

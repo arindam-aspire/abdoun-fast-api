@@ -119,6 +119,11 @@ class User(Base):
     assigned_admins: Mapped[List["AdminAgentAssignment"]] = relationship(
         "AdminAgentAssignment", foreign_keys="AdminAgentAssignment.agent_id", back_populates="agent"
     )
+    recent_views: Mapped[List["RecentlyViewedProperty"]] = relationship(
+        "RecentlyViewedProperty",
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
 
     def __repr__(self) -> str:
         return f"<User(email='{self.email}', full_name='{self.full_name}')>"
