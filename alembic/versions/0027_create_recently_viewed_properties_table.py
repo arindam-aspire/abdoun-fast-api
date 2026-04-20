@@ -1,7 +1,7 @@
 """create recently viewed properties table
 
-Revision ID: 0025_recently_viewed_properties
-Revises: 0024_user_property_favorites
+Revision ID: 0027_recently_viewed_properties
+Revises: 0026_user_saved_searches
 Create Date: 2026-04-20
 """
 
@@ -12,8 +12,8 @@ import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
 
-revision: str = "0025_recently_viewed_properties"
-down_revision: Union[str, None] = "0024_user_property_favorites"
+revision: str = "0027_recently_viewed_properties"
+down_revision: Union[str, None] = "0026_user_saved_searches"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
