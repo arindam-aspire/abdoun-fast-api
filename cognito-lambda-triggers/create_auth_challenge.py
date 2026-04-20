@@ -20,10 +20,12 @@ from botocore.exceptions import ClientError
 
 FROM_EMAIL = os.environ.get("SES_FROM_EMAIL", "YOUR_VERIFIED_EMAIL")
 SKIP_SES_FOR_TESTING = os.environ.get("SKIP_SES_FOR_TESTING", "").lower() in ("1", "true", "yes")
+RETURN_OTP_IN_RESPONSE = os.environ.get("RETURN_OTP_IN_RESPONSE", "").lower() in ("1", "true", "yes")
 # Set to true to send OTP via SMS when user has phone_number (E.164). Requires SNS publish permission.
 ENABLE_SMS_OTP = os.environ.get("ENABLE_SMS_OTP", "").lower() in ("1", "true", "yes")
 # When both email and SMS are possible: "sms" = prefer SMS, "email" = prefer email
 OTP_CHANNEL_PREFERENCE = (os.environ.get("OTP_CHANNEL_PREFERENCE", "sms") or "sms").lower()
+NON_PROD_ENVIRONMENTS = {"local", "development", "dev", "test"}
 
 ses = boto3.client("ses")
 sns = boto3.client("sns")
@@ -38,6 +40,12 @@ def random_digits(length: int) -> str:
 
 def is_valid_e164(phone: str) -> bool:
     return bool(phone and E164_REGEX.match(phone.strip()))
+
+
+def should_return_otp_in_response() -> bool:
+    env = (os.environ.get("ENVIRONMENT") or os.environ.get("NODE_ENV") or "").strip().lower()
+    is_non_production = env in NON_PROD_ENVIRONMENTS
+    return RETURN_OTP_IN_RESPONSE and SKIP_SES_FOR_TESTING and is_non_production
 
 
 def send_otp_email(email: str, otp: str) -> bool:
@@ -106,6 +114,8 @@ def handler(event, context):
 
     event["response"]["privateChallengeParameters"] = {"answer": otp}
     event["response"]["publicChallengeParameters"] = {}
+    if should_return_otp_in_response():
+        event["response"]["publicChallengeParameters"]["otp"] = otp
     event["response"]["challengeMetadata"] = "OTP_CHALLENGE"
 
     sent = False

@@ -255,8 +255,13 @@ class AuthService:
         cognito_username = user.email
         try:
             response = cognito_service.login_otp_request(cognito_username)
+            data = {"session": response.get("Session")}
+            challenge_parameters = response.get("ChallengeParameters") or {}
+            otp = challenge_parameters.get("otp")
+            if otp:
+                data["otp"] = otp
             return create_success_response(
-                data={"session": response.get("Session")},
+                data=data,
                 message=SuccessMessages.OTP_SENT,
             )
         except ClientError as e:
