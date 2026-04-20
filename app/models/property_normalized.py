@@ -257,6 +257,7 @@ class PropertyNormalized(Base):
 
     # Store images as JSON array for now (can be normalized later)
     images = Column(String)  # JSON array of image URLs
+    virtual_tour_url = Column(Text, nullable=True)
     
     # Store more_features as JSON object (key-value pairs)
     more_features = Column(JSON, nullable=True)  # JSON object with key-value pairs

@@ -13,6 +13,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import pandas as pd
 from app.db.session import SessionLocal
+import app.models  # noqa: F401  # Ensure all ORM mappers are registered before queries
+import app.models.user  # noqa: F401  # Ensure User mapper is registered for favorites relationship resolution
 from app.services.normalized_importer import import_properties_normalized_from_dataframe
 
 

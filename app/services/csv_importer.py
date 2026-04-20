@@ -245,7 +245,7 @@ def _update_existing_property(
     lng_f: float | None,
     db: Session
 ) -> bool:
-    """Update existing property with coordinates and location_name. Returns True if updated."""
+    """Update existing property with missing coordinates, location name, and virtual tour URL."""
     needs_update = False
     
     # Update coordinates if they're missing in DB but present in CSV
@@ -263,6 +263,12 @@ def _update_existing_property(
     location_name_str = _normalize_location_name(row.get("location"))
     if (existing_prop.location_name is None or existing_prop.location_name == "") and location_name_str:
         existing_prop.location_name = location_name_str
+        needs_update = True
+
+    # Fill virtual tour URL only when missing in DB.
+    virtual_tour_url = _normalize_string(row.get("virtual_tour_url"))
+    if (existing_prop.virtual_tour_url is None or existing_prop.virtual_tour_url == "") and virtual_tour_url:
+        existing_prop.virtual_tour_url = virtual_tour_url
         needs_update = True
     
     if needs_update:
@@ -284,6 +290,7 @@ def _create_property_from_row(
     images: list[str],
     features: list[str],
     more_features: list[str],
+    virtual_tour_url: str | None,
 ) -> Property:
     """Create a Property object from a CSV row."""
     location_name_str = _normalize_location_name(row.get("location"))
@@ -304,6 +311,7 @@ def _create_property_from_row(
         features=features,
         more_features=more_features,
         images=images,
+        virtual_tour_url=virtual_tour_url,
         latitude=lat_f,
         longitude=lng_f,
         location_name=location_name_str,
@@ -444,7 +452,7 @@ def import_properties_from_dataframe(
     for _, row in df.iterrows():
         # Parse row data
         (selling_amount, selling_currency, rent_amount, rent_currency,
-         images, features, more_features, lat_f, lng_f, title, url) = _parse_row_data(
+         images, features, more_features, lat_f, lng_f, title, url, virtual_tour_url) = _parse_row_data(
             row, geocode_missing, geocoding_service
         )
         
@@ -464,7 +472,7 @@ def import_properties_from_dataframe(
         prop = _create_property_from_row(
             row, url, title, lat_f, lng_f,
             selling_amount, selling_currency, rent_amount, rent_currency,
-            images, features, more_features
+            images, features, more_features, virtual_tour_url
         )
         
         records.append(prop)
@@ -512,8 +520,9 @@ def _parse_row_data(row: pd.Series, geocode_missing: bool, geocoding_service) ->
     lat_f, lng_f = _parse_coordinates(row, geocode_missing, geocoding_service)
     title = _parse_title(row)
     url = str(row.get("url") or row.get("id") or "").strip()
+    virtual_tour_url = _normalize_string(row.get("virtual_tour_url"))
     return (selling_amount, selling_currency, rent_amount, rent_currency,
-            images, features, more_features, lat_f, lng_f, title, url)
+            images, features, more_features, lat_f, lng_f, title, url, virtual_tour_url)
 
 
 def _handle_existing_property(

@@ -6,7 +6,7 @@ from typing import Any, Optional
 from uuid import UUID, uuid4
 
 import pandas as pd
-from sqlalchemy import select
+from sqlalchemy import bindparam, select, update
 from sqlalchemy.orm import Session
 
 from app.models.property_normalized import (
@@ -521,6 +521,7 @@ def create_property_normalized_from_row(
 
     # Store images as JSON string
     images_json = json.dumps(images) if images else "[]"
+    virtual_tour_url = _normalize_string(row.get("virtual_tour_url"))
     
     # Create property
     prop = PropertyNormalized(
@@ -549,6 +550,7 @@ def create_property_normalized_from_row(
         furniture_status=furniture_status,
         parking=parking,
         images=images_json,
+        virtual_tour_url=virtual_tour_url,
         more_features=more_features_json,
         reference_number=reference_number,
         rent_commission_percent=rent_commission_percent,
@@ -773,6 +775,7 @@ def import_properties_normalized_from_dataframe(
     
     imported_count = 0
     skipped_duplicates = 0
+    pending_virtual_tour_updates: dict[str, str] = {}
     category_cache: dict[str, PropertyCategory] = {}
     type_cache: dict[tuple[str, int], PropertyType] = {}
     city_cache: dict[str, City] = {}
@@ -804,21 +807,32 @@ def import_properties_normalized_from_dataframe(
         
         # Load existing properties by URL if skipping duplicates
         existing_urls = set()
+        existing_virtual_tour_by_url: dict[str, str | None] = {}
         if skip_duplicates:
-            existing_props = db.execute(
-                select(PropertyNormalized.url).where(PropertyNormalized.url.isnot(None))
-            ).scalars().all()
-            existing_urls = set(existing_props)
+            existing_rows = db.execute(
+                select(PropertyNormalized.url, PropertyNormalized.virtual_tour_url).where(
+                    PropertyNormalized.url.isnot(None)
+                )
+            ).all()
+            existing_virtual_tour_by_url = {url: virtual_tour for url, virtual_tour in existing_rows if url}
+            existing_urls = set(existing_virtual_tour_by_url.keys())
         
         for _, row in df.iterrows():
             # Parse row data (reuse existing parsing logic)
             (selling_amount, selling_currency, rent_amount, rent_currency,
-             images, features, more_features, lat_f, lng_f, title, url) = csv_importer._parse_row_data(
+             images, features, more_features, lat_f, lng_f, title, url, _) = csv_importer._parse_row_data(
                 row, geocode_missing, geocoding_service
             )
             
             # Skip if duplicate
             if skip_duplicates and url and url in existing_urls:
+                virtual_tour_url = _normalize_string(row.get("virtual_tour_url"))
+                if (
+                    virtual_tour_url
+                    and not _normalize_string(existing_virtual_tour_by_url.get(url))
+                ):
+                    pending_virtual_tour_updates[url] = virtual_tour_url
+                    existing_virtual_tour_by_url[url] = virtual_tour_url
                 skipped_duplicates += 1
                 continue
             
@@ -886,6 +900,25 @@ def import_properties_normalized_from_dataframe(
                 )
                 skipped_duplicates += 1
                 continue
+
+        if pending_virtual_tour_updates:
+            bulk_stmt = (
+                update(PropertyNormalized)
+                .where(PropertyNormalized.url == bindparam("target_url"))
+                .where(PropertyNormalized.virtual_tour_url.is_(None))
+                .values(virtual_tour_url=bindparam("target_virtual_tour_url"))
+            )
+            db.execute(
+                bulk_stmt,
+                [
+                    {
+                        "target_url": update_url,
+                        "target_virtual_tour_url": update_value,
+                    }
+                    for update_url, update_value in pending_virtual_tour_updates.items()
+                ],
+            )
+            db.commit()
     finally:
         db.expire_on_commit = prev_expire_on_commit
     

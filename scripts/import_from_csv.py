@@ -10,6 +10,8 @@ from sqlalchemy.orm import sessionmaker
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from app.core.config import get_settings
+import app.models  # noqa: F401  # Ensure all ORM mappers are registered before queries
+import app.models.user  # noqa: F401  # Ensure User mapper is registered for favorites relationship resolution
 from app.services.csv_importer import import_properties_from_dataframe
 
 

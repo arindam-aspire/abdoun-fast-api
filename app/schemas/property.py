@@ -407,7 +407,7 @@ def _build_media_from_orm(obj: Property) -> PropertyMediaStructured:
         thumbnail=thumbnail,
         images=images,
         videos=videos,
-        virtual_tour_url=None,
+        virtual_tour_url=getattr(obj, "virtual_tour_url", None),
         floor_plan_images=floor_plans,
         documents=documents,
     )
