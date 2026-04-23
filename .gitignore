@@ -367,3 +367,6 @@ instance/
 # cursor
 .cursor/
 .ai/
+
+# Local dashboard demo seed manifest (machine-specific UUIDs)
+scripts/.dashboard_demo_seed_manifest.json

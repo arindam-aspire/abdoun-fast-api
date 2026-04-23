@@ -170,6 +170,14 @@ class Settings(BaseModel):
     slow_query_threshold_ms: int = int(
         os.getenv("SLOW_QUERY_THRESHOLD_MS", ConfigDefaults.SLOW_QUERY_THRESHOLD_MS)
     )
+    dashboard_summary_scheduler_enabled: bool = os.getenv(
+        "DASHBOARD_SUMMARY_SCHEDULER_ENABLED",
+        "true",
+    ).lower() == "true"
+    dashboard_summary_schedule_time: str = os.getenv(
+        "DASHBOARD_SUMMARY_SCHEDULE_TIME",
+        "00:10",
+    )
 
 
 def _apply_observability_defaults(settings: Settings) -> None:

@@ -17,6 +17,7 @@ from app.core.auth import get_current_user
 from app.db.session import get_db
 from app.utils.responses import StandardResponse, create_success_response
 from app.api.v1.deps.agents import get_agent_service
+from app.api.v1.deps.agent_dashboard import get_agent_dashboard_service
 from app.api.v1.deps.auth import get_auth_service
 from app.api.v1.deps.users import get_user_service
 from app.api.v1.deps.properties import get_property_search_service
@@ -131,6 +132,29 @@ def _fake_agent_service():
     s.submit_onboarding_form.return_value = onboarding_data.model_dump()
     s.assign_agent.return_value = None
     s.unassign_agent.return_value = None
+    return s
+
+
+def _fake_agent_dashboard_service():
+    """Minimal AgentDashboardService mock for dashboard route coverage."""
+    s = MagicMock()
+    s.get_dashboard_summary.return_value = {
+        "totalProperties": 0,
+        "leadsThisMonth": 0,
+        "dealCloseCount": 0,
+        "conversionRate": 0,
+        "totalPropertyViews": 0,
+        "activeProperties": 0,
+        "draftProperties": 0,
+        "inquiryVolumeAllTime": 0,
+        "inquiryVolumeLast7Days": 0,
+        "inquiryTrendLast30Days": [0] * 30,
+        "listingsChangePercent": 0.0,
+        "leadsChangePercent": 0.0,
+        "dealsClosedChangePercent": 0.0,
+        "propertyViewsChangePercent": 0.0,
+        "recentActivity": [],
+    }
     return s
 
 
@@ -308,6 +332,19 @@ def test_agent_routes_assignments(client, mock_db):
         app.dependency_overrides.pop(get_current_user, None)
         app.dependency_overrides.pop(get_db, None)
         app.dependency_overrides.pop(get_agent_service, None)
+
+
+def test_agent_routes_dashboard_summary(client, mock_db):
+    app.dependency_overrides[get_current_user] = _fake_admin_user_sync
+    app.dependency_overrides[get_db] = _fake_get_db(mock_db)
+    app.dependency_overrides[get_agent_dashboard_service] = _fake_agent_dashboard_service
+    try:
+        r = client.get("/api/v1/agents/dashboard/summary", headers={"Authorization": "Bearer x"})
+        assert r.status_code == 200
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
+        app.dependency_overrides.pop(get_db, None)
+        app.dependency_overrides.pop(get_agent_dashboard_service, None)
 
 
 def test_agent_routes_get_details(client, mock_db):

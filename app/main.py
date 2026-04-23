@@ -1,3 +1,6 @@
+import asyncio
+from contextlib import asynccontextmanager, suppress
+
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi import FastAPI, Response
 from fastapi.responses import JSONResponse
@@ -6,6 +9,7 @@ from slowapi.errors import RateLimitExceeded
 
 from app.core.config import get_settings
 from app.core.limiter import limiter
+from app.schedulers.dashboard_summary_scheduler import run_dashboard_summary_scheduler
 from app.middleware.request_id import RequestIdMiddleware
 from app.middleware.security import SecurityHeadersMiddleware
 from app.api.v1.router import api_router
@@ -20,12 +24,28 @@ def create_app() -> FastAPI:
 
         init_sentry(dsn=settings.sentry_dsn, environment=settings.environment)
 
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        if settings.dashboard_summary_scheduler_enabled:
+            app.state.dashboard_summary_scheduler_task = asyncio.create_task(
+                run_dashboard_summary_scheduler(settings)
+            )
+        try:
+            yield
+        finally:
+            task = getattr(app.state, "dashboard_summary_scheduler_task", None)
+            if task:
+                task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await task
+
     app = FastAPI(
         title=settings.app_name,
         version="1.0.0",
         debug=settings.debug,
         docs_url="/api/v1/docs" if settings.debug else None,
         redoc_url="/api/v1/redoc" if settings.debug else None,
+        lifespan=lifespan,
     )
 
     app.state.limiter = limiter
@@ -75,6 +95,7 @@ def create_app() -> FastAPI:
             return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
     app.include_router(api_router, prefix=settings.api_v1_prefix)
+
     return app
 
 

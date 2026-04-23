@@ -7,6 +7,7 @@ from sqlalchemy import (
     Column,
     DECIMAL,
     DateTime,
+    Enum,
     ForeignKey,
     Integer,
     JSON,
@@ -25,6 +26,9 @@ from app.models.property import Base
 FK_PROPERTY_CATEGORIES_ID = "property_categories.id"
 FK_FEATURES_ID = "features.id"
 FK_PROPERTIES_NORMALIZED_ID = "properties_normalized.id"
+FK_USERS_ID = "users.id"
+ONDELETE_SET_NULL = "SET NULL"
+CASCADE_DELETE_ORPHAN = "all, delete-orphan"
 
 
 # ==============================
@@ -264,6 +268,11 @@ class PropertyNormalized(Base):
 
     created_at = Column(TIMESTAMP, server_default=func.now())
     updated_at = Column(TIMESTAMP, server_default=func.now(), onupdate=func.now())
+    created_by_user_id = Column(UUID(as_uuid=True), ForeignKey(FK_USERS_ID, ondelete=ONDELETE_SET_NULL), nullable=True, index=True)
+    updated_by_user_id = Column(UUID(as_uuid=True), ForeignKey(FK_USERS_ID, ondelete=ONDELETE_SET_NULL), nullable=True, index=True)
+    agent_user_id = Column(UUID(as_uuid=True), ForeignKey(FK_USERS_ID, ondelete=ONDELETE_SET_NULL), nullable=True, index=True)
+    approved_by_user_id = Column(UUID(as_uuid=True), ForeignKey(FK_USERS_ID, ondelete=ONDELETE_SET_NULL), nullable=True, index=True)
+    deal_closed = Column(Boolean, default=False, nullable=False)
 
     # Relationships
     category = relationship("PropertyCategory", foreign_keys=[category_id])
@@ -280,13 +289,13 @@ class PropertyNormalized(Base):
     translations = relationship(
         "PropertyTranslation",
         back_populates="property",
-        cascade="all, delete-orphan",
+        cascade=CASCADE_DELETE_ORPHAN,
         lazy="selectin",
     )
     media_items = relationship(
         "PropertyMedia",
         back_populates="property",
-        cascade="all, delete-orphan",
+        cascade=CASCADE_DELETE_ORPHAN,
         lazy="selectin",
         order_by="PropertyMedia.display_order",
     )
@@ -369,3 +378,65 @@ class PropertyMedia(Base):
     updated_at = Column(TIMESTAMP, server_default=func.now(), onupdate=func.now())
 
     property = relationship("PropertyNormalized", back_populates="media_items")
+
+
+class Lead(Base):
+    """Inquiry lead generated for a property."""
+
+    __tablename__ = "leads"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    property_id = Column(UUID(as_uuid=True), ForeignKey(FK_PROPERTIES_NORMALIZED_ID, ondelete=ONDELETE_SET_NULL), nullable=True)
+    user_id = Column(UUID(as_uuid=True), ForeignKey(FK_USERS_ID, ondelete=ONDELETE_SET_NULL), nullable=True)
+    inquiry_type = Column(String(50), nullable=True)
+    message = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+
+class PropertyView(Base):
+    """View event for a property."""
+
+    __tablename__ = "property_views"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    property_id = Column(UUID(as_uuid=True), ForeignKey(FK_PROPERTIES_NORMALIZED_ID, ondelete=ONDELETE_SET_NULL), nullable=True)
+    user_type = Column(Enum("guest", "registered", name="property_view_user_type"), nullable=False)
+    user_id = Column(UUID(as_uuid=True), ForeignKey(FK_USERS_ID, ondelete=ONDELETE_SET_NULL), nullable=True)
+    viewed_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+
+class ActivityLog(Base):
+    """Activity feed row used in dashboard summary timeline."""
+
+    __tablename__ = "activity_logs"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey(FK_USERS_ID, ondelete=ONDELETE_SET_NULL), nullable=True)
+    property_id = Column(UUID(as_uuid=True), ForeignKey(FK_PROPERTIES_NORMALIZED_ID, ondelete=ONDELETE_SET_NULL), nullable=True)
+    activity_type = Column(String(50), nullable=True)
+    message = Column(Text, nullable=True)
+    tone = Column(String(20), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+
+class DashboardSummary(Base):
+    """Materialized snapshot of dashboard metrics per user."""
+
+    __tablename__ = "dashboard_summary"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey(FK_USERS_ID, ondelete=ONDELETE_SET_NULL), nullable=True)
+    total_properties = Column(Integer, nullable=True)
+    active_properties = Column(Integer, nullable=True)
+    draft_properties = Column(Integer, nullable=True)
+    total_views = Column(Integer, nullable=True)
+    total_inquiries = Column(Integer, nullable=True)
+    total_deals = Column(Integer, nullable=True)
+    conversion_rate = Column(Numeric, nullable=True)
+    last_updated = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)

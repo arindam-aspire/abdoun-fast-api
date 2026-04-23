@@ -450,6 +450,34 @@ class AgentListPaginatedResponse(BaseModel):
     pagination: PaginationInfo
 
 
+class DashboardRecentActivityItem(BaseModel):
+    """Recent activity item displayed in dashboard timeline."""
+
+    text: str
+    time: str
+    tone: str
+
+
+class AgentDashboardSummaryResponse(BaseModel):
+    """Dashboard summary for currently authenticated admin/agent scope."""
+
+    totalProperties: int
+    leadsThisMonth: int
+    dealCloseCount: int
+    conversionRate: int
+    totalPropertyViews: int
+    activeProperties: int
+    draftProperties: int
+    inquiryVolumeAllTime: int
+    inquiryVolumeLast7Days: int
+    inquiryTrendLast30Days: List[int]
+    listingsChangePercent: float
+    leadsChangePercent: float
+    dealsClosedChangePercent: float
+    propertyViewsChangePercent: float
+    recentActivity: List[DashboardRecentActivityItem]
+
+
 # --- User Management (Admin) ---
 
 class UserUpdate(BaseModel):

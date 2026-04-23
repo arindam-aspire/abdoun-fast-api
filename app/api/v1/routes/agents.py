@@ -11,10 +11,12 @@ from typing import Annotated, List, Optional
 from fastapi import APIRouter, Body, Depends, HTTPException, Path, Query
 from pydantic import ValidationError
 
+from app.api.v1.deps.agent_dashboard import get_agent_dashboard_service
 from app.api.v1.deps.agents import get_agent_service
-from app.api.v1.deps.security import require_role
+from app.api.v1.deps.security import get_current_user, require_role
 from app.models.user import User
 from app.schemas.user import (
+    AgentDashboardSummaryResponse,
     AdminAgentAssignmentRequest,
     AdminAgentAssignmentResponse,
     AdminCreateAgentRequest,
@@ -35,6 +37,7 @@ from app.schemas.user import (
     PaginationInfo,
 )
 from app.services.agent_service import AgentService
+from app.services.agent_dashboard_service import AgentDashboardService
 from app.utils.constants import ApiDocs, Defaults, UserRoles
 from app.utils.responses import StandardResponse, create_success_response
 from app.utils.constants import ErrorMessages, SuccessMessages
@@ -182,6 +185,16 @@ def get_assignments(
         data=[AdminAgentAssignmentResponse(**item) for item in data],
         message=None,
     )
+
+
+@router.get("/dashboard/summary")
+def get_dashboard_summary(
+    current_user: Annotated[User, Depends(get_current_user)],
+    service: Annotated[AgentDashboardService, Depends(get_agent_dashboard_service)],
+) -> StandardResponse[AgentDashboardSummaryResponse]:
+    """Return dashboard summary for currently authenticated agent/admin scope."""
+    data = service.get_dashboard_summary(current_user)
+    return create_success_response(data=AgentDashboardSummaryResponse(**data), message=None)
 
 
 @router.get("/{agent_id}")

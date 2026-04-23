@@ -222,6 +222,18 @@ class LogMessages:
             "Agents onboarding compat validation failed: {error_count} errors"
         )
 
+    class DashboardSummaryScheduler:
+        """Dashboard summary scheduler logs."""
+
+        INVALID_SCHEDULE_TIME = (
+            "Invalid DASHBOARD_SUMMARY_SCHEDULE_TIME={schedule_time}; fallback to 00:10"
+        )
+        REFRESH_SUCCESS = "dashboard_summary refreshed successfully rows={rows}"
+        REFRESH_FAILED = "Failed to refresh dashboard_summary"
+        SCHEDULER_SLEEP = (
+            "dashboard_summary scheduler sleeping {wait_seconds:.0f}s until next run at {schedule_time}"
+        )
+
 
 def format_log_message(template: str, **kwargs) -> str:
     """Format a template with kwargs; on KeyError return template as-is. Returns: formatted string."""
