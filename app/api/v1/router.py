@@ -16,7 +16,11 @@ from app.api.v1.routes import (
     owners,
     favorites,
     saved_searches,
-    recent_views
+    recent_views,
+    property_submissions,
+    admin_property_submissions,
+    uploads,
+    agent_properties,
 )
 from app.utils.constants import ApiRoutes
 
@@ -62,6 +66,30 @@ api_router.include_router(
     saved_searches.router,
     prefix=ApiRoutes.SAVED_SEARCHES_PREFIX,
     tags=[ApiRoutes.SAVED_SEARCHES_TAG],
+)
+
+api_router.include_router(
+    property_submissions.router,
+    prefix=ApiRoutes.PROPERTY_SUBMISSIONS_PREFIX,
+    tags=[ApiRoutes.PROPERTY_SUBMISSIONS_TAG],
+)
+
+api_router.include_router(
+    admin_property_submissions.router,
+    prefix=ApiRoutes.ADMIN_PROPERTY_SUBMISSIONS_PREFIX,
+    tags=[ApiRoutes.ADMIN_PROPERTY_SUBMISSIONS_TAG],
+)
+
+api_router.include_router(
+    uploads.router,
+    prefix=ApiRoutes.UPLOADS_PREFIX,
+    tags=[ApiRoutes.UPLOADS_TAG],
+)
+
+api_router.include_router(
+    agent_properties.router,
+    prefix=ApiRoutes.AGENT_PROPERTIES_PREFIX,
+    tags=[ApiRoutes.AGENT_PROPERTIES_TAG],
 )
 
 api_router.include_router(

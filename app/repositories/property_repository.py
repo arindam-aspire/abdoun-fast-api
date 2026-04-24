@@ -450,3 +450,39 @@ class PropertyRepository:
             )
         return owner_map
 
+    def list_properties_created_by(
+        self,
+        *,
+        user_id: uuid.UUID,
+        page: int,
+        page_size: int,
+    ) -> Tuple[List[Property], int]:
+        """List properties whose ``created_by`` matches the given user, newest first.
+
+        Args:
+            user_id: Submitter / creator user id.
+            page: 1-based page index.
+            page_size: Page size (max rows per page).
+
+        Returns:
+            Tuple of (property rows with type/status/category loaded, total count).
+        """
+        filters = Property.created_by == user_id
+        count_stmt = select(func.count(Property.id)).where(filters)
+        total = int(self._db.execute(count_stmt).scalar() or 0)
+
+        stmt = (
+            select(Property)
+            .options(
+                joinedload(Property.category),
+                joinedload(Property.type),
+                joinedload(Property.property_status),
+            )
+            .where(filters)
+            .order_by(func.coalesce(Property.updated_at, Property.created_at).desc())
+        )
+        offset = max(page - 1, 0) * page_size
+        stmt = stmt.offset(offset).limit(page_size)
+        rows = self._db.execute(stmt).unique().scalars().all()
+        return list(rows), total
+

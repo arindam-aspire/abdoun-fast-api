@@ -364,6 +364,10 @@ class ApiRoutes:
     PROPERTIES_PREFIX = "/properties"
     FAVORITES_PREFIX = "/favorites"
     SAVED_SEARCHES_PREFIX = "/saved-searches"
+    PROPERTY_SUBMISSIONS_PREFIX = "/property-submissions"
+    ADMIN_PROPERTY_SUBMISSIONS_PREFIX = "/admin/property-submissions"
+    UPLOADS_PREFIX = "/uploads"
+    AGENT_PROPERTIES_PREFIX = "/agent-properties"
 
     AUTH_TAG = "auth"
     AGENTS_TAG = "agents"
@@ -372,6 +376,10 @@ class ApiRoutes:
     PROPERTIES_TAG = "properties"
     FAVORITES_TAG = "favorites"
     SAVED_SEARCHES_TAG = "saved-searches"
+    PROPERTY_SUBMISSIONS_TAG = "property-submissions"
+    ADMIN_PROPERTY_SUBMISSIONS_TAG = "admin-property-submissions"
+    UPLOADS_TAG = "uploads"
+    AGENT_PROPERTIES_TAG = "agent-properties"
     SEARCH_TAG = "search"
     LOCATIONS_TAG = "locations"
 

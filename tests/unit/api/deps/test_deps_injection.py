@@ -16,6 +16,11 @@ from app.api.v1.deps.search import (
     get_property_import_service,
     get_search_property_repository,
 )
+from app.api.v1.deps.uploads import (
+    get_s3_service,
+    get_upload_repository,
+    get_upload_service,
+)
 from app.api.v1.deps.users import get_user_repository, get_user_service
 from app.repositories.agent_repository import AgentRepository
 from app.repositories.agent_dashboard_repository import AgentDashboardRepository
@@ -26,6 +31,8 @@ from app.services.agent_dashboard_service import AgentDashboardService
 from app.services.geo_search_service import GeoSearchService
 from app.services.property_import_service import PropertyImportService
 from app.services.user_service import UserService
+from app.services.s3_service import S3Service
+from app.services.upload_service import UploadService
 
 
 @pytest.fixture
@@ -82,3 +89,31 @@ def test_get_user_service_returns_user_service(mock_db: MagicMock) -> None:
     repo = UserRepository(mock_db)
     svc = get_user_service(repo=repo)
     assert isinstance(svc, UserService)
+
+
+def test_get_property_submission_repository_returns_repo(mock_db: MagicMock) -> None:
+    repo = get_property_submission_repository(mock_db)
+    assert isinstance(repo, PropertySubmissionRepository)
+
+
+def test_get_property_submission_service_returns_service(mock_db: MagicMock) -> None:
+    repo = PropertySubmissionRepository(mock_db)
+    svc = get_property_submission_service(repo=repo)
+    assert isinstance(svc, PropertySubmissionService)
+
+
+def test_get_upload_repository_returns_property_submission_repo(mock_db: MagicMock) -> None:
+    repo = get_upload_repository(mock_db)
+    assert isinstance(repo, PropertySubmissionRepository)
+
+
+def test_get_s3_service_returns_s3_service() -> None:
+    svc = get_s3_service()
+    assert isinstance(svc, S3Service)
+
+
+def test_get_upload_service_returns_upload_service(mock_db: MagicMock) -> None:
+    repo = PropertySubmissionRepository(mock_db)
+    s3 = S3Service()
+    svc = get_upload_service(repo=repo, s3_service=s3)
+    assert isinstance(svc, UploadService)

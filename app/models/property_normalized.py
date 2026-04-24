@@ -220,6 +220,8 @@ class PropertyNormalized(Base):
     url = Column(String, nullable=True, unique=True, index=True)
     title = Column(String, nullable=False)
     description = Column(String, nullable=True)
+    listing_purpose = Column(String(20), nullable=True)
+    address = Column(Text, nullable=True)
 
     is_exclusive = Column(Boolean, default=False)
     is_featured = Column(Boolean, default=False)
@@ -257,7 +259,18 @@ class PropertyNormalized(Base):
 
     furniture_status = Column(String(50))
     parking = Column(Boolean)
+    parking_spaces = Column(Integer, nullable=True)
     property_age = Column(Integer)
+    total_floors = Column(Integer, nullable=True)
+    completion_status = Column(String(50), nullable=True)
+    occupancy = Column(String(50), nullable=True)
+    ownership_type = Column(String(50), nullable=True)
+    permit_number = Column(String(100), nullable=True)
+    orientation = Column(String(50), nullable=True)
+    service_charge = Column(Numeric(15, 2), nullable=True)
+    maintenance_fee = Column(Numeric(15, 2), nullable=True)
+    youtube_url = Column(Text, nullable=True)
+    created_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True, index=True)
 
     # Store images as JSON array for now (can be normalized later)
     images = Column(String)  # JSON array of image URLs

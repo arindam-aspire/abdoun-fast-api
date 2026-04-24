@@ -151,6 +151,44 @@ class Settings(BaseModel):
     # AWS Credentials (optional - boto3 will also check environment variables and ~/.aws/credentials)
     aws_access_key_id: Optional[str] = _get_env_optional_str("AWS_ACCESS_KEY_ID")
     aws_secret_access_key: Optional[str] = _get_env_optional_str("AWS_SECRET_ACCESS_KEY")
+    aws_region: str = _get_env_str("AWS_REGION", default="us-east-1")
+    aws_s3_bucket: Optional[str] = _get_env_optional_str("AWS_S3_BUCKET")
+    aws_s3_endpoint_url: Optional[str] = _get_env_optional_str("AWS_S3_ENDPOINT_URL")
+    aws_s3_public_base_url: Optional[str] = _get_env_optional_str("AWS_S3_PUBLIC_BASE_URL")
+    aws_s3_presigned_expiry: int = int(os.getenv("AWS_S3_PRESIGNED_EXPIRY", "900"))
+    aws_s3_use_presigned_url: bool = os.getenv("AWS_S3_USE_PRESIGNED_URL", "true").lower() == "true"
+
+    property_video_resolution: Optional[str] = _get_env_optional_str("PROPERTY_VIDEO_RESOLUTION")
+    property_video_min_duration_sec: Optional[int] = (
+        int(os.getenv("PROPERTY_VIDEO_MIN_DURATION_SEC"))
+        if os.getenv("PROPERTY_VIDEO_MIN_DURATION_SEC")
+        else None
+    )
+    property_video_max_duration_sec: Optional[int] = (
+        int(os.getenv("PROPERTY_VIDEO_MAX_DURATION_SEC"))
+        if os.getenv("PROPERTY_VIDEO_MAX_DURATION_SEC")
+        else None
+    )
+    property_video_max_size_mb: int = int(os.getenv("PROPERTY_VIDEO_MAX_SIZE_MB", "100"))
+    property_video_codec: Optional[str] = _get_env_optional_str("PROPERTY_VIDEO_CODEC")
+    property_video_autoplay: bool = os.getenv("PROPERTY_VIDEO_AUTOPLAY", "false").lower() == "true"
+    property_video_muted: bool = os.getenv("PROPERTY_VIDEO_MUTED", "false").lower() == "true"
+    property_video_loop: bool = os.getenv("PROPERTY_VIDEO_LOOP", "false").lower() == "true"
+
+    property_image_max_size_mb: int = int(os.getenv("PROPERTY_IMAGE_MAX_SIZE_MB", "20"))
+    property_document_max_size_mb: int = int(os.getenv("PROPERTY_DOCUMENT_MAX_SIZE_MB", "20"))
+    allowed_property_image_extensions: list[str] = _parse_csv_env(
+        "ALLOWED_PROPERTY_IMAGE_EXTENSIONS",
+        ".jpg,.jpeg,.png,.webp",
+    )
+    allowed_property_document_extensions: list[str] = _parse_csv_env(
+        "ALLOWED_PROPERTY_DOCUMENT_EXTENSIONS",
+        ".pdf,.doc,.docx",
+    )
+    allowed_property_video_extensions: list[str] = _parse_csv_env(
+        "ALLOWED_PROPERTY_VIDEO_EXTENSIONS",
+        ".mp4,.mov,.avi,.mkv,.webm",
+    )
 
     # Base URL for invite links (e.g. https://app.example.com)
     app_base_url: str = _get_env_str("APP_BASE_URL", default=ConfigDefaults.APP_BASE_URL)
