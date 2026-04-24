@@ -1,6 +1,7 @@
 """Repository for auth: user lookup by email/phone/cognito_sub, create user, roles, profile."""
 from __future__ import annotations
 
+import uuid
 from typing import Optional
 
 from sqlalchemy import Select, select
@@ -41,6 +42,16 @@ class AuthRepository:
         stmt: Select = select(User).where(
             (User.email == email) | (User.phone_number == phone)
         )
+        return self._db.execute(stmt).first() is not None
+
+    def user_exists_by_email_excluding(self, *, email: str, exclude_user_id: uuid.UUID) -> bool:
+        """Return True if another user (not exclude_user_id) already has this email."""
+        stmt: Select = select(User.id).where(User.email == email, User.id != exclude_user_id)
+        return self._db.execute(stmt).first() is not None
+
+    def user_exists_by_phone_excluding(self, *, phone: str, exclude_user_id: uuid.UUID) -> bool:
+        """Return True if another user already has this phone number."""
+        stmt: Select = select(User.id).where(User.phone_number == phone, User.id != exclude_user_id)
         return self._db.execute(stmt).first() is not None
 
     def get_user_by_email(self, email: str) -> Optional[User]:

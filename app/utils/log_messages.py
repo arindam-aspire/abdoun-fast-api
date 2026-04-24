@@ -98,7 +98,8 @@ class LogMessages:
         USER_ALREADY_EXISTS_EXPECTED_PROCEED = (
             "This is expected if user was created via signup. Agent approval will proceed."
         )
-
+        ADMIN_UPDATE_USER_ATTRIBUTES = "Cognito admin_update_user_attributes: username={username} attrs={attr_keys}"
+        ADMIN_UPDATE_USER_ATTRIBUTES_FAILED = "Cognito admin_update_user_attributes failed: username={username} error={error}"
     # RBAC Log Messages
     class RBAC:
         """RBAC-related log messages"""

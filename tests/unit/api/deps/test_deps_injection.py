@@ -21,18 +21,26 @@ from app.api.v1.deps.uploads import (
     get_upload_repository,
     get_upload_service,
 )
+from app.api.v1.deps.auth import get_profile_update_service
+from app.api.v1.deps.property_submissions import (
+    get_property_submission_repository,
+    get_property_submission_service,
+)
 from app.api.v1.deps.users import get_user_repository, get_user_service
 from app.repositories.agent_repository import AgentRepository
 from app.repositories.agent_dashboard_repository import AgentDashboardRepository
 from app.repositories.property_repository import PropertyRepository
+from app.repositories.property_submission_repository import PropertySubmissionRepository
 from app.repositories.user_repository import UserRepository
 from app.services.agent_service import AgentService
 from app.services.agent_dashboard_service import AgentDashboardService
 from app.services.geo_search_service import GeoSearchService
 from app.services.property_import_service import PropertyImportService
+from app.services.property_submission_service import PropertySubmissionService
 from app.services.user_service import UserService
 from app.services.s3_service import S3Service
 from app.services.upload_service import UploadService
+from app.services.profile_update_service import ProfileUpdateService
 
 
 @pytest.fixture
@@ -117,3 +125,8 @@ def test_get_upload_service_returns_upload_service(mock_db: MagicMock) -> None:
     s3 = S3Service()
     svc = get_upload_service(repo=repo, s3_service=s3)
     assert isinstance(svc, UploadService)
+
+
+def test_get_profile_update_service_returns_service(mock_db: MagicMock) -> None:
+    svc = get_profile_update_service(mock_db)
+    assert isinstance(svc, ProfileUpdateService)

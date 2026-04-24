@@ -103,6 +103,20 @@ class ErrorMessages:
     TOKEN_VERIFICATION_FAILED_INTERNAL = "Token verification failed"
     CANNOT_EXTRACT_USERNAME_FROM_ACCESS_TOKEN = "Cannot extract username from access token"
     COGNITO_USER_POOL_ID_NOT_CONFIGURED = "COGNITO_USER_POOL_ID is not configured"
+    PROFILE_OTP_DELIVERY_FAILED = "Could not send verification code. Try again later or contact support."
+    PROFILE_EMAIL_IN_USE = "This email is already registered to another account"
+    PROFILE_PHONE_IN_USE = "This phone number is already registered to another account"
+    PROFILE_NAME_INVALID = "Display name cannot be empty"
+    PROFILE_COGNITO_UPDATE_FAILED = "Identity provider rejected the update. Try again or contact support."
+    PROFILE_UPDATE_NO_CHANGES = "No changes to apply for the provided profile fields"
+    PROFILE_VERIFY_NO_PAIRS = (
+        "Provide at least one verification pair: email with email_otp and/or phone_number with phone_otp"
+    )
+    PROFILE_VERIFY_EMAIL_OTP_REQUIRED = "email_otp is required when email is provided"
+    PROFILE_VERIFY_PHONE_OTP_REQUIRED = "phone_otp is required when phone_number is provided"
+    PROFILE_VERIFY_EMAIL_REQUIRED = "email is required when email_otp is provided"
+    PROFILE_VERIFY_PHONE_REQUIRED = "phone_number is required when phone_otp is provided"
+    PROFILE_UPDATE_NO_FIELDS = "At least one profile field must be provided"
 
 
 # Validation messages (Pydantic/schema validators — shown to API clients on validation failure)
@@ -174,6 +188,8 @@ class SuccessMessages:
     PROPERTY_FAVORITED = "Property added to favorites successfully"
     PROPERTIES_FAVORITED_BULK = "Bulk favorites processed successfully"
     PROPERTY_UNFAVORITED = "Property removed from favorites successfully"
+    PROFILE_UPDATED_SUCCESS = "Profile updated successfully"
+    PROFILE_VERIFICATION_REQUIRED = "Verification required for profile update"
 
 
 # Info Messages
@@ -243,6 +259,9 @@ class RateLimits:
     LOGIN_OTP_VERIFY = SIGNUP_ADMIN
     FORGOT_PASSWORD_REQUEST = LOGIN_OTP_REQUEST
     FORGOT_PASSWORD_CONFIRM = LOGIN_OTP_REQUEST
+    PROFILE_OTP_REQUEST = LOGIN_OTP_REQUEST
+    PROFILE_OTP_VERIFY = LOGIN_OTP_VERIFY
+    PROFILE_UPDATE_REQUEST = "10/minute"
 
 
 class ApiDocs:
@@ -404,6 +423,9 @@ class ConfigDefaults:
     # Cognito / social
     SOCIAL_REDIRECT_URI = "http://localhost:8000/api/v1/auth/callback"
     APP_BASE_URL = "http://localhost:3000"
+
+    # Profile change OTP (hashing). Override in every deployed environment.
+    PROFILE_OTP_PEPPER_DEFAULT = "dev-only-change-profile-otp-pepper"
 
     # Observability
     METRICS_PATH = "/metrics"

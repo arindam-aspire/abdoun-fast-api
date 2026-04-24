@@ -478,6 +478,64 @@ class AgentDashboardSummaryResponse(BaseModel):
     recentActivity: List[DashboardRecentActivityItem]
 
 
+# --- Self-service profile (authenticated; unified request / verify) ---
+
+
+class ProfileUpdateRequest(BaseModel):
+    """Optional fields; at least one must be present. Name applies immediately; email/phone need verify."""
+
+    full_name: Optional[str] = Field(None, max_length=255)
+    email: Optional[EmailStr] = None
+    phone_number: Optional[str] = None
+
+    @field_validator("phone_number")
+    @classmethod
+    def validate_phone(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
+        normalized = _normalize_phone(v)
+        if not re.match(PHONE_E164_REGEX, normalized):
+            raise ValueError(ValidationMessages.PHONE_E164)
+        return normalized
+
+
+class ProfileUpdateRequestResponse(BaseModel):
+    """Response from PATCH /auth/me/profile/request."""
+
+    message: str
+    requires_verification: bool
+    verification_fields: List[str] = Field(default_factory=list)
+    dev_phone_otp: Optional[str] = Field(
+        default=None,
+        description="Phone OTP for verify step until SMS is integrated; omitted if PROFILE_OTP_HIDE_PHONE_CODE_IN_RESPONSE=true.",
+    )
+
+
+class ProfileUpdateVerifyRequest(BaseModel):
+    """Verify pending email and/or phone using OTPs from the request step."""
+
+    email: Optional[EmailStr] = None
+    email_otp: Optional[str] = Field(None, min_length=4, max_length=16)
+    phone_number: Optional[str] = None
+    phone_otp: Optional[str] = Field(None, min_length=4, max_length=16)
+
+    @field_validator("phone_number")
+    @classmethod
+    def validate_phone(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
+        normalized = _normalize_phone(v)
+        if not re.match(PHONE_E164_REGEX, normalized):
+            raise ValueError(ValidationMessages.PHONE_E164)
+        return normalized
+
+
+class ProfileUpdateVerifyResponse(BaseModel):
+    """Response from POST /auth/me/profile/verify."""
+
+    message: str
+
+
 # --- User Management (Admin) ---
 
 class UserUpdate(BaseModel):

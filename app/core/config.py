@@ -193,6 +193,17 @@ class Settings(BaseModel):
     # Base URL for invite links (e.g. https://app.example.com)
     app_base_url: str = _get_env_str("APP_BASE_URL", default=ConfigDefaults.APP_BASE_URL)
 
+    # Self-service profile email/phone change (app-managed OTP; SES/SMS optional)
+    profile_otp_pepper: str = _get_env_str(
+        "PROFILE_OTP_PEPPER",
+        default=ConfigDefaults.PROFILE_OTP_PEPPER_DEFAULT,
+    )
+    profile_otp_ttl_minutes: int = int(os.getenv("PROFILE_OTP_TTL_MINUTES", "10"))
+    # When true, omit dev_phone_otp from profile request responses (use in production after SMS exists).
+    profile_otp_hide_phone_code_in_response: bool = os.getenv(
+        "PROFILE_OTP_HIDE_PHONE_CODE_IN_RESPONSE", ""
+    ).lower() in ("1", "true", "yes")
+
     # -----------------------------------------------------------------------
     # Observability (opt-in / env-driven)
     # -----------------------------------------------------------------------

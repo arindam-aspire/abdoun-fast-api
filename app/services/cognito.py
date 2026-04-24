@@ -523,6 +523,36 @@ class CognitoService:
             api_logger.error(format_log_message(LogMessages.Auth.JWKS_FETCH_FAILED, error=str(e)))
             return self._jwks_cache or [] # Return stale cache if fetch fails
 
+    def admin_update_user_attributes(
+        self,
+        *,
+        username: str,
+        attributes: List[Dict[str, str]],
+    ) -> None:
+        """Update standard attributes for a user (Username is pool sign-in identifier, often email)."""
+        try:
+            self.client.admin_update_user_attributes(
+                UserPoolId=self.user_pool_id,
+                Username=username,
+                UserAttributes=attributes,
+            )
+            api_logger.info(
+                format_log_message(
+                    LogMessages.Auth.ADMIN_UPDATE_USER_ATTRIBUTES,
+                    username=username,
+                    attr_keys=str([a.get("Name") for a in attributes]),
+                )
+            )
+        except ClientError as e:
+            api_logger.error(
+                format_log_message(
+                    LogMessages.Auth.ADMIN_UPDATE_USER_ATTRIBUTES_FAILED,
+                    username=username,
+                    error=str(e),
+                )
+            )
+            raise e
+
     def verify_token(self, token: str) -> Optional[Dict[str, Any]]:
         try:
             headers = jwt.get_unverified_header(token)

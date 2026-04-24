@@ -10,7 +10,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials
 
-from app.api.v1.deps.auth import get_auth_service
+from app.api.v1.deps.auth import get_auth_service, get_profile_update_service
 from app.api.v1.deps.security import get_current_user, require_role, security
 from app.core.limiter import limiter
 from app.models.user import User
@@ -23,6 +23,10 @@ from app.schemas.user import (
     OTPRequest,
     OTPVerify,
     PermissionsResponse,
+    ProfileUpdateRequest,
+    ProfileUpdateRequestResponse,
+    ProfileUpdateVerifyRequest,
+    ProfileUpdateVerifyResponse,
     RefreshRequest,
     ResendConfirmationRequest,
     SetPasswordRequest,
@@ -31,7 +35,8 @@ from app.schemas.user import (
     UserResponse,
 )
 from app.services.auth_service import AuthService
-from app.utils.responses import StandardResponse
+from app.services.profile_update_service import ProfileUpdateService
+from app.utils.responses import StandardResponse, create_success_response
 from app.utils.constants import ErrorMessages
 from app.utils.status_codes import HTTPStatus
 from app.utils.log_messages import LogMessages, format_log_message
@@ -195,6 +200,38 @@ def get_current_user_profile(
 ) -> StandardResponse[UserResponse]:
     """Return the currently authenticated user's profile."""
     return service.get_current_user_profile(current_user)
+
+
+@router.patch(
+    "/me/profile/request",
+    response_model=StandardResponse[ProfileUpdateRequestResponse],
+)
+@limiter.limit(RateLimits.PROFILE_UPDATE_REQUEST)
+def request_profile_update(
+    request: Request,
+    body: ProfileUpdateRequest,
+    current_user: Annotated[User, Depends(get_current_user)],
+    profile: Annotated[ProfileUpdateService, Depends(get_profile_update_service)],
+):
+    """Apply name immediately; create OTP challenges for email/phone when those change."""
+    data = profile.request_profile_update(current_user=current_user, body=body)
+    return create_success_response(data=data, message=data.message)
+
+
+@router.post(
+    "/me/profile/verify",
+    response_model=StandardResponse[ProfileUpdateVerifyResponse],
+)
+@limiter.limit(RateLimits.PROFILE_OTP_VERIFY)
+def verify_profile_update(
+    request: Request,
+    body: ProfileUpdateVerifyRequest,
+    current_user: Annotated[User, Depends(get_current_user)],
+    profile: Annotated[ProfileUpdateService, Depends(get_profile_update_service)],
+):
+    """Verify OTP(s) and persist email/phone changes."""
+    data = profile.verify_profile_update(current_user=current_user, body=body)
+    return create_success_response(data=data, message=data.message)
 
 
 @router.get("/me/permissions")
