@@ -172,6 +172,7 @@ class SuccessMessages:
     INVITE_VALID = "Invitation token is valid"
     REGISTRATION_PENDING = "Registration successful, pending admin approval"
     SOCIAL_LOGIN_SUCCESSFUL = "Social login successful"
+    PROFILE_PICTURE_UPLOADED = "Profile picture uploaded successfully"
     AGENT_REVOKED = "Agent privileges revoked successfully"
     ADMIN_REGISTERED = "Admin registered successfully"
     AGENT_REJECTED = "Agent application rejected"
@@ -419,11 +420,12 @@ class ConfigDefaults:
     # No password in fallback URL (local dev). Prefer setting DATABASE_URL explicitly.
     DATABASE_URL = "postgresql+psycopg2://localhost:5432/realestate"
 
-    # CORS
-    CORS_ORIGINS = "http://localhost:3000"
+    # CORS (include common local FE ports; override with CORS_ORIGINS in production)
+    CORS_ORIGINS = "http://localhost:3000,http://127.0.0.1:3000,http://localhost:8081,http://127.0.0.1:8081"
     CORS_ALLOW_CREDENTIALS = "true"
     CORS_ALLOW_METHODS = "GET,POST,PUT,PATCH,DELETE,OPTIONS"
-    CORS_ALLOW_HEADERS = "Authorization,Content-Type,Accept,Origin,X-Requested-With"
+    # Include X-Request-ID so preflight matches FE / .env.example when clients send that header
+    CORS_ALLOW_HEADERS = "Authorization,Content-Type,Accept,Origin,X-Requested-With,X-Request-ID"
     CORS_MAX_AGE_SECONDS = 600
 
     # Cognito / social

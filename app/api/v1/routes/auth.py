@@ -11,10 +11,12 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials
 
 from app.api.v1.deps.auth import get_auth_service, get_profile_update_service
+from app.api.v1.deps.media_urls import get_media_url_signer
+from app.api.v1.deps.profile_picture_upload import get_profile_picture_upload_service
 from app.api.v1.deps.security import get_current_user, require_role, security
 from app.core.limiter import limiter
 from app.models.user import User
-from app.utils.constants import Defaults, RateLimits, UserRoles
+from app.utils.constants import Defaults, RateLimits, SuccessMessages, UserRoles
 from app.schemas.user import (
     ConfirmSignupRequest,
     ForgotPasswordConfirm,
@@ -23,6 +25,8 @@ from app.schemas.user import (
     OTPRequest,
     OTPVerify,
     PermissionsResponse,
+    ProfilePictureUploadData,
+    ProfilePictureUploadRequest,
     ProfileUpdateRequest,
     ProfileUpdateRequestResponse,
     ProfileUpdateVerifyRequest,
@@ -35,6 +39,8 @@ from app.schemas.user import (
     UserResponse,
 )
 from app.services.auth_service import AuthService
+from app.services.media_url_signer import MediaUrlSigner
+from app.services.profile_picture_upload_service import ProfilePictureUploadService
 from app.services.profile_update_service import ProfileUpdateService
 from app.utils.responses import StandardResponse, create_success_response
 from app.utils.constants import ErrorMessages
@@ -200,6 +206,22 @@ def get_current_user_profile(
 ) -> StandardResponse[UserResponse]:
     """Return the currently authenticated user's profile."""
     return service.get_current_user_profile(current_user)
+
+
+@router.post(
+    "/me/profile-picture",
+    response_model=StandardResponse[ProfilePictureUploadData],
+)
+def upload_profile_picture(
+    body: ProfilePictureUploadRequest,
+    current_user: Annotated[User, Depends(get_current_user)],
+    upload_service: Annotated[ProfilePictureUploadService, Depends(get_profile_picture_upload_service)],
+    media_signer: Annotated[MediaUrlSigner, Depends(get_media_url_signer)],
+) -> StandardResponse[ProfilePictureUploadData]:
+    """Return a presigned PUT URL for the profile image and persist the public URL (same strategy as property media presigned flow)."""
+    data = upload_service.initiate_upload(user=current_user, body=body)
+    media_signer.apply_profile_picture_upload_data(data)
+    return create_success_response(data=data, message=SuccessMessages.PROFILE_PICTURE_UPLOADED)
 
 
 @router.patch(

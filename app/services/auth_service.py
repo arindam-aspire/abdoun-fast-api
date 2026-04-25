@@ -24,6 +24,7 @@ from app.schemas.user import (
     UserResponse,
 )
 from app.services.cognito import cognito_service
+from app.services.media_url_signer import MediaUrlSigner
 from app.utils.constants import (
     CognitoConstants,
     Defaults,
@@ -41,8 +42,14 @@ from app.api.v1.deps.security import get_user_permissions
 class AuthService:
     """Service layer encapsulating authentication and user signup flows."""
 
-    def __init__(self, repository: AuthRepository) -> None:
+    def __init__(self, repository: AuthRepository, *, media_url_signer: MediaUrlSigner | None = None) -> None:
         self._repo = repository
+        self._media_url_signer = media_url_signer
+
+    def _sign_user_response(self, user_response: UserResponse) -> UserResponse:
+        if self._media_url_signer is not None:
+            self._media_url_signer.apply_user_response(user_response)
+        return user_response
 
     # Signup flows --------------------------------------------------------
 
@@ -85,8 +92,10 @@ class AuthService:
             self._repo.commit()
             self._repo.refresh(db_user)
 
+            user_response = UserResponse.model_validate(db_user)
+            self._sign_user_response(user_response)
             return create_success_response(
-                data=db_user, message=SuccessMessages.USER_REGISTERED
+                data=user_response, message=SuccessMessages.USER_REGISTERED
             )
         except Exception as e:  # pragma: no cover - defensive
             self._repo.rollback()
@@ -134,8 +143,10 @@ class AuthService:
             self._repo.commit()
             self._repo.refresh(db_user)
 
+            user_response = UserResponse.model_validate(db_user)
+            self._sign_user_response(user_response)
             return create_success_response(
-                data=db_user, message=SuccessMessages.ADMIN_REGISTERED
+                data=user_response, message=SuccessMessages.ADMIN_REGISTERED
             )
         except Exception as e:  # pragma: no cover - defensive
             self._repo.rollback()
@@ -519,6 +530,7 @@ class AuthService:
 
         user_response = UserResponse.model_validate(current_user)
         user_response.requires_password_set = requires_password_set
+        self._sign_user_response(user_response)
 
         return create_success_response(data=user_response, message=None)
 

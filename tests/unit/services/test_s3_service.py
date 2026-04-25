@@ -14,6 +14,7 @@ def _settings(*, endpoint_url: str | None) -> SimpleNamespace:
         aws_s3_endpoint_url=endpoint_url,
         aws_s3_public_base_url=None,
         aws_s3_presigned_expiry=900,
+        aws_s3_presigned_get_expiry_seconds=3600,
     )
 
 

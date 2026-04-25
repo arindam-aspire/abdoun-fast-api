@@ -92,3 +92,13 @@ def property_document_key(property_id: uuid.UUID, filename: str) -> str:
 def owner_document_key(owner_id: uuid.UUID, property_id: uuid.UUID, filename: str) -> str:
     """Final object key for owner document."""
     return f"{owner_documents_prefix(owner_id, property_id)}{sanitize_filename(filename)}"
+
+
+def user_profile_picture_prefix(user_id: uuid.UUID) -> str:
+    """Prefix for authenticated user's profile picture uploads."""
+    return f"users/profile/{user_id}/profile_pic/"
+
+
+def user_profile_picture_key(user_id: uuid.UUID, filename: str) -> str:
+    """Object key for a user's profile picture (S3 path under users/profile/...)."""
+    return f"{user_profile_picture_prefix(user_id)}{sanitize_filename(filename)}"

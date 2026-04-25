@@ -112,6 +112,15 @@ def test_auth_me_requires_auth():
     assert r.status_code == EXPECTED_STATUS["auth_me_unauthorized"]
 
 
+def test_auth_me_profile_picture_requires_auth():
+    """POST /api/v1/auth/me/profile-picture - 403 when no token."""
+    r = client.post(
+        "/api/v1/auth/me/profile-picture",
+        json={"file_name": "a.png", "content_type": "image/png"},
+    )
+    assert r.status_code == EXPECTED_STATUS["auth_me_unauthorized"]
+
+
 def test_auth_logout_requires_auth():
     """POST /api/v1/auth/logout - 403 when no Bearer token."""
     r = client.post("/api/v1/auth/logout")

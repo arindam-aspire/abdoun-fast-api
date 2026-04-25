@@ -12,6 +12,7 @@ from app.schemas.property import (
     PropertySearchResponse,
     PropertySearchResultExtended,
 )
+from app.services.media_url_signer import MediaUrlSigner
 from app.utils.constants import ErrorMessages
 from app.utils.status_codes import STATUS_NOT_FOUND
 
@@ -19,14 +20,26 @@ from app.utils.status_codes import STATUS_NOT_FOUND
 class PropertySearchService:
     """Service encapsulating property search and lookup behaviour."""
 
-    def __init__(self, db: Session) -> None:
+    def __init__(self, db: Session, *, media_url_signer: MediaUrlSigner | None = None) -> None:
         """Store DB session and property repository for all operations.
 
         Args:
             db: SQLAlchemy Session (request-scoped).
+            media_url_signer: Optional signer for S3-backed media URLs (private bucket).
         """
         self._db = db
         self._repo = PropertyRepository(db)
+        self._media_url_signer = media_url_signer
+
+    def _sign_extended(self, row: PropertySearchResultExtended) -> PropertySearchResultExtended:
+        if self._media_url_signer is not None:
+            self._media_url_signer.sign_search_result_extended(row)
+        return row
+
+    def _sign_detail(self, detail: PropertyDetail) -> PropertyDetail:
+        if self._media_url_signer is not None:
+            self._media_url_signer.sign_property_detail(detail)
+        return detail
 
     def search(self, params: PropertySearchParams) -> PropertySearchResponse:
         """Search properties with filters and pagination; returns extended list response."""
@@ -61,10 +74,12 @@ class PropertySearchService:
             owner_map = {}
 
         data: List[PropertySearchResultExtended] = [
-            PropertySearchResultExtended.from_orm_obj(
-                p,
-                lang=params.lang,
-                owner_details=owner_map.get(getattr(p, "id", None), []),
+            self._sign_extended(
+                PropertySearchResultExtended.from_orm_obj(
+                    p,
+                    lang=params.lang,
+                    owner_details=owner_map.get(getattr(p, "id", None), []),
+                )
             )
             for p in properties
         ]
@@ -111,7 +126,8 @@ class PropertySearchService:
             )
         results = self._repo.get_similar_properties(source_property=source, limit=limit)
         data: List[PropertySearchResultExtended] = [
-            PropertySearchResultExtended.from_orm_obj(p, lang=lang) for p in results
+            self._sign_extended(PropertySearchResultExtended.from_orm_obj(p, lang=lang))
+            for p in results
         ]
         return PropertySearchResponse(
             data=data,
@@ -133,7 +149,7 @@ class PropertySearchService:
                 status_code=STATUS_NOT_FOUND,
                 detail=ErrorMessages.PROPERTY_NOT_FOUND,
             )
-        return PropertyDetail.from_orm_obj(prop, lang=lang)
+        return self._sign_detail(PropertyDetail.from_orm_obj(prop, lang=lang))
 
     def get_detail_with_entity(
         self,
@@ -148,5 +164,5 @@ class PropertySearchService:
                 status_code=STATUS_NOT_FOUND,
                 detail=ErrorMessages.PROPERTY_NOT_FOUND,
             )
-        return PropertyDetail.from_orm_obj(prop, lang=lang), prop
+        return self._sign_detail(PropertyDetail.from_orm_obj(prop, lang=lang)), prop
 

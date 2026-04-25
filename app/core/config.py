@@ -156,6 +156,8 @@ class Settings(BaseModel):
     aws_s3_endpoint_url: Optional[str] = _get_env_optional_str("AWS_S3_ENDPOINT_URL")
     aws_s3_public_base_url: Optional[str] = _get_env_optional_str("AWS_S3_PUBLIC_BASE_URL")
     aws_s3_presigned_expiry: int = int(os.getenv("AWS_S3_PRESIGNED_EXPIRY", "900"))
+    # Presigned GET for private buckets when returning stored object URLs to clients.
+    aws_s3_presigned_get_expiry_seconds: int = int(os.getenv("AWS_S3_PRESIGNED_GET_EXPIRY", "3600"))
     aws_s3_use_presigned_url: bool = os.getenv("AWS_S3_USE_PRESIGNED_URL", "true").lower() == "true"
 
     property_video_resolution: Optional[str] = _get_env_optional_str("PROPERTY_VIDEO_RESOLUTION")

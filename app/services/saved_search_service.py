@@ -10,6 +10,7 @@ from app.models.user import User
 from app.models.user_saved_search import UserSavedSearch
 from app.repositories.saved_search_repository import SavedSearchRepository
 from app.schemas.property import PropertySearchResultExtended
+from app.services.media_url_signer import MediaUrlSigner
 from app.schemas.saved_search import (
     SavedSearchCreateRequest,
     SavedSearchExecutionResponse,
@@ -23,8 +24,9 @@ from app.utils.status_codes import HTTPStatus
 class SavedSearchService:
     """Service layer for saved-search CRUD and execution."""
 
-    def __init__(self, repository: SavedSearchRepository) -> None:
+    def __init__(self, repository: SavedSearchRepository, *, media_url_signer: MediaUrlSigner | None = None) -> None:
         self._repo = repository
+        self._media_url_signer = media_url_signer
 
     @staticmethod
     def _build_query_string(search_criteria: dict) -> str:
@@ -284,5 +286,8 @@ class SavedSearchService:
             self._repo.rollback()
 
         items = [PropertySearchResultExtended.from_orm_obj(item) for item in results]
+        if self._media_url_signer is not None:
+            for row in items:
+                self._media_url_signer.sign_search_result_extended(row)
         return SavedSearchExecutionResponse(items=items, total=len(items))
 

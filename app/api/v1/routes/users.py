@@ -8,6 +8,7 @@ from typing import Annotated, List, Optional
 
 from fastapi import APIRouter, Depends, Query
 
+from app.api.v1.deps.media_urls import get_media_url_signer
 from app.api.v1.deps.security import get_current_user, require_permission
 from app.api.v1.deps.users import get_user_service
 from app.models.user import User
@@ -17,6 +18,7 @@ from app.schemas.user import (
     UserResponse,
     UserUpdate,
 )
+from app.services.media_url_signer import MediaUrlSigner
 from app.services.user_service import UserService
 from app.utils.constants import ApiDocs, SuccessMessages, UserPermissions
 from app.utils.responses import StandardResponse, create_success_response
@@ -32,6 +34,7 @@ router = APIRouter()
 def list_users(
     current_user: Annotated[User, Depends(get_current_user)],
     service: Annotated[UserService, Depends(get_user_service)],
+    media_signer: Annotated[MediaUrlSigner, Depends(get_media_url_signer)],
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
     offset: Annotated[int, Query(ge=0)] = 0,
     role_name: Annotated[Optional[str], Query(description=ApiDocs.FILTER_BY_ROLE)] = None,
@@ -44,7 +47,8 @@ def list_users(
         role_name=role_name,
         search=search,
     )
-    return create_success_response(data=users, message=None)
+    data = [media_signer.user_response_from_orm(u) for u in users]
+    return create_success_response(data=data, message=None)
 
 
 @router.get(
@@ -84,10 +88,11 @@ def get_user(
     id: uuid.UUID,
     current_user: Annotated[User, Depends(get_current_user)],
     service: Annotated[UserService, Depends(get_user_service)],
+    media_signer: Annotated[MediaUrlSigner, Depends(get_media_url_signer)],
 ):
     """Get user by ID. Requires user:create permission."""
     user = service.get_user(id)
-    return create_success_response(data=user, message=None)
+    return create_success_response(data=media_signer.user_response_from_orm(user), message=None)
 
 
 @router.patch(
@@ -100,10 +105,13 @@ def update_user(
     body: UserUpdate,
     current_user: Annotated[User, Depends(get_current_user)],
     service: Annotated[UserService, Depends(get_user_service)],
+    media_signer: Annotated[MediaUrlSigner, Depends(get_media_url_signer)],
 ):
     """Update user (full_name, phone_number, is_active). Requires user:create permission."""
     user = service.update_user(user_id=id, body=body, current_user=current_user)
-    return create_success_response(data=user, message=SuccessMessages.USER_UPDATED)
+    return create_success_response(
+        data=media_signer.user_response_from_orm(user), message=SuccessMessages.USER_UPDATED
+    )
 
 
 @router.delete(

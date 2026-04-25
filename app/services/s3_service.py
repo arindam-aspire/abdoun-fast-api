@@ -47,6 +47,17 @@ class S3Service:
             ExpiresIn=expiry,
         )
 
+    def generate_presigned_get_url(self, *, key: str, expires_in: int | None = None) -> str:
+        """Generate a presigned GET URL so clients can read a private object."""
+        if not self._settings.aws_s3_bucket:
+            raise HTTPException(status_code=HTTPStatus.INTERNAL_SERVER_ERROR, detail="AWS_S3_BUCKET is not configured")
+        expiry = expires_in if expires_in is not None else self._settings.aws_s3_presigned_get_expiry_seconds
+        return self._client.generate_presigned_url(
+            "get_object",
+            Params={"Bucket": self._settings.aws_s3_bucket, "Key": key},
+            ExpiresIn=expiry,
+        )
+
     def build_public_url(self, key: str) -> str:
         """Build a public URL for object key based on configured strategy."""
         if self._settings.aws_s3_public_base_url:

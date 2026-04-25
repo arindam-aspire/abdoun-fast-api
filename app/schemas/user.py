@@ -101,11 +101,28 @@ class UserResponse(UserBase):
     is_active: bool
     is_email_verified: bool
     is_phone_verified: bool
+    profile_picture_url: Optional[str] = None
     roles: List[RoleResponse] = []
     created_at: datetime
     requires_password_set: bool = Field(False, description="True if user must set a password (e.g. agent who signed in via OTP and has not set one)")
 
     model_config = {"from_attributes": True}
+
+
+class ProfilePictureUploadRequest(BaseModel):
+    """Request to obtain a presigned PUT URL for the current user's profile picture (same shape as property image presigned step)."""
+
+    file_name: str
+    content_type: str
+    file_size: int | None = None
+
+
+class ProfilePictureUploadData(BaseModel):
+    """Presigned upload targets plus the persisted public URL for the profile picture."""
+
+    profile_picture_url: str
+    upload_url: str
+    expires_in: int
 
 class TokenResponse(BaseModel):
     access_token: str

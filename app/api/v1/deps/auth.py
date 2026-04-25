@@ -8,7 +8,9 @@ from sqlalchemy.orm import Session
 from app.db.session import get_db
 from app.repositories.auth_repository import AuthRepository
 from app.repositories.profile_change_repository import ProfileChangeRepository
+from app.api.v1.deps.media_urls import get_media_url_signer
 from app.services.auth_service import AuthService
+from app.services.media_url_signer import MediaUrlSigner
 from app.services.profile_update_service import ProfileUpdateService
 
 
@@ -27,16 +29,20 @@ def get_auth_repository(db: DBSessionDep) -> AuthRepository:
     return AuthRepository(db)
 
 
-def get_auth_service(repo: AuthRepository = Depends(get_auth_repository)) -> AuthService:
+def get_auth_service(
+    repo: AuthRepository = Depends(get_auth_repository),
+    media_url_signer: MediaUrlSigner = Depends(get_media_url_signer),
+) -> AuthService:
     """Provide an AuthService for signup, login, and profile endpoints.
 
     Args:
         repo: Injected AuthRepository (from get_auth_repository).
+        media_url_signer: Signs S3-backed URLs in user responses (private bucket).
 
     Returns:
         AuthService instance.
     """
-    return AuthService(repo)
+    return AuthService(repo, media_url_signer=media_url_signer)
 
 
 def get_profile_update_service(db: DBSessionDep) -> ProfileUpdateService:

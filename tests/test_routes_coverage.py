@@ -20,6 +20,7 @@ from app.api.v1.deps.agents import get_agent_service
 from app.api.v1.deps.agent_dashboard import get_agent_dashboard_service
 from app.api.v1.deps.admin_dashboard import get_admin_dashboard_service
 from app.api.v1.deps.auth import get_auth_service
+from app.api.v1.deps.profile_picture_upload import get_profile_picture_upload_service
 from app.api.v1.deps.users import get_user_service
 from app.api.v1.deps.properties import get_property_search_service
 from app.api.v1.deps.search import get_geo_search_service, get_property_import_service
@@ -238,6 +239,7 @@ def _fake_auth_service():
         "is_active": True,
         "is_email_verified": True,
         "is_phone_verified": False,
+        "profile_picture_url": None,
         "roles": [],
         "created_at": datetime.now(timezone.utc),
         "requires_password_set": False,
@@ -276,6 +278,7 @@ def _fake_user_service():
         "is_active": True,
         "is_email_verified": True,
         "is_phone_verified": False,
+        "profile_picture_url": None,
         "roles": [],
         "created_at": datetime.now(timezone.utc),
         "requires_password_set": False,
@@ -831,6 +834,39 @@ def test_auth_me(client, mock_db):
         app.dependency_overrides.pop(get_current_user, None)
         app.dependency_overrides.pop(get_db, None)
         app.dependency_overrides.pop(get_auth_service, None)
+
+
+def _fake_profile_picture_upload_service():
+    from app.schemas.user import ProfilePictureUploadData
+
+    s = MagicMock()
+    s.initiate_upload.return_value = ProfilePictureUploadData(
+        profile_picture_url="https://example.com/p.png",
+        upload_url="https://presigned",
+        expires_in=900,
+    )
+    return s
+
+
+def test_auth_me_profile_picture(client, mock_db):
+    app.dependency_overrides[get_current_user] = _fake_admin_user_sync
+    app.dependency_overrides[get_db] = _fake_get_db(mock_db)
+    app.dependency_overrides[get_profile_picture_upload_service] = _fake_profile_picture_upload_service
+    try:
+        r = client.post(
+            "/api/v1/auth/me/profile-picture",
+            json={"file_name": "pic.png", "content_type": "image/png", "file_size": 1024},
+            headers={"Authorization": "Bearer x"},
+        )
+        assert r.status_code == 200
+        body = r.json()
+        assert body.get("success") is True
+        assert body.get("data", {}).get("profile_picture_url") == "https://example.com/p.png"
+        assert body.get("data", {}).get("upload_url") == "https://presigned"
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
+        app.dependency_overrides.pop(get_db, None)
+        app.dependency_overrides.pop(get_profile_picture_upload_service, None)
 
 
 def test_auth_logout(client, mock_db):

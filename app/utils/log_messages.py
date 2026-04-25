@@ -183,6 +183,11 @@ class LogMessages:
         SENTRY_INIT_SKIPPED = "Sentry init skipped (non-fatal): {error}"
         OTEL_TRACING_INIT_SKIPPED = "OpenTelemetry tracing init skipped (non-fatal): {error}"
 
+    class MediaUrlSigner:
+        """S3 presigned GET for API responses (private bucket)."""
+
+        PRESIGNED_GET_FAILED = "Presigned GET URL generation failed (returning stored URL): {error}"
+
     # Exception handlers (main.py)
     class AppException:
         HTTP_EXCEPTION = "HTTPException: {status_code} {detail} path={path}"

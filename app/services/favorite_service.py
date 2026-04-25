@@ -14,6 +14,7 @@ from app.schemas.property_favorites import (
     FavoriteResponse,
 )
 from app.schemas.property import PropertySearchResultExtended
+from app.services.media_url_signer import MediaUrlSigner
 from app.utils.constants import ErrorMessages
 from app.utils.status_codes import HTTPStatus
 
@@ -21,8 +22,15 @@ from app.utils.status_codes import HTTPStatus
 class FavoriteService:
     """Service layer for user property favorites."""
 
-    def __init__(self, repository: FavoriteRepository) -> None:
+    def __init__(self, repository: FavoriteRepository, *, media_url_signer: MediaUrlSigner | None = None) -> None:
         self._repo = repository
+        self._media_url_signer = media_url_signer
+
+    def _property_search_row(self, property_obj: object) -> PropertySearchResultExtended:
+        row = PropertySearchResultExtended.from_orm_obj(property_obj)
+        if self._media_url_signer is not None:
+            self._media_url_signer.sign_search_result_extended(row)
+        return row
 
     def _resolve_property_id_from_hash(self, property_hash: int) -> uuid.UUID:
         property_id = self._repo.find_property_uuid_by_hash(property_hash)
@@ -69,7 +77,7 @@ class FavoriteService:
                 id=favorite.id,
                 user_id=favorite.user_id,
                 property_hash=int(property_obj.property_hash),
-                property=PropertySearchResultExtended.from_orm_obj(property_obj),
+                property=self._property_search_row(property_obj),
             )
         except IntegrityError:
             self._repo.rollback()
@@ -156,7 +164,7 @@ class FavoriteService:
                     id=favorite.id,
                     user_id=favorite.user_id,
                     property_hash=int(property_obj.property_hash),
-                    property=PropertySearchResultExtended.from_orm_obj(property_obj),
+                    property=self._property_search_row(property_obj),
                 )
                 for favorite, property_obj in favorites_to_add
             ]
@@ -181,7 +189,7 @@ class FavoriteService:
                 id=item.id,
                 user_id=item.user_id,
                 property_hash=int(item.property.property_hash),
-                property=PropertySearchResultExtended.from_orm_obj(item.property),
+                property=self._property_search_row(item.property),
             )
             for item in items
             if item.property is not None
