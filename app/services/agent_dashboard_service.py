@@ -39,14 +39,8 @@ class AgentDashboardService:
         return f"{days} day ago" if days == 1 else f"{days} days ago"
 
     @staticmethod
-    def _is_admin(user: User) -> bool:
-        role_names = {role.name for role in user.roles}
-        return UserRoles.ADMIN in role_names
-
-    @staticmethod
-    def _has_dashboard_access(user: User) -> bool:
-        role_names = {role.name for role in user.roles}
-        return UserRoles.ADMIN in role_names or UserRoles.AGENT in role_names
+    def _has_agent_role(user: User) -> bool:
+        return UserRoles.AGENT in {role.name for role in user.roles}
 
     @staticmethod
     def _mom_percent_change(current: int, previous: int) -> float:
@@ -57,15 +51,13 @@ class AgentDashboardService:
         return float(Decimal(str(raw)).quantize(Decimal("0.1"), rounding=ROUND_HALF_UP))
 
     def get_dashboard_summary(self, current_user: User) -> Dict:
-        """Return dashboard summary for logged-in agent or admin scope."""
-        if not self._has_dashboard_access(current_user):
+        """Return dashboard summary for the agent's own scope (routed: agent role only)."""
+        if not self._has_agent_role(current_user):
             raise HTTPException(
                 status_code=HTTPStatus.FORBIDDEN,
-                detail=ErrorMessages.UNAUTHORIZED_ACCESS,
+                detail=ErrorMessages.MISSING_ROLE.format(role=UserRoles.AGENT),
             )
-
-        is_admin = self._is_admin(current_user)
-        agent_ids = self._repo.get_effective_agent_ids(current_user.id, is_admin=is_admin)
+        agent_ids = [current_user.id]
         metrics = self._repo.get_metrics(agent_ids=agent_ids)
 
         conversion_rate = Decimal("0")

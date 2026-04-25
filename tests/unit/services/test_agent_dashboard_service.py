@@ -23,7 +23,7 @@ def _make_user(*, roles: list[str]):
     return user
 
 
-def test_dashboard_service_denies_non_admin_agent_user():
+def test_dashboard_service_denies_non_agent_user():
     repo = MagicMock()
     service = AgentDashboardService(repo)
     user = _make_user(roles=["registered_user"])
@@ -32,6 +32,7 @@ def test_dashboard_service_denies_non_admin_agent_user():
         service.get_dashboard_summary(user)
 
     assert exc.value.status_code == HTTPStatus.FORBIDDEN
+    repo.get_metrics.assert_not_called()
 
 
 def test_mom_percent_edge_previous_zero_current_positive():
@@ -41,7 +42,6 @@ def test_mom_percent_edge_previous_zero_current_positive():
 
 def test_dashboard_service_returns_payload_for_agent():
     repo = MagicMock()
-    repo.get_effective_agent_ids.return_value = [uuid.uuid4()]
     repo.get_metrics.return_value = DashboardSummaryMetrics(
         total_properties=11,
         active_properties=7,
@@ -72,6 +72,10 @@ def test_dashboard_service_returns_payload_for_agent():
     user = _make_user(roles=["agent"])
 
     data = service.get_dashboard_summary(user)
+
+    repo.get_metrics.assert_called_once()
+    call_kwargs = repo.get_metrics.call_args.kwargs
+    assert call_kwargs["agent_ids"] == [user.id]
 
     assert data["totalProperties"] == 11
     assert data["conversionRate"] == 15

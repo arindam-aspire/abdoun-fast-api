@@ -12,6 +12,7 @@ from app.api.v1.routes import (
     locations,
     auth,
     agents,
+    admin,
     users,
     owners,
     favorites,
@@ -36,6 +37,12 @@ api_router.include_router(
     agents.router,
     prefix=ApiRoutes.AGENTS_PREFIX,
     tags=[ApiRoutes.AGENTS_TAG],
+)
+
+api_router.include_router(
+    admin.router,
+    prefix=ApiRoutes.ADMIN_PREFIX,
+    tags=[ApiRoutes.ADMIN_TAG],
 )
 
 api_router.include_router(

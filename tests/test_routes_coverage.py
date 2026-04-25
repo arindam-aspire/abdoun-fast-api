@@ -18,6 +18,7 @@ from app.db.session import get_db
 from app.utils.responses import StandardResponse, create_success_response
 from app.api.v1.deps.agents import get_agent_service
 from app.api.v1.deps.agent_dashboard import get_agent_dashboard_service
+from app.api.v1.deps.admin_dashboard import get_admin_dashboard_service
 from app.api.v1.deps.auth import get_auth_service
 from app.api.v1.deps.users import get_user_service
 from app.api.v1.deps.properties import get_property_search_service
@@ -48,6 +49,24 @@ def _make_fake_admin_user():
 def _fake_admin_user_sync():
     """Sync override so TestClient resolves the dependency without async."""
     return _make_fake_admin_user()
+
+
+def _make_fake_agent_user():
+    """User with only the agent role (for agent-only routes)."""
+    u = MagicMock()
+    u.id = uuid.uuid4()
+    perms = [MagicMock(), MagicMock()]
+    perms[0].code = UserPermissions.PROPERTY_CREATE
+    perms[1].code = UserPermissions.PROPERTY_UPDATE
+    role = MagicMock()
+    role.name = UserRoles.AGENT
+    role.permissions = perms
+    u.roles = [role]
+    return u
+
+
+def _fake_agent_user_sync():
+    return _make_fake_agent_user()
 
 
 def _fake_agent_service():
@@ -132,6 +151,55 @@ def _fake_agent_service():
     s.submit_onboarding_form.return_value = onboarding_data.model_dump()
     s.assign_agent.return_value = None
     s.unassign_agent.return_value = None
+    return s
+
+
+def _fake_admin_dashboard_service():
+    """Minimal AdminDashboardService mock for admin dashboard route coverage."""
+    s = MagicMock()
+    s.get_kpis.return_value = {
+        "month": "2026-01",
+        "usersThisMonth": 0,
+        "usersMoMDelta": 0.0,
+        "agentsThisMonth": 0,
+        "agentsMoMDelta": 0.0,
+        "pendingApprovals": 0,
+        "pendingApprovalsToday": 0,
+        "listingsThisMonth": 0,
+        "listingsMoMDelta": 0.0,
+        "leadsThisMonth": 0,
+        "leadsMoMDelta": 0.0,
+        "closedDealsThisMonth": 0,
+    }
+    s.get_trends.return_value = {
+        "months": 12,
+        "monthLabels": ["Jan"] * 12,
+        "userGrowthSeries": [0] * 12,
+        "listingGrowthSeries": [0] * 12,
+        "leadGrowthSeries": [0] * 12,
+    }
+    s.get_property_performance.return_value = {"items": []}
+    s.get_dashboard_summary.return_value = {
+        "month": "2026-01",
+        "usersThisMonth": 0,
+        "usersMoMDelta": 0.0,
+        "agentsThisMonth": 0,
+        "agentsMoMDelta": 0.0,
+        "pendingApprovals": 0,
+        "pendingApprovalsToday": 0,
+        "listingsThisMonth": 0,
+        "listingsMoMDelta": 0.0,
+        "leadsThisMonth": 0,
+        "leadsMoMDelta": 0.0,
+        "closedDealsThisMonth": 0,
+        "monthLabels": ["Jan"] * 12,
+        "userGrowthSeries": [0] * 12,
+        "listingGrowthSeries": [0] * 12,
+        "leadGrowthSeries": [0] * 12,
+        "leadSourceLabels": [],
+        "leadSourceValues": [],
+        "propertyPerformanceSeries": [],
+    }
     return s
 
 
@@ -335,7 +403,7 @@ def test_agent_routes_assignments(client, mock_db):
 
 
 def test_agent_routes_dashboard_summary(client, mock_db):
-    app.dependency_overrides[get_current_user] = _fake_admin_user_sync
+    app.dependency_overrides[get_current_user] = _fake_agent_user_sync
     app.dependency_overrides[get_db] = _fake_get_db(mock_db)
     app.dependency_overrides[get_agent_dashboard_service] = _fake_agent_dashboard_service
     try:
@@ -345,6 +413,67 @@ def test_agent_routes_dashboard_summary(client, mock_db):
         app.dependency_overrides.pop(get_current_user, None)
         app.dependency_overrides.pop(get_db, None)
         app.dependency_overrides.pop(get_agent_dashboard_service, None)
+
+
+def test_admin_routes_dashboard_summary(client, mock_db):
+    app.dependency_overrides[get_current_user] = _fake_admin_user_sync
+    app.dependency_overrides[get_db] = _fake_get_db(mock_db)
+    app.dependency_overrides[get_admin_dashboard_service] = _fake_admin_dashboard_service
+    try:
+        r = client.get("/api/v1/admin/dashboard/summary", headers={"Authorization": "Bearer x"})
+        assert r.status_code == 200
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
+        app.dependency_overrides.pop(get_db, None)
+        app.dependency_overrides.pop(get_admin_dashboard_service, None)
+
+
+def test_admin_routes_dashboard_kpis(client, mock_db):
+    app.dependency_overrides[get_current_user] = _fake_admin_user_sync
+    app.dependency_overrides[get_db] = _fake_get_db(mock_db)
+    app.dependency_overrides[get_admin_dashboard_service] = _fake_admin_dashboard_service
+    try:
+        r = client.get(
+            "/api/v1/admin/dashboard/kpis?month=2026-01",
+            headers={"Authorization": "Bearer x"},
+        )
+        assert r.status_code == 200
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
+        app.dependency_overrides.pop(get_db, None)
+        app.dependency_overrides.pop(get_admin_dashboard_service, None)
+
+
+def test_admin_routes_dashboard_trends(client, mock_db):
+    app.dependency_overrides[get_current_user] = _fake_admin_user_sync
+    app.dependency_overrides[get_db] = _fake_get_db(mock_db)
+    app.dependency_overrides[get_admin_dashboard_service] = _fake_admin_dashboard_service
+    try:
+        r = client.get(
+            "/api/v1/admin/dashboard/trends?months=6",
+            headers={"Authorization": "Bearer x"},
+        )
+        assert r.status_code == 200
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
+        app.dependency_overrides.pop(get_db, None)
+        app.dependency_overrides.pop(get_admin_dashboard_service, None)
+
+
+def test_admin_routes_property_performance(client, mock_db):
+    app.dependency_overrides[get_current_user] = _fake_admin_user_sync
+    app.dependency_overrides[get_db] = _fake_get_db(mock_db)
+    app.dependency_overrides[get_admin_dashboard_service] = _fake_admin_dashboard_service
+    try:
+        r = client.get(
+            "/api/v1/admin/dashboard/property-performance?limit=3",
+            headers={"Authorization": "Bearer x"},
+        )
+        assert r.status_code == 200
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
+        app.dependency_overrides.pop(get_db, None)
+        app.dependency_overrides.pop(get_admin_dashboard_service, None)
 
 
 def test_agent_routes_get_details(client, mock_db):

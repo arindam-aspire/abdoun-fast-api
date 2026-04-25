@@ -189,10 +189,10 @@ def get_assignments(
 
 @router.get("/dashboard/summary")
 def get_dashboard_summary(
-    current_user: Annotated[User, Depends(get_current_user)],
+    current_user: Annotated[User, require_role(UserRoles.AGENT)],
     service: Annotated[AgentDashboardService, Depends(get_agent_dashboard_service)],
 ) -> StandardResponse[AgentDashboardSummaryResponse]:
-    """Return dashboard summary for currently authenticated agent/admin scope."""
+    """Return dashboard summary for the authenticated agent (own listings and metrics)."""
     data = service.get_dashboard_summary(current_user)
     return create_success_response(data=AgentDashboardSummaryResponse(**data), message=None)
 

@@ -1,4 +1,4 @@
-"""Repository for agent/admin dashboard summary metrics."""
+"""Repository for agent dashboard summary metrics (per-agent scope)."""
 
 from __future__ import annotations
 
@@ -10,7 +10,6 @@ from typing import List
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from app.models.user import AdminAgentAssignment
 
 
 @dataclass
@@ -112,20 +111,6 @@ class AgentDashboardRepository:
 
     def __init__(self, db: Session) -> None:
         self._db = db
-
-    def get_effective_agent_ids(self, current_user_id: uuid.UUID, *, is_admin: bool) -> List[uuid.UUID]:
-        """Return scoped agent ids: self for agent, assigned agents for admin."""
-        if not is_admin:
-            return [current_user_id]
-        rows = (
-            self._db.query(AdminAgentAssignment.agent_id)
-            .filter(
-                AdminAgentAssignment.admin_id == current_user_id,
-                AdminAgentAssignment.is_active.is_(True),
-            )
-            .all()
-        )
-        return [row[0] for row in rows]
 
     def _inquiry_trend_last_30_days(self, params: dict) -> List[int]:
         trend_rows = self._db.execute(

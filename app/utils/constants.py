@@ -94,6 +94,10 @@ class ErrorMessages:
     INVALID_SAVED_SEARCH_NAME = "Saved search name is required"
     INVALID_SEARCH_CRITERIA = "search_criteria must be a non-empty JSON object"
 
+    # Admin dashboard
+    INVALID_ADMIN_DASHBOARD_MONTH = "month must be a valid calendar month in the form YYYY-MM (e.g. 2026-04), range 2000-2100."
+    INVALID_ADMIN_DASHBOARD_TRENDS_MONTHS = "months must be between 1 and 24."
+
     # Generic / HTTP (exception handlers, fallbacks)
     REQUEST_FAILED = "Request failed"
     VALIDATION_ERROR = "Validation error"
@@ -378,6 +382,7 @@ class ApiRoutes:
 
     AUTH_PREFIX = "/auth"
     AGENTS_PREFIX = "/agents"
+    ADMIN_PREFIX = "/admin"
     USERS_PREFIX = "/users"
     OWNERS_PREFIX = "/owners"
     PROPERTIES_PREFIX = "/properties"
@@ -390,6 +395,7 @@ class ApiRoutes:
 
     AUTH_TAG = "auth"
     AGENTS_TAG = "agents"
+    ADMIN_TAG = "admin"
     USERS_TAG = "users"
     OWNERS_TAG = "owners"
     PROPERTIES_TAG = "properties"
