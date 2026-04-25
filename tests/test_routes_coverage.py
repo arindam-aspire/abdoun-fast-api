@@ -179,7 +179,7 @@ def _fake_admin_dashboard_service():
         "listingGrowthSeries": [0] * 12,
         "leadGrowthSeries": [0] * 12,
     }
-    s.get_property_performance.return_value = {"items": []}
+    s.get_property_performance.return_value = {"items": [], "page": 1, "limit": 5, "totalItems": 0}
     s.get_dashboard_summary.return_value = {
         "month": "2026-01",
         "usersThisMonth": 0,
@@ -469,7 +469,7 @@ def test_admin_routes_property_performance(client, mock_db):
     app.dependency_overrides[get_admin_dashboard_service] = _fake_admin_dashboard_service
     try:
         r = client.get(
-            "/api/v1/admin/dashboard/property-performance?limit=3",
+            "/api/v1/admin/dashboard/property-performance?pageSize=3",
             headers={"Authorization": "Bearer x"},
         )
         assert r.status_code == 200

@@ -3,6 +3,16 @@
 Deletes **only** primary keys listed in the local manifest for that agent email.
 IDs are recorded exclusively by the seed script; cleanup never uses broad deletes.
 
+Also:
+  * Restores ``created_at`` / ``updated_at`` / ``deal_closed`` on rows that were
+    MTD-isolated (``mtd_isolation_snapshots`` in the manifest).
+  * Releases unassigned catalogue rows claimed for demo (``unassigned_claim_snapshots``),
+    setting ``agent_user_id`` back to NULL and restoring prior status/deal flags.
+
+The agent dashboard API recomputes ``totalProperties`` / deals from live
+``properties_normalized`` rows; without these steps, counts stay inflated after
+demo-only rows are deleted.
+
 Also removes the **dashboard_summary** snapshot row for that agent (same ``user_id``)
 so stale scheduler materialization does not linger after demo data is gone.
 
@@ -13,6 +23,15 @@ Examples:
   python scripts/cleanup_dashboard_demo_data.py --agent-email agent@example.com
   python scripts/cleanup_dashboard_demo_data.py --agent-email agent@example.com --all-runs
   python scripts/cleanup_dashboard_demo_data.py --agent-email agent@example.com --verify-markers
+
+If the local manifest is missing (e.g. seed ran on another machine), use:
+  python scripts/cleanup_dashboard_demo_data.py --agent-email agent@example.com --purge-residual-demo
+
+Tables touched by seed (see review / script docs): ``leads``, ``property_views``,
+``activity_logs``, ``properties_normalized`` (inserts and sometimes updates),
+``dashboard_summary`` (indirectly inflated; cleanup removes the agent snapshot row),
+and optionally new rows in ``property_status`` (slug ``active`` / ``draft``) if they
+did not already exist.
 """
 
 from __future__ import annotations
@@ -20,6 +39,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 from uuid import UUID
 
@@ -32,6 +52,7 @@ from app.models.property_normalized import (
     ActivityLog,
     DashboardSummary,
     Lead,
+    PropertyFeature,
     PropertyNormalized,
     PropertyView,
 )
@@ -56,6 +77,98 @@ def _save_manifest(manifest: dict) -> None:
 
 def _to_uuid_list(values):
     return [UUID(v) for v in values]
+
+
+def _parse_manifest_datetime(value: str | None) -> datetime | None:
+    if value is None or value == "":
+        return None
+    s = value.replace("Z", "+00:00") if value.endswith("Z") else value
+    dt = datetime.fromisoformat(s)
+    if dt.tzinfo is not None:
+        dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
+    return dt
+
+
+def _runs_sorted_by_seeded_at(runs: list[dict]) -> list[dict]:
+    return sorted(runs, key=lambda r: r.get("seeded_at") or "")
+
+
+def _merged_mtd_isolation_snapshots(runs: list[dict]) -> list[dict]:
+    """Oldest run wins per property_id (true pre-demo timestamps)."""
+    merged: dict[str, dict] = {}
+    for run in _runs_sorted_by_seeded_at(runs):
+        for snap in run.get("mtd_isolation_snapshots") or []:
+            pid = snap.get("property_id")
+            if pid and pid not in merged:
+                merged[pid] = snap
+    return list(merged.values())
+
+
+def _legacy_claim_snapshots_from_property_ids(run: dict) -> list[dict]:
+    """Manifests before unassigned_claim_snapshots existed (fallback-only hint)."""
+    if not run.get("used_unassigned_fallback"):
+        return []
+    return [
+        {"property_id": pid, "property_status_id": None, "deal_closed": False}
+        for pid in run.get("property_ids", [])
+    ]
+
+
+def _merged_unassigned_claim_snapshots(runs: list[dict]) -> list[dict]:
+    """Oldest run wins per property_id (pre-claim pool state)."""
+    merged: dict[str, dict] = {}
+    for run in _runs_sorted_by_seeded_at(runs):
+        snaps = run.get("unassigned_claim_snapshots")
+        if not snaps and run.get("used_unassigned_fallback"):
+            snaps = _legacy_claim_snapshots_from_property_ids(run)
+        if not snaps:
+            continue
+        for snap in snaps:
+            pid = snap.get("property_id")
+            if pid and pid not in merged:
+                merged[pid] = snap
+    return list(merged.values())
+
+
+def _restore_mtd_isolation_snapshots(db, snapshots: list[dict], agent_uuid: UUID | None) -> int:
+    if not snapshots or agent_uuid is None:
+        return 0
+    n = 0
+    for snap in snapshots:
+        pid = UUID(snap["property_id"])
+        prop = db.get(PropertyNormalized, pid)
+        if prop is None or prop.agent_user_id != agent_uuid:
+            continue
+        ca = _parse_manifest_datetime(snap.get("created_at"))
+        ua = _parse_manifest_datetime(snap.get("updated_at"))
+        if ca is not None:
+            prop.created_at = ca
+        if ua is not None:
+            prop.updated_at = ua
+        prop.deal_closed = bool(snap.get("deal_closed", False))
+        n += 1
+    return n
+
+
+def _release_unassigned_claims(db, runs: list[dict], agent_uuid: UUID | None) -> int:
+    """Clear agent_user_id on catalogue rows claimed only for demo seeding."""
+    if agent_uuid is None:
+        return 0
+    merged = _merged_unassigned_claim_snapshots(runs)
+    n = 0
+    for snap in merged:
+        pid = UUID(snap["property_id"])
+        prop = db.get(PropertyNormalized, pid)
+        if prop is None or prop.agent_user_id != agent_uuid:
+            continue
+        psid = snap.get("property_status_id")
+        prop.agent_user_id = None
+        if psid is not None:
+            prop.property_status_id = psid
+        if "deal_closed" in snap:
+            prop.deal_closed = bool(snap["deal_closed"])
+        n += 1
+    return n
 
 
 def _count_rows_for_property(
@@ -165,6 +278,110 @@ def _verify_demo_markers(db, lead_ids: list[UUID], activity_ids: list[UUID]) -> 
             )
 
 
+def _mtd_synthetic_property_predicate():
+    """MTD seed uses these title/reference patterns (see _clone_demo_property / _seed_mtd)."""
+    return or_(
+        PropertyNormalized.title.like("[DEMO_MTDLIST]%"),
+        PropertyNormalized.reference_number.like("DMTD-%"),
+    )
+
+
+def purge_residual_demo_data(agent_email: str, *, verify_markers: bool = False) -> None:
+    """Remove demo rows without relying on ``.dashboard_demo_seed_manifest.json``.
+
+    Use when the manifest is missing, corrupt, or was never copied from the machine
+    that ran the seed. This handles:
+
+    * ``leads`` with ``inquiry_type='dashboard_demo_seed'`` for this user
+    * ``activity_logs`` with ``activity_type='dashboard_demo_seed'`` for this user
+    * MTD synthetic ``properties_normalized`` rows (title ``[DEMO_MTDLIST]%`` or
+      ``reference_number`` ``DMTD-%``) owned by this agent, plus ``property_views``
+      and ``property_features`` pointing at those properties
+
+    Does **not** remove ``property_views`` from legacy/date-range seeding on real
+    listings (those rows are not distinguishable without the manifest). Does **not**
+    restore unassigned catalogue rows or MTD-isolated timestamps (manifest required).
+    """
+    db = SessionLocal()
+    deleted_leads_marker = 0
+    deleted_activity_marker = 0
+    deleted_views_synth = 0
+    deleted_features_synth = 0
+    deleted_leads_on_synth = 0
+    deleted_activity_on_synth = 0
+    deleted_synthetic_properties = 0
+    deleted_dashboard_summary = 0
+    try:
+        user_row = db.execute(select(User).where(User.email == agent_email)).scalar_one_or_none()
+        if user_row is None:
+            print(f"No user found for email: {agent_email}")
+            return
+        uid = user_row.id
+
+        lead_ids_marker = db.execute(select(Lead.id).where(Lead.user_id == uid, Lead.inquiry_type == DEMO_INQUIRY_TYPE)).scalars().all()
+        act_ids_marker = db.execute(
+            select(ActivityLog.id).where(
+                ActivityLog.user_id == uid, ActivityLog.activity_type == DEMO_ACTIVITY_TYPE
+            )
+        ).scalars().all()
+        if verify_markers and lead_ids_marker:
+            _verify_demo_markers(db, list(lead_ids_marker), list(act_ids_marker))
+            print("  Marker check: all candidate leads/activity_logs match demo seed markers.")
+
+        if lead_ids_marker:
+            r = db.execute(delete(Lead).where(Lead.id.in_(lead_ids_marker)))
+            deleted_leads_marker = r.rowcount or 0
+        if act_ids_marker:
+            r = db.execute(delete(ActivityLog).where(ActivityLog.id.in_(act_ids_marker)))
+            deleted_activity_marker = r.rowcount or 0
+
+        synth_rows = db.execute(
+            select(PropertyNormalized.id).where(
+                PropertyNormalized.agent_user_id == uid,
+                _mtd_synthetic_property_predicate(),
+            )
+        ).scalars().all()
+        synth_ids = list(synth_rows)
+        if synth_ids:
+            r = db.execute(delete(PropertyView).where(PropertyView.property_id.in_(synth_ids)))
+            deleted_views_synth = r.rowcount or 0
+            r = db.execute(delete(PropertyFeature).where(PropertyFeature.property_id.in_(synth_ids)))
+            deleted_features_synth = r.rowcount or 0
+            r = db.execute(delete(Lead).where(Lead.property_id.in_(synth_ids)))
+            deleted_leads_on_synth = r.rowcount or 0
+            r = db.execute(delete(ActivityLog).where(ActivityLog.property_id.in_(synth_ids)))
+            deleted_activity_on_synth = r.rowcount or 0
+            r = db.execute(delete(PropertyNormalized).where(PropertyNormalized.id.in_(synth_ids)))
+            deleted_synthetic_properties = r.rowcount or 0
+
+        r = db.execute(delete(DashboardSummary).where(DashboardSummary.user_id == uid))
+        deleted_dashboard_summary = r.rowcount or 0
+
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
+
+    print("Residual demo purge complete (no manifest).")
+    print(f"  Agent email:              {agent_email}")
+    print(f"  Leads (marker, user_id):  {deleted_leads_marker}")
+    print(f"  Activity (marker, user_id): {deleted_activity_marker}")
+    print(f"  Property views (synth):   {deleted_views_synth}")
+    print(f"  Property features (synth): {deleted_features_synth}")
+    print(f"  Leads (on synth props):   {deleted_leads_on_synth}")
+    print(f"  Activity (on synth props): {deleted_activity_on_synth}")
+    print(f"  Synthetic properties:     {deleted_synthetic_properties}")
+    print(f"  dashboard_summary rows:   {deleted_dashboard_summary}")
+    print()
+    print(
+        "If you used unassigned-property fallback or --mtd-isolate, reconcile manually "
+        "or restore from backup unless you still have a manifest for cleanup_dashboard_data()."
+    )
+    print()
+
+
 def cleanup_dashboard_data(agent_email: str, *, all_runs: bool = False, verify_markers: bool = False) -> None:
     manifest = _load_manifest()
     runs = manifest.get("runs", [])
@@ -194,6 +411,8 @@ def cleanup_dashboard_data(agent_email: str, *, all_runs: bool = False, verify_m
     deleted_activities = 0
     deleted_synthetic_properties = 0
     deleted_dashboard_summary = 0
+    restored_mtd_rows = 0
+    released_claim_rows = 0
 
     db = SessionLocal()
     try:
@@ -221,6 +440,11 @@ def cleanup_dashboard_data(agent_email: str, *, all_runs: bool = False, verify_m
                 delete(PropertyNormalized).where(PropertyNormalized.id.in_(synthetic_property_ids))
             )
             deleted_synthetic_properties = result.rowcount or 0
+
+        if resolved_user_id is not None:
+            mtd_snaps = _merged_mtd_isolation_snapshots(target_runs)
+            restored_mtd_rows = _restore_mtd_isolation_snapshots(db, mtd_snaps, resolved_user_id)
+            released_claim_rows = _release_unassigned_claims(db, target_runs, resolved_user_id)
 
         summary_uid = resolved_user_id
         if summary_uid is None and agent_user_id:
@@ -260,6 +484,8 @@ def cleanup_dashboard_data(agent_email: str, *, all_runs: bool = False, verify_m
     print(f"  Activity logs:        {deleted_activities}")
     if synthetic_property_ids:
         print(f"  Synthetic properties:  {deleted_synthetic_properties}")
+    print(f"  MTD timestamps restored:  {restored_mtd_rows} (pre-isolate snapshot)")
+    print(f"  Unassigned claims released: {released_claim_rows} (agent_user_id cleared)")
     print(f"  dashboard_summary rows: {deleted_dashboard_summary} (for this agent user_id)")
     print(f"  Manifest updated:     {MANIFEST_PATH.resolve()}")
     print()
@@ -281,7 +507,22 @@ def main() -> None:
             "and activity_type (abort if not)."
         ),
     )
+    parser.add_argument(
+        "--purge-residual-demo",
+        action="store_true",
+        help=(
+            "Do not use the manifest: delete demo-marker leads/activity for this user, "
+            "purge MTD synthetic properties (title/reference patterns), then remove "
+            "dashboard_summary for this user. For legacy seed views on real listings, "
+            "run manifest-based cleanup if you still have .dashboard_demo_seed_manifest.json."
+        ),
+    )
     args = parser.parse_args()
+    if args.purge_residual_demo:
+        if args.all_runs:
+            parser.error("--purge-residual-demo cannot be combined with --all-runs")
+        purge_residual_demo_data(args.agent_email, verify_markers=args.verify_markers)
+        return
     cleanup_dashboard_data(args.agent_email, all_runs=args.all_runs, verify_markers=args.verify_markers)
 
 

@@ -2,9 +2,31 @@
 
 from __future__ import annotations
 
+from enum import Enum
 from typing import List, Optional
 
 from pydantic import BaseModel, Field
+
+from app.schemas.user import PaginationInfo
+
+
+class PropertyPerformancePeriod(str, Enum):
+    """Time window for aggregating property_views; exposed as query param ``limit`` on the API."""
+
+    ALL = "all"
+    WEEKLY = "weekly"
+    MONTHLY = "monthly"
+    YEARLY = "yearly"
+
+    @classmethod
+    def _missing_(cls, value: object):
+        """Accept ``WEEKLY`` / `` Monthly `` etc. from query strings (case- and whitespace-insensitive)."""
+        if isinstance(value, str):
+            key = value.strip().lower()
+            for member in cls:
+                if member.value == key:
+                    return member
+        return None
 
 
 class AdminDashboardKpisResponse(BaseModel):
@@ -47,9 +69,10 @@ class PropertyPerformanceItem(BaseModel):
 
 
 class AdminDashboardPropertyPerformanceResponse(BaseModel):
-    """Top properties by views (descending by value)."""
+    """Top properties by views (descending by value), paginated."""
 
     items: List[PropertyPerformanceItem]
+    pagination: PaginationInfo
 
 
 class AdminDashboardSummaryResponse(BaseModel):

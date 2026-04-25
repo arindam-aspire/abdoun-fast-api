@@ -6,6 +6,7 @@ import uuid
 from unittest.mock import MagicMock
 
 from app.repositories.admin_dashboard_repository import KpiRawSnapshot, PropertyPerformanceRow, TrendsRaw
+from app.schemas.admin_dashboard import PropertyPerformancePeriod
 from app.services.admin_dashboard_service import AdminDashboardService, _mom_percent_change
 
 
@@ -74,12 +75,20 @@ def test_get_property_performance():
         )
     ]
     repo = MagicMock()
-    repo.fetch_top_properties_by_views.return_value = pr
+    repo.fetch_top_properties_by_views.return_value = (pr, 42)
     service = AdminDashboardService(repo)
-    out = service.get_property_performance(limit=3, agent_id=aid)
+    out = service.get_property_performance(
+        period=PropertyPerformancePeriod.MONTHLY, page=2, limit=3, agent_id=aid
+    )
     assert out["items"][0]["propertyId"] == str(pid)
     assert out["items"][0]["value"] == 9
     assert out["items"][0]["propertyType"] == "apartment"
+    assert out["page"] == 2
+    assert out["limit"] == 3
+    assert out["totalItems"] == 42
+    repo.fetch_top_properties_by_views.assert_called_once_with(
+        period="monthly", page=2, limit=3, agent_id=aid
+    )
 
 
 def test_get_dashboard_summary_builds_payload():
@@ -124,7 +133,7 @@ def test_get_dashboard_summary_builds_payload():
     repo.fetch_kpis = MagicMock(return_value=k)
     repo.fetch_rolling_cumulative_12m_utc.return_value = t
     repo.fetch_lead_source_breakdown.return_value = (["Unspecified", "WhatsApp"], [5, 3])
-    repo.fetch_top_properties_by_views.return_value = pr
+    repo.fetch_top_properties_by_views.return_value = (pr, 1)
     service = AdminDashboardService(repo)
     out = service.get_dashboard_summary()
     assert "month" in out
@@ -133,3 +142,6 @@ def test_get_dashboard_summary_builds_payload():
     assert out["propertyPerformanceSeries"][0]["propertyId"] == str(pid)
     assert out["propertyPerformanceSeries"][0]["agentId"] == str(aid)
     assert "A" in out["propertyPerformanceSeries"][0]["label"]
+    repo.fetch_top_properties_by_views.assert_called_once_with(
+        period="monthly", page=1, limit=5, agent_id=None
+    )

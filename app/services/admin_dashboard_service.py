@@ -15,6 +15,7 @@ from app.repositories.admin_dashboard_repository import (
     PropertyPerformanceRow,
     AdminDashboardRepository,
 )
+from app.schemas.admin_dashboard import PropertyPerformancePeriod
 from app.utils.constants import ErrorMessages
 from app.utils.status_codes import HTTPStatus
 
@@ -119,12 +120,25 @@ class AdminDashboardService:
     def get_property_performance(
         self,
         *,
+        period: PropertyPerformancePeriod = PropertyPerformancePeriod.ALL,
+        page: int = 1,
         limit: int = 5,
         agent_id: Optional[UUID] = None,
     ) -> Dict[str, Any]:
         cap = max(1, min(limit, 100))
-        rows = self._repo.fetch_top_properties_by_views(limit=cap, agent_id=agent_id)
-        return {"items": _build_property_items(rows)}
+        pg = max(1, page)
+        rows, total = self._repo.fetch_top_properties_by_views(
+            period=period.value,
+            page=pg,
+            limit=cap,
+            agent_id=agent_id,
+        )
+        return {
+            "items": _build_property_items(rows),
+            "page": pg,
+            "limit": cap,
+            "totalItems": total,
+        }
 
     def get_dashboard_summary(self) -> Dict:
         """Backward-compatible monolithic payload for existing clients: current UTC month."""
@@ -134,7 +148,12 @@ class AdminDashboardService:
         # Same cumulative 12m series as pre-split dashboard (avoids changing legacy chart semantics).
         tr = self._repo.fetch_rolling_cumulative_12m_utc()
         lead_labels, lead_vals = self._repo.fetch_lead_source_breakdown()
-        pr = self._repo.fetch_top_properties_by_views(limit=5, agent_id=None)
+        pr, _ = self._repo.fetch_top_properties_by_views(
+            period=PropertyPerformancePeriod.MONTHLY.value,
+            page=1,
+            limit=5,
+            agent_id=None,
+        )
         d = _kpi_to_public_dict(k)
         d["monthLabels"] = tr.month_labels
         d["userGrowthSeries"] = tr.user_growth_series

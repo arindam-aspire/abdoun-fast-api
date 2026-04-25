@@ -1,5 +1,6 @@
 """Platform admin routes (global KPIs, not per-admin agent scope)."""
 
+import math
 import uuid
 from typing import Annotated, Optional
 
@@ -14,7 +15,9 @@ from app.schemas.admin_dashboard import (
     AdminDashboardSummaryResponse,
     AdminDashboardTrendsResponse,
     PropertyPerformanceItem,
+    PropertyPerformancePeriod,
 )
+from app.schemas.user import PaginationInfo
 from app.services.admin_dashboard_service import AdminDashboardService
 from app.utils.constants import UserRoles
 from app.utils.responses import StandardResponse, create_success_response
@@ -54,17 +57,47 @@ def get_admin_dashboard_trends(
 def get_admin_property_performance(
     _current_user: Annotated[User, require_role(UserRoles.ADMIN)],
     service: Annotated[AdminDashboardService, Depends(get_admin_dashboard_service)],
-    limit: Annotated[int, Query(description="Max rows to return", ge=1, le=100)] = 5,
+    time_scope: Annotated[
+        PropertyPerformancePeriod,
+        Query(
+            alias="limit",
+            description=(
+                "View window: all (default), weekly, monthly, yearly "
+                "(trailing 7 / 30 / 365 days by wall-clock interval; case-insensitive)."
+            ),
+        ),
+    ] = PropertyPerformancePeriod.ALL,
+    page: Annotated[int, Query(ge=1, description="1-based page index.")] = 1,
+    page_size: Annotated[
+        int,
+        Query(
+            alias="pageSize",
+            description="Properties per page.",
+            ge=1,
+            le=100,
+        ),
+    ] = 5,
     agentId: Annotated[
         Optional[uuid.UUID],
         Query(description="If set, restrict to this agent’s listings only."),
     ] = None,
 ) -> StandardResponse[AdminDashboardPropertyPerformanceResponse]:
-    """Top properties by view count (server: last 30 days, UTC) for the bar chart."""
-    data = service.get_property_performance(limit=limit, agent_id=agentId)
+    """Top properties by view count for the bar chart; paginated (see ``pagination`` in the payload)."""
+    data = service.get_property_performance(
+        period=time_scope, page=page, limit=page_size, agent_id=agentId
+    )
+    lim = int(data["limit"])
+    total_items = int(data["totalItems"])
+    total_pages = math.ceil(total_items / lim) if total_items > 0 else 0
     return create_success_response(
         data=AdminDashboardPropertyPerformanceResponse(
-            items=[PropertyPerformanceItem(**i) for i in data["items"]]
+            items=[PropertyPerformanceItem(**i) for i in data["items"]],
+            pagination=PaginationInfo(
+                page=int(data["page"]),
+                limit=lim,
+                totalItems=total_items,
+                totalPages=total_pages,
+            ),
         ),
         message=None,
     )

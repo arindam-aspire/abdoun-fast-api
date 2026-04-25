@@ -1,9 +1,12 @@
 """Seed demo data for agent dashboard summary metrics.
 
 Modes:
-  * Legacy / date-range: seed leads, views, activity on existing agent listings.
+  * Recommended for most dev/demo UI: legacy or date-range — adds leads, views, and
+    activity on existing listings only (no bulk synthetic property clones).
   * --mtd-percentage-targets: insert synthetic listings + rows so MoM %% match
-    ~15.6 / 7.5 / 5.0 / 4.4 (aligned MTD windows, same rounding as the API).
+    fixed targets (aligned MTD windows, same rounding as the API). Each synthetic
+    row gets its own placeholder image URLs so catalog-style APIs do not repeat
+    the same image for every clone.
 
 Examples:
   python scripts/seed_dashboard_demo_data.py --agent-email agent@example.com
@@ -31,7 +34,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from sqlalchemy import select, update
 
@@ -128,6 +131,33 @@ MTD_PROFILES_BY_VARIANT: dict[str, MTDCalibrationProfile] = {
 # Far outside any aligned-MTD window so existing agent rows do not affect demo counts
 _MTD_ISOLATE_ANCHOR_TS = datetime(1970, 1, 1, 0, 0, 0)
 
+# Deterministic placeholder images per synthetic row (public list UIs stay visually distinct).
+_MTD_DEMO_IMAGE_WIDTH = 800
+_MTD_DEMO_IMAGE_HEIGHT = 600
+
+
+def _mtd_clone_images_json(property_id: UUID) -> str:
+    """JSON array of distinct demo image URLs for one synthetic MTD property."""
+    seed = str(property_id).replace("-", "")
+    return json.dumps(
+        [
+            f"https://picsum.photos/seed/{seed}a/{_MTD_DEMO_IMAGE_WIDTH}/{_MTD_DEMO_IMAGE_HEIGHT}",
+            f"https://picsum.photos/seed/{seed}b/{_MTD_DEMO_IMAGE_WIDTH}/{int(_MTD_DEMO_IMAGE_HEIGHT * 0.75)}",
+        ]
+    )
+
+
+def _mtd_clone_description(template_description: str | None, listing_title: str) -> str:
+    """Keep template copy for realism but mark row as synthetic (truncated for DB String column)."""
+    suffix = f"\n\n[Dashboard demo — synthetic MTD listing: {listing_title}]"
+    base = (template_description or "").strip()
+    if not base:
+        body = f"[Dashboard demo — synthetic MTD listing: {listing_title}]"
+    else:
+        body = base + suffix
+    # `PropertyNormalized.description` is String; stay safely under typical 4096/8192 limits.
+    return body[:8000]
+
 
 def _mtd_isolate_existing_agent_properties(db, user_id) -> int:
     """Move all listings for this agent out of MTD windows (destructive; demo/local only).
@@ -145,6 +175,30 @@ def _mtd_isolate_existing_agent_properties(db, user_id) -> int:
         )
     )
     return int(result.rowcount or 0)
+
+
+def _snapshot_agent_properties_before_mtd_isolate(db, user_id) -> list[dict]:
+    """Persist created_at/updated_at/deal_closed so cleanup can restore after demo."""
+    rows = db.execute(
+        select(
+            PropertyNormalized.id,
+            PropertyNormalized.created_at,
+            PropertyNormalized.updated_at,
+            PropertyNormalized.deal_closed,
+        ).where(PropertyNormalized.agent_user_id == user_id)
+    ).all()
+    snapshots: list[dict] = []
+    for r in rows:
+        ca, ua = r.created_at, r.updated_at
+        snapshots.append(
+            {
+                "property_id": str(r.id),
+                "created_at": ca.isoformat() if ca is not None else None,
+                "updated_at": ua.isoformat() if ua is not None else None,
+                "deal_closed": bool(r.deal_closed) if r.deal_closed is not None else False,
+            }
+        )
+    return snapshots
 
 
 def _aligned_mtd_bounds(now_utc: datetime) -> tuple[datetime, datetime, datetime, datetime]:
@@ -184,8 +238,17 @@ def _clone_demo_property(
     created_at: datetime,
     updated_at: datetime,
     deal_closed: bool,
+    vary_mtd_media: bool = False,
 ) -> PropertyNormalized:
     pid = uuid4()
+    if vary_mtd_media:
+        desc = _mtd_clone_description(template.description, title[:200])
+        images_val = _mtd_clone_images_json(pid)
+        ref = f"DMTD-{str(pid).replace('-', '')[:10].upper()}"
+    else:
+        desc = template.description
+        images_val = template.images if template.images is not None else "[]"
+        ref = None
     prop = PropertyNormalized(
         id=pid,
         property_hash=uuid_to_int_hash(pid),
@@ -196,7 +259,7 @@ def _clone_demo_property(
         location_id=template.location_id,
         url=None,
         title=title[:500],
-        description=template.description,
+        description=desc,
         is_exclusive=template.is_exclusive,
         is_featured=template.is_featured,
         is_verified=template.is_verified,
@@ -204,7 +267,7 @@ def _clone_demo_property(
         longitude=template.longitude,
         location=template.location,
         location_name=template.location_name,
-        reference_number=None,
+        reference_number=ref,
         price=template.price,
         currency=template.currency,
         selling_price_amount=template.selling_price_amount,
@@ -222,7 +285,7 @@ def _clone_demo_property(
         furniture_status=template.furniture_status,
         parking=template.parking,
         property_age=template.property_age,
-        images=template.images if template.images is not None else "[]",
+        images=images_val,
         virtual_tour_url=template.virtual_tour_url,
         more_features=template.more_features,
         agent_user_id=agent_user_id,
@@ -275,6 +338,7 @@ def _seed_mtd_percentage_targets(
             created_at=_aware_utc(ca),
             updated_at=_aware_utc(ua),
             deal_closed=False,
+            vary_mtd_media=True,
         )
         db.add(p)
         prev_rows.append(p)
@@ -290,6 +354,7 @@ def _seed_mtd_percentage_targets(
             created_at=_aware_utc(ca),
             updated_at=_aware_utc(ua),
             deal_closed=False,
+            vary_mtd_media=True,
         )
         db.add(p)
         curr_rows.append(p)
@@ -445,8 +510,12 @@ def _get_or_create_status_ids(db) -> tuple[int, int]:
 
 def _resolve_agent_properties(
     db, user_id, active_status_id: int, draft_status_id: int, count: int
-) -> tuple[list, bool]:
-    """Return (properties, used_fallback) where used_fallback means unassigned rows were claimed."""
+) -> tuple[list, bool, list[dict]]:
+    """Return (properties, used_fallback, unassigned_claim_snapshots).
+
+    When claiming unassigned rows for demo, snapshots capture pre-claim state so cleanup
+    can set agent_user_id back to NULL and restore status/deal_closed.
+    """
     properties = db.execute(
         select(PropertyNormalized)
         .where(PropertyNormalized.agent_user_id == user_id)
@@ -454,7 +523,7 @@ def _resolve_agent_properties(
         .limit(count)
     ).scalars().all()
     if properties:
-        return properties, False
+        return properties, False, []
 
     print("No properties assigned to this agent; assigning recent unassigned properties for demo...")
     candidates = db.execute(
@@ -463,11 +532,22 @@ def _resolve_agent_properties(
         .order_by(PropertyNormalized.created_at.desc())
         .limit(count)
     ).scalars().all()
+    claim_snapshots: list[dict] = []
+    for prop in candidates:
+        claim_snapshots.append(
+            {
+                "property_id": str(prop.id),
+                "property_status_id": int(prop.property_status_id)
+                if prop.property_status_id is not None
+                else None,
+                "deal_closed": bool(prop.deal_closed) if prop.deal_closed is not None else False,
+            }
+        )
     for idx, prop in enumerate(candidates):
         prop.agent_user_id = user_id
         prop.property_status_id = active_status_id if idx % 3 else draft_status_id
         prop.deal_closed = idx % 4 == 0
-    return candidates, True
+    return candidates, True, claim_snapshots
 
 
 def _property_rng(prop: PropertyNormalized, idx: int) -> random.Random:
@@ -678,9 +758,23 @@ def seed_dashboard_data(
         now = datetime.now(timezone.utc)
 
         if mtd_percentage_targets:
+            print()
+            print(
+                "NOTE: MTD mode inserts many synthetic listings (tracked in the manifest). "
+                "Remove them with:"
+            )
+            print(f"  python scripts/cleanup_dashboard_demo_data.py --agent-email {agent_email}")
+            if mtd_isolate:
+                print()
+                print(
+                    "WARNING: --mtd-isolate rewrites created_at/updated_at on this agent's "
+                    "EXISTING listings to 1970-01-01 UTC. Run cleanup with the same manifest so "
+                    "mtd_isolation_snapshots can restore prior timestamps (see cleanup script). "
+                    "If you lose the manifest file, those dates cannot be recovered from the DB alone."
+                )
             profile = MTD_PROFILES_BY_VARIANT.get(mtd_variant, MTD_PROFILE_POSITIVE)
             active_status_id, draft_status_id = _get_or_create_status_ids(db)
-            tpl_props, used_fb = _resolve_agent_properties(
+            tpl_props, used_fb, claim_snapshots = _resolve_agent_properties(
                 db,
                 user.id,
                 active_status_id=active_status_id,
@@ -691,8 +785,10 @@ def seed_dashboard_data(
                 print("No template property found for MTD calibration (need at least one listing or fallback pool).")
                 db.rollback()
                 return
+            isolation_snapshots: list[dict] = []
             isolated_n = 0
             if mtd_isolate:
+                isolation_snapshots = _snapshot_agent_properties_before_mtd_isolate(db, user.id)
                 isolated_n = _mtd_isolate_existing_agent_properties(db, user.id)
                 db.flush()
                 db.refresh(tpl_props[0])
@@ -706,6 +802,9 @@ def seed_dashboard_data(
                 db, user, tpl_props[0], now, rng, agent_email=agent_email, profile=profile
             )
             run_manifest["mtd_isolated"] = bool(mtd_isolate)
+            run_manifest["mtd_isolation_snapshots"] = isolation_snapshots
+            run_manifest["used_unassigned_fallback"] = used_fb
+            run_manifest["unassigned_claim_snapshots"] = claim_snapshots
             if mtd_isolate:
                 run_manifest["mtd_isolated_rowcount"] = isolated_n
             db.commit()
@@ -727,6 +826,10 @@ def seed_dashboard_data(
             print(f"  Manifest updated:       {MANIFEST_PATH.resolve()}")
             if used_fb:
                 print("  Note: template property came from unassigned-property fallback.")
+            print(
+                "  Synthetic listing images use https://picsum.photos (unique per row; "
+                "browser needs network to load thumbnails)."
+            )
             print()
             return
 
@@ -738,7 +841,7 @@ def seed_dashboard_data(
         )
 
         active_status_id, draft_status_id = _get_or_create_status_ids(db)
-        properties, used_fallback = _resolve_agent_properties(
+        properties, used_fallback, claim_snapshots = _resolve_agent_properties(
             db,
             user.id,
             active_status_id=active_status_id,
@@ -757,6 +860,8 @@ def seed_dashboard_data(
             "agent_email": agent_email,
             "agent_user_id": str(user.id),
             "property_ids": [str(p.id) for p in properties],
+            "used_unassigned_fallback": used_fallback,
+            "unassigned_claim_snapshots": claim_snapshots,
             "ids": {
                 "leads": [],
                 "property_views": [],
@@ -830,8 +935,20 @@ def seed_dashboard_data(
 
 
 def main() -> None:
+    _epilog = """
+Typical workflow (dashboard activity on real listings, no bulk synthetic clones):
+  python scripts/seed_dashboard_demo_data.py --agent-email YOUR_AGENT --spread-days 45
+  python scripts/cleanup_dashboard_demo_data.py --agent-email YOUR_AGENT
+
+If the manifest JSON was never on this machine, use residual purge (see cleanup --help).
+
+MTD mode inserts many synthetic properties for exact MoM %%; cleanup removes them by manifest.
+Synthetic rows use distinct https://picsum.photos URLs (needs network in the UI to show images).
+"""
     parser = argparse.ArgumentParser(
-        description="Seed dashboard demo data (tracked in scripts/.dashboard_demo_seed_manifest.json)."
+        description="Seed dashboard demo data (tracked in scripts/.dashboard_demo_seed_manifest.json).",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=_epilog,
     )
     parser.add_argument("--agent-email", required=True, help="Agent email to seed data for")
     parser.add_argument("--count", type=int, default=6, help="Max properties to use")

@@ -14,8 +14,25 @@ from sqlalchemy.orm import Session
 from app.utils.constants import UserRoles
 
 
-# View window for "property performance" (contract: define period; we use last 30 days, UTC)
-_PROPERTY_PERF_LOOKBACK_DAYS = 30
+def _property_performance_time_filter_sql(period: str) -> str:
+    """Trailing window on ``property_views.viewed_at`` (timestamptz).
+
+    Uses ``NOW() - interval`` so both sides stay ``timestamptz``. Avoid
+    ``(NOW() AT TIME ZONE 'UTC')`` on the RHS: that yields ``timestamp`` and
+    Postgres then applies ``TimeZone`` when coercing, which skews cutoffs in
+    non-UTC sessions.
+
+    ``all``: no lower bound (every view row).
+    """
+    if period == "all":
+        return ""
+    if period == "weekly":
+        return " AND pv.viewed_at >= (NOW() - interval '7 days')"
+    if period == "monthly":
+        return " AND pv.viewed_at >= (NOW() - interval '30 days')"
+    if period == "yearly":
+        return " AND pv.viewed_at >= (NOW() - interval '365 days')"
+    raise ValueError(f"Invalid property performance period: {period!r}")
 
 
 def _shift_calendar_month(y: int, m: int, delta: int) -> tuple[int, int]:
@@ -317,17 +334,48 @@ class AdminDashboardRepository:
     def fetch_top_properties_by_views(
         self,
         *,
+        period: str,
+        page: int = 1,
         limit: int = 5,
         agent_id: Optional[UUID] = None,
-    ) -> list[PropertyPerformanceRow]:
-        """Top properties by view count in the last 30 days (UTC), optional agent filter."""
+    ) -> tuple[list[PropertyPerformanceRow], int]:
+        """Top properties by view count (time window from ``period``), optional agent filter, paginated.
+
+        Returns:
+            (rows for the requested page, total distinct properties matching filters).
+        """
+        time_sql = _property_performance_time_filter_sql(period)
         lim = max(1, min(limit, 100))
-        params: dict = {"lim": lim, "days": _PROPERTY_PERF_LOOKBACK_DAYS}
+        pg = max(1, page)
+        offset = (pg - 1) * lim
         where_agent = ""
+        count_params: dict = {}
+        data_params: dict = {"lim": lim, "off": offset}
         if agent_id is not None:
             where_agent = " AND p.agent_user_id = :aid"
-            params["aid"] = agent_id
-        sql = f"""
+            count_params["aid"] = agent_id
+            data_params["aid"] = agent_id
+
+        base_from = """
+                FROM property_views pv
+                INNER JOIN properties_normalized p ON p.id = pv.property_id
+                LEFT JOIN users u ON u.id = p.agent_user_id
+                LEFT JOIN property_categories pc ON pc.id = p.category_id
+                LEFT JOIN property_types pt ON pt.id = p.type_id
+                LEFT JOIN areas a ON a.id = p.location_id
+                WHERE 1=1
+        """
+        count_sql = f"""
+                SELECT COUNT(*)::int AS cnt FROM (
+                    SELECT p.id
+                    {base_from}
+                    {time_sql}{where_agent}
+                    GROUP BY p.id
+                ) property_groups
+        """
+        total = int(self._db.execute(text(count_sql), count_params).scalar() or 0)
+
+        data_sql = f"""
                 SELECT
                     p.id AS property_id,
                     p.agent_user_id AS agent_user_id,
@@ -338,19 +386,14 @@ class AdminDashboardRepository:
                     COALESCE(NULLIF(TRIM(a.name), ''), NULLIF(TRIM(p.location_name), ''), '') AS area_or_location,
                     p.title AS title,
                     COUNT(pv.id)::int AS view_count
-                FROM property_views pv
-                INNER JOIN properties_normalized p ON p.id = pv.property_id
-                LEFT JOIN users u ON u.id = p.agent_user_id
-                LEFT JOIN property_categories pc ON pc.id = p.category_id
-                LEFT JOIN property_types pt ON pt.id = p.type_id
-                LEFT JOIN areas a ON a.id = p.location_id
-                WHERE pv.viewed_at >= (NOW() AT TIME ZONE 'UTC' - (:days * interval '1 day')){where_agent}
+                {base_from}
+                    {time_sql}{where_agent}
                 GROUP BY p.id, p.agent_user_id, u.full_name, pc.name, pt.name, pt.slug, a.name, p.location_name, p.title
-                ORDER BY view_count DESC
-                LIMIT :lim
+                ORDER BY view_count DESC, p.id ASC
+                LIMIT :lim OFFSET :off
         """
-        perf_rows = self._db.execute(text(sql), params).mappings().all()
-        return [
+        perf_rows = self._db.execute(text(data_sql), data_params).mappings().all()
+        rows = [
             PropertyPerformanceRow(
                 property_id=r["property_id"],
                 agent_user_id=r["agent_user_id"],
@@ -366,3 +409,4 @@ class AdminDashboardRepository:
             )
             for r in perf_rows
         ]
+        return rows, total
