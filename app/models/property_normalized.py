@@ -281,7 +281,6 @@ class PropertyNormalized(Base):
 
     created_at = Column(TIMESTAMP, server_default=func.now())
     updated_at = Column(TIMESTAMP, server_default=func.now(), onupdate=func.now())
-    created_by_user_id = Column(UUID(as_uuid=True), ForeignKey(FK_USERS_ID, ondelete=ONDELETE_SET_NULL), nullable=True, index=True)
     updated_by_user_id = Column(UUID(as_uuid=True), ForeignKey(FK_USERS_ID, ondelete=ONDELETE_SET_NULL), nullable=True, index=True)
     agent_user_id = Column(UUID(as_uuid=True), ForeignKey(FK_USERS_ID, ondelete=ONDELETE_SET_NULL), nullable=True, index=True)
     approved_by_user_id = Column(UUID(as_uuid=True), ForeignKey(FK_USERS_ID, ondelete=ONDELETE_SET_NULL), nullable=True, index=True)

@@ -26,10 +26,7 @@ property_view_user_type = sa.Enum(
 
 def upgrade() -> None:
     bind = op.get_bind()
-    op.add_column(
-        "properties_normalized",
-        sa.Column("created_by_user_id", postgresql.UUID(as_uuid=True), nullable=True),
-    )
+    # created_by (FK on properties_normalized) lives in 0028_prop_listing_subs; do not duplicate as created_by_user_id.
     op.add_column(
         "properties_normalized",
         sa.Column("updated_by_user_id", postgresql.UUID(as_uuid=True), nullable=True),
@@ -47,14 +44,6 @@ def upgrade() -> None:
         sa.Column("deal_closed", sa.Boolean(), nullable=False, server_default=sa.text("false")),
     )
 
-    op.create_foreign_key(
-        "fk_properties_created_by_user",
-        "properties_normalized",
-        "users",
-        ["created_by_user_id"],
-        ["id"],
-        ondelete="SET NULL",
-    )
     op.create_foreign_key(
         "fk_properties_updated_by_user",
         "properties_normalized",
@@ -80,12 +69,6 @@ def upgrade() -> None:
         ondelete="SET NULL",
     )
 
-    op.create_index(
-        "ix_properties_created_by_user_id",
-        "properties_normalized",
-        ["created_by_user_id"],
-        unique=False,
-    )
     op.create_index(
         "ix_properties_updated_by_user_id",
         "properties_normalized",
@@ -259,7 +242,6 @@ def downgrade() -> None:
     op.drop_index("ix_properties_approved_by_user_id", table_name="properties_normalized")
     op.drop_index("ix_properties_agent_user_id", table_name="properties_normalized")
     op.drop_index("ix_properties_updated_by_user_id", table_name="properties_normalized")
-    op.drop_index("ix_properties_created_by_user_id", table_name="properties_normalized")
 
     op.drop_constraint(
         "fk_properties_approved_by_user",
@@ -276,13 +258,7 @@ def downgrade() -> None:
         "properties_normalized",
         type_="foreignkey",
     )
-    op.drop_constraint(
-        "fk_properties_created_by_user",
-        "properties_normalized",
-        type_="foreignkey",
-    )
 
     op.drop_column("properties_normalized", "approved_by_user_id")
     op.drop_column("properties_normalized", "agent_user_id")
     op.drop_column("properties_normalized", "updated_by_user_id")
-    op.drop_column("properties_normalized", "created_by_user_id")

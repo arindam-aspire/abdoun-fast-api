@@ -226,7 +226,7 @@ def _clone_demo_property(
         virtual_tour_url=template.virtual_tour_url,
         more_features=template.more_features,
         agent_user_id=agent_user_id,
-        created_by_user_id=template.created_by_user_id,
+        created_by=template.created_by,
         updated_by_user_id=template.updated_by_user_id,
         approved_by_user_id=template.approved_by_user_id,
         deal_closed=deal_closed,
