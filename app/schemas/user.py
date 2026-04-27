@@ -5,7 +5,7 @@ from datetime import datetime
 from enum import Enum
 from typing import List, Optional
 
-from pydantic import BaseModel, EmailStr, Field, field_validator
+from pydantic import BaseModel, EmailStr, Field, computed_field, field_validator
 
 from app.utils.constants import AgentStatus, Defaults, ValidationMessages
 
@@ -95,6 +95,14 @@ class UserCreate(UserBase):
         return v
 
 
+class AccountUserStatus(str, Enum):
+    """Derived lifecycle status from deleted_at + is_active (API-facing; raw audit fields excluded)."""
+
+    ACTIVE = "ACTIVE"
+    INACTIVE = "INACTIVE"
+    DELETED = "DELETED"
+
+
 class UserResponse(UserBase):
     """User profile response with roles and verification flags."""
     id: uuid.UUID
@@ -105,6 +113,35 @@ class UserResponse(UserBase):
     roles: List[RoleResponse] = []
     created_at: datetime
     requires_password_set: bool = Field(False, description="True if user must set a password (e.g. agent who signed in via OTP and has not set one)")
+    deleted_at: Optional[datetime] = Field(default=None, exclude=True)
+    deleted_by: Optional[uuid.UUID] = Field(default=None, exclude=True)
+
+    model_config = {"from_attributes": True}
+
+    @computed_field
+    def status(self) -> AccountUserStatus:
+        if self.deleted_at is not None:
+            return AccountUserStatus.DELETED
+        if self.is_active:
+            return AccountUserStatus.ACTIVE
+        return AccountUserStatus.INACTIVE
+
+
+class UserTypeQuery(str, Enum):
+    """GET /users ``userType`` query; ``register_user`` maps to DB role ``registered_user``."""
+
+    REGISTER_USER = "register_user"
+    ADMIN = "admin"
+    AGENT = "agent"
+
+
+class UsersListPaginatedResponse(BaseModel):
+    """Admin user list with pagination (totals aligned with property search: total, page, pageSize)."""
+
+    users: List[UserResponse]
+    total: int
+    page: int
+    pageSize: int
 
     model_config = {"from_attributes": True}
 
@@ -465,6 +502,99 @@ class AgentListPaginatedResponse(BaseModel):
     """Paginated agent list response"""
     agents: List[AgentListResponse]
     pagination: PaginationInfo
+
+
+class AgentSummaryAssignmentItem(BaseModel):
+    """One admin–agent assignment: DB fields plus assignmentStatus (see AgentAssignmentStatus)."""
+
+    id: uuid.UUID
+    adminId: uuid.UUID
+    isActive: bool
+    revokedAt: Optional[datetime] = None
+    canInheritPrivileges: bool
+    assignedAt: datetime
+    assignmentStatus: str
+
+    model_config = {"from_attributes": True}
+
+
+class AgentSummaryLatestInvite(BaseModel):
+    """Latest agent_invites row for the user email (by created_at), as stored."""
+
+    isUsed: bool
+    revokedAt: Optional[datetime] = None
+    expiresAt: datetime
+    invitedAt: Optional[datetime] = None
+    createdAt: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class AgentSummaryMetadata(BaseModel):
+    """Profile and user fields that sit alongside status (raw values from ORM)."""
+
+    email: str
+    userCreatedAt: datetime
+    cognitoSub: Optional[str] = None
+    serviceArea: Optional[str] = None
+    statusReason: Optional[str] = None
+    declineReason: Optional[str] = None
+    reviewedAt: Optional[datetime] = None
+    reviewedBy: Optional[uuid.UUID] = None
+    formSubmittedAt: Optional[datetime] = None
+    passwordSetAt: Optional[datetime] = None
+    approvedAt: Optional[datetime] = None
+    approvedBy: Optional[uuid.UUID] = None
+
+    model_config = {"from_attributes": True}
+
+
+class AgentSummaryItem(BaseModel):
+    """One agent in GET /agents/summary: profileStatus and related state (no enum coercion on profileStatus)."""
+
+    agentId: uuid.UUID
+    agentName: str
+    profileStatus: str
+    userIsActive: bool
+    assignments: List[AgentSummaryAssignmentItem]
+    latestInvite: Optional[AgentSummaryLatestInvite] = None
+    metadata: AgentSummaryMetadata
+
+    model_config = {"from_attributes": True}
+
+
+class AgentSummaryResponse(BaseModel):
+    """Response for Admin: agent summary KPIs plus ``lastFiveAgents`` only (no full agent list)."""
+
+    totalAgents: int
+    activeAgents: int
+    pendingInvites: int
+    pendingReview: int
+    declined: int
+    lastFiveAgents: List[AgentSummaryItem]
+
+    model_config = {"from_attributes": True}
+
+
+class TopAgentLeaderboardItem(BaseModel):
+    """One agent on the leaderboard: rank by closed deals first, inquiry response rate second."""
+
+    name: str
+    closedDeals: int
+    responseRate: str
+    area: Optional[str] = None
+
+    model_config = {"from_attributes": True}
+
+
+class TopAgentsLeaderboardResponse(BaseModel):
+    """Leaderboard window: ``firstDate`` = 30 days before ``lastDate``; ``lastDate`` = request time (UTC)."""
+
+    firstDate: datetime
+    lastDate: datetime
+    agents: List[TopAgentLeaderboardItem]
+
+    model_config = {"from_attributes": True}
 
 
 class DashboardRecentActivityItem(BaseModel):

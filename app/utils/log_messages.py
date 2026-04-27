@@ -126,8 +126,8 @@ class LogMessages:
         AGENT_INVITE_REVOKED = "Agent invitation revoked: {email} by {revoked_by}"
         NOTIFICATION_FAILED = "Notification ({context}) failed: {error}"
         USER_UPDATED_LOG = "User {user_id} updated by {admin_email}"
-        USER_DELETED_LOG = "User {user_id} deactivated by {admin_email}"
-        USER_DELETE_FAILED_LOG = "Failed to deactivate user: {error}"
+        USER_DELETED_LOG = "User {user_id} soft-deleted by {admin_email}"
+        USER_DELETE_FAILED_LOG = "Failed to soft-delete user: {error}"
         ROLE_ASSIGNED_LOG = "Role {role_name} assigned to user {user_id} by {admin_email}"
         ROLE_REMOVED_LOG = "Role {role_name} removed from user {user_id} by {admin_email}"
         ROLE_ASSIGN_FAILED_LOG = "Failed to assign role: {error}"
@@ -149,6 +149,8 @@ class LogMessages:
             "Could not set Cognito requires_password_set attribute for direct-created agent: {error}"
         )
         DIRECT_CREATE_AGENT_TEMP_PASSWORD_ISSUED = "Direct-create agent with temporary password issued."
+        AGENTS_SUMMARY_QUERY_FAILED = "Agents summary query failed: {error}"
+        AGENT_LEADERBOARD_QUERY_FAILED = "Agent leaderboard query failed: {error}"
 
     # Slow query logging (observability)
     class SlowQuery:

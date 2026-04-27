@@ -34,6 +34,8 @@ class ErrorMessages:
     USER_NOT_FOUND = "User not found"
     USER_NOT_CONFIRMED = "User is not confirmed. Please verify your account using the confirmation code."
     USER_INACTIVE = "User account is inactive"
+    USER_ACCOUNT_DELETED = "User account has been deleted"
+    USER_ALREADY_SOFT_DELETED = "User has already been deleted"
     MISSING_PERMISSION = "Missing required permission: {permission}"
     MISSING_ROLE = "Missing required role: {role}"
     INVITE_EXPIRED = "Invitation has expired or already been used"
@@ -177,7 +179,7 @@ class SuccessMessages:
     ADMIN_REGISTERED = "Admin registered successfully"
     AGENT_REJECTED = "Agent application rejected"
     USER_UPDATED = "User updated successfully"
-    USER_DELETED = "User deactivated successfully"
+    USER_DELETED = "User deleted successfully"
     ROLE_ASSIGNED_TO_USER = "Role assigned to user successfully"
     ROLE_REMOVED_FROM_USER = "Role removed from user successfully"
     RECENT_VIEW_UPDATED = "Recent view updated"
@@ -252,6 +254,7 @@ class Defaults:
     DEFAULT_CURRENCY_DISPLAY = "JD"
     MAP_EMBED_URL_TEMPLATE = "https://maps.google.com/?q={lat},{lng}"
     DEFAULT_BROKER_NAME = "Abdoun Real Estate"
+    AGENT_LEADERBOARD_TOP_N = 3
 
 
 class RateLimits:
@@ -285,6 +288,13 @@ class ApiDocs:
         "Filter by admin ID (defaults to current user)"
     )
     INVITE_TOKEN = "Invite token"
+    USER_TYPE_FILTER = (
+        "Filter by user role: register_user (maps to registered_user), admin, or agent; omit for all users"
+    )
+    FILTER_USERS_BY_IS_ACTIVE = (
+        "Filter by users.is_active (true/false); omit to include both active and inactive users. "
+        "Soft-deleted users are never listed."
+    )
     FILTER_AREAS_BY_CITY_NAME = "Filter areas by city name (case-insensitive)"
 
     # Properties search
@@ -548,6 +558,14 @@ class UserRoles:
     ADMIN = "admin"
     AGENT = "agent"
     REGISTERED_USER = "registered_user"
+
+
+# GET /users?userType=… maps query values to ``roles.name`` in the database.
+USER_TYPE_QUERY_TO_ROLE_NAME = {
+    "register_user": UserRoles.REGISTERED_USER,
+    "admin": UserRoles.ADMIN,
+    "agent": UserRoles.AGENT,
+}
 
 
 # Agent Statuses

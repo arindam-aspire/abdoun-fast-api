@@ -152,6 +152,19 @@ def _fake_agent_service():
     s.submit_onboarding_form.return_value = onboarding_data.model_dump()
     s.assign_agent.return_value = None
     s.unassign_agent.return_value = None
+    s.get_agents_summary.return_value = {
+        "totalAgents": 0,
+        "activeAgents": 0,
+        "pendingInvites": 0,
+        "pendingReview": 0,
+        "declined": 0,
+        "lastFiveAgents": [],
+    }
+    s.get_top_agents_leaderboard.return_value = {
+        "firstDate": datetime(2026, 3, 27, tzinfo=timezone.utc),
+        "lastDate": datetime(2026, 4, 27, tzinfo=timezone.utc),
+        "agents": [],
+    }
     return s
 
 
@@ -285,7 +298,7 @@ def _fake_user_service():
     }
     user_resp = UserResponse(**user_attrs)
     s = MagicMock()
-    s.list_users.return_value = []
+    s.list_users.return_value = ([], 0)
     s.list_roles.return_value = []
     s.list_permissions.return_value = []
     s.get_user.return_value = user_resp
@@ -339,6 +352,42 @@ def test_agent_routes_list_agents(client, mock_db):
     try:
         r = client.get("/api/v1/agents", headers={"Authorization": "Bearer x"})
         assert r.status_code == 200
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
+        app.dependency_overrides.pop(get_db, None)
+        app.dependency_overrides.pop(get_agent_service, None)
+
+
+def test_agent_routes_get_agents_summary(client, mock_db):
+    app.dependency_overrides[get_current_user] = _fake_admin_user_sync
+    app.dependency_overrides[get_db] = _fake_get_db(mock_db)
+    app.dependency_overrides[get_agent_service] = _fake_agent_service
+    try:
+        r = client.get("/api/v1/agents/summary", headers={"Authorization": "Bearer x"})
+        assert r.status_code == 200
+        body = r.json()
+        assert body.get("success") is True
+        assert body.get("data") is not None
+        assert body["data"].get("totalAgents") == 0
+        assert body["data"].get("pendingInvites") == 0
+        assert body["data"].get("lastFiveAgents") == []
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
+        app.dependency_overrides.pop(get_db, None)
+        app.dependency_overrides.pop(get_agent_service, None)
+
+
+def test_agent_routes_leaderboard(client, mock_db):
+    app.dependency_overrides[get_current_user] = _fake_admin_user_sync
+    app.dependency_overrides[get_db] = _fake_get_db(mock_db)
+    app.dependency_overrides[get_agent_service] = _fake_agent_service
+    try:
+        r = client.get("/api/v1/agents/leaderboard", headers={"Authorization": "Bearer x"})
+        assert r.status_code == 200
+        body = r.json()
+        assert body.get("success") is True
+        assert body.get("data") is not None
+        assert body["data"].get("agents") == []
     finally:
         app.dependency_overrides.pop(get_current_user, None)
         app.dependency_overrides.pop(get_db, None)

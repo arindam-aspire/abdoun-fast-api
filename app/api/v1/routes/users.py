@@ -16,7 +16,9 @@ from app.schemas.user import (
     RoleAssignmentRequest,
     RoleResponse,
     UserResponse,
+    UserTypeQuery,
     UserUpdate,
+    UsersListPaginatedResponse,
 )
 from app.services.media_url_signer import MediaUrlSigner
 from app.services.user_service import UserService
@@ -28,27 +30,48 @@ router = APIRouter()
 
 @router.get(
     "",
-    response_model=StandardResponse[List[UserResponse]],
+    response_model=StandardResponse[UsersListPaginatedResponse],
     dependencies=[require_permission(UserPermissions.USER_CREATE)],
 )
 def list_users(
     current_user: Annotated[User, Depends(get_current_user)],
     service: Annotated[UserService, Depends(get_user_service)],
     media_signer: Annotated[MediaUrlSigner, Depends(get_media_url_signer)],
-    limit: Annotated[int, Query(ge=1, le=200)] = 50,
-    offset: Annotated[int, Query(ge=0)] = 0,
+    page: Annotated[int, Query(ge=1, description=ApiDocs.PAGE_NUMBER_1_BASED)] = 1,
+    page_size: Annotated[
+        int, Query(ge=1, le=200, alias="pageSize", description=ApiDocs.ITEMS_PER_PAGE)
+    ] = 50,
+    user_type: Annotated[
+        Optional[UserTypeQuery], Query(alias="userType", description=ApiDocs.USER_TYPE_FILTER)
+    ] = None,
     role_name: Annotated[Optional[str], Query(description=ApiDocs.FILTER_BY_ROLE)] = None,
     search: Annotated[Optional[str], Query(description=ApiDocs.SEARCH_USERS)] = None,
+    is_active: Annotated[
+        Optional[bool], Query(description=ApiDocs.FILTER_USERS_BY_IS_ACTIVE)
+    ] = None,
 ):
-    """List users with pagination and optional filters. Requires user:create permission."""
-    users = service.list_users(
-        limit=limit,
-        offset=offset,
+    """List users with page-based pagination (like property search) and optional ``userType`` role filter.
+
+    If ``userType`` is set, it takes precedence over ``role_name``. ``register_user`` maps to the
+    ``registered_user`` role in the database. If both are omitted, all users matching ``search`` are listed.
+    Pass ``is_active=true`` or ``is_active=false`` to restrict to active or inactive users only.
+    Soft-deleted users are never included.
+    """
+    users, total = service.list_users(
+        page=page,
+        page_size=page_size,
+        user_type=user_type,
         role_name=role_name,
         search=search,
+        is_active=is_active,
     )
-    data = [media_signer.user_response_from_orm(u) for u in users]
-    return create_success_response(data=data, message=None)
+    body = UsersListPaginatedResponse(
+        users=[media_signer.user_response_from_orm(u) for u in users],
+        total=total,
+        page=page,
+        pageSize=page_size,
+    )
+    return create_success_response(data=body, message=None)
 
 
 @router.get(
@@ -124,7 +147,7 @@ def delete_user(
     current_user: Annotated[User, Depends(get_current_user)],
     service: Annotated[UserService, Depends(get_user_service)],
 ):
-    """Soft-delete user (set is_active=False). Requires user:delete permission."""
+    """Soft-delete user (sets ``deleted_at``, ``deleted_by``, and ``is_active`` to false). Restore is not supported."""
     success = service.delete_user(user_id=id, current_user=current_user)
     return create_success_response(data=success, message=SuccessMessages.USER_DELETED)
 

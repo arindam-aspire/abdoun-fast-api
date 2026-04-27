@@ -152,11 +152,11 @@ class PropertySubmissionRepository:
         return None
 
     def get_user_by_email(self, email: str) -> User | None:
-        stmt = select(User).where(User.email == email)
+        stmt = select(User).where(User.email == email, User.deleted_at.is_(None))
         return self._db.execute(stmt).scalar_one_or_none()
 
     def get_user_by_phone(self, phone: str) -> User | None:
-        stmt = select(User).where(User.phone_number == phone)
+        stmt = select(User).where(User.phone_number == phone, User.deleted_at.is_(None))
         return self._db.execute(stmt).scalar_one_or_none()
 
     def add_owner(self, owner: Owner) -> Owner:

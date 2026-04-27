@@ -33,7 +33,7 @@ async def get_current_user(
     """FastAPI dependency that validates Cognito JWT and returns the current user.
 
     Flow: extract Bearer token → verify with Cognito → validate token_use "access"
-    → resolve user by cognito_sub (or email fallback) → ensure user is active.
+    → resolve user by cognito_sub (or email fallback) → exclude soft-deleted → ensure user is active.
 
     Args:
         credentials: Injected by HTTPBearer; holds the Bearer token.
@@ -88,8 +88,10 @@ async def get_current_user(
     def _get_user_by(statement):
         return db.execute(statement).scalar_one_or_none()
 
-    # Load user from database by cognito_sub
-    user = _get_user_by(select(User).where(User.cognito_sub == cognito_sub))
+    # Load user from database by cognito_sub (exclude soft-deleted accounts)
+    user = _get_user_by(
+        select(User).where(User.cognito_sub == cognito_sub, User.deleted_at.is_(None))
+    )
 
     # Fallback: if user not found by cognito_sub, try to find by email.
     if not user:
@@ -101,7 +103,7 @@ async def get_current_user(
                 email = attrs.get("email")
 
         if email:
-            user = _get_user_by(select(User).where(User.email == email))
+            user = _get_user_by(select(User).where(User.email == email, User.deleted_at.is_(None)))
 
     if not user:
         api_logger.warning(format_log_message(LogMessages.Auth.USER_NOT_FOUND_SUB, sub=cognito_sub))

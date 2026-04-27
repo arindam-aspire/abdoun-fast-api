@@ -61,6 +61,36 @@ def test_list_agents_paginated_returns_empty_list_and_zero_total(agent_repo: Age
     assert total == 0
 
 
+def test_list_all_agents_with_profiles_returns_empty_when_no_data(agent_repo: AgentRepository):
+    """list_all_agents_with_profiles returns [] when no data."""
+    assert agent_repo.list_all_agents_with_profiles() == []
+
+
+def test_list_assignments_for_agents_returns_empty_when_no_ids(agent_repo: AgentRepository):
+    """list_assignments_for_agents returns [] when agent_ids is empty."""
+    assert agent_repo.list_assignments_for_agents([]) == []
+
+
+def test_get_latest_invites_for_emails_returns_empty_dict_when_no_emails(agent_repo: AgentRepository):
+    """get_latest_invites_for_emails returns {} when emails is empty."""
+    assert agent_repo.get_latest_invites_for_emails([]) == {}
+
+
+def test_fetch_top_agents_leaderboard_window_returns_empty(agent_repo: AgentRepository):
+    """fetch_top_agents_leaderboard_window returns [] when SQL returns no rows."""
+    from datetime import datetime, timezone
+
+    result_proxy = MagicMock()
+    result_proxy.mappings.return_value.all.return_value = []
+    agent_repo._db.execute.return_value = result_proxy
+    out = agent_repo.fetch_top_agents_leaderboard_window(
+        period_start=datetime(2026, 3, 1, tzinfo=timezone.utc),
+        period_end=datetime(2026, 3, 31, tzinfo=timezone.utc),
+        limit=10,
+    )
+    assert out == []
+
+
 def test_list_invites_by_inviter_returns_empty_list(agent_repo: AgentRepository):
     """list_invites_by_inviter returns [] when no invites."""
     result = agent_repo.list_invites_by_inviter(uuid.uuid4())

@@ -3,11 +3,13 @@
 import math
 import secrets
 import uuid
-from datetime import datetime, timedelta
+from collections import defaultdict
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
-from fastapi import HTTPException
 from botocore.exceptions import NoCredentialsError
+from fastapi import HTTPException
+from sqlalchemy.exc import SQLAlchemyError
 
 from app.core.config import get_settings
 from app.models.user import AdminAgentAssignment, AgentInvite, AgentProfile, User
@@ -24,6 +26,7 @@ from app.services import notification as notification_module
 from app.utils.constants import (
     AgentAssignmentStatus,
     AgentStatus,
+    Defaults,
     ErrorMessages,
     SuccessMessages,
     UserRoles,
@@ -32,6 +35,27 @@ from app.utils.constants import (
 from app.utils.log_messages import LogMessages, format_log_message
 from app.utils.logger import api_logger
 from app.utils.status_codes import HTTPStatus
+
+
+def _admin_agent_assignment_status(assignment: AdminAgentAssignment) -> str:
+    """Assignment status label returned by GET /agents/assignments (see AgentAssignmentStatus)."""
+    return (
+        AgentAssignmentStatus.ACTIVE
+        if (assignment.is_active and assignment.revoked_at is None)
+        else AgentAssignmentStatus.INACTIVE_REVOKED
+    )
+
+
+def _rolling_thirty_day_bounds_utc(now_utc: Optional[datetime] = None) -> Tuple[datetime, datetime]:
+    """Inclusive UTC window: start = 30 days before end; end = now (maps to ``firstDate`` / ``lastDate``)."""
+    now = now_utc or datetime.now(timezone.utc)
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
+    else:
+        now = now.astimezone(timezone.utc)
+    period_end = now
+    period_start = now - timedelta(days=30)
+    return period_start, period_end
 
 
 def _generate_temporary_password(length: int = 16) -> str:
@@ -121,6 +145,58 @@ class AgentService:
             repo: AgentRepository instance (request-scoped).
         """
         self._repo = repo
+
+    def _agent_summary_payload(
+        self,
+        user: User,
+        profile: AgentProfile,
+        by_agent: Dict[uuid.UUID, List[AdminAgentAssignment]],
+        invites_by_email: Dict[str, AgentInvite],
+    ) -> Dict[str, Any]:
+        """Single agent row for GET /agents/summary (batched lookups already applied)."""
+        invite = invites_by_email.get(user.email)
+        assignment_items = []
+        for a in by_agent.get(user.id, []):
+            assignment_items.append({
+                "id": a.id,
+                "adminId": a.admin_id,
+                "isActive": a.is_active,
+                "revokedAt": a.revoked_at,
+                "canInheritPrivileges": a.can_inherit_privileges,
+                "assignedAt": a.assigned_at,
+                "assignmentStatus": _admin_agent_assignment_status(a),
+            })
+        latest_invite_dict = None
+        if invite:
+            latest_invite_dict = {
+                "isUsed": invite.is_used,
+                "revokedAt": invite.revoked_at,
+                "expiresAt": invite.expires_at,
+                "invitedAt": invite.invited_at,
+                "createdAt": invite.created_at,
+            }
+        return {
+            "agentId": user.id,
+            "agentName": user.full_name,
+            "profileStatus": profile.status,
+            "userIsActive": user.is_active,
+            "assignments": assignment_items,
+            "latestInvite": latest_invite_dict,
+            "metadata": {
+                "email": user.email,
+                "userCreatedAt": user.created_at,
+                "cognitoSub": user.cognito_sub,
+                "serviceArea": profile.service_area,
+                "statusReason": profile.status_reason,
+                "declineReason": profile.decline_reason,
+                "reviewedAt": profile.reviewed_at,
+                "reviewedBy": profile.reviewed_by,
+                "formSubmittedAt": profile.form_submitted_at,
+                "passwordSetAt": profile.password_set_at,
+                "approvedAt": profile.approved_at,
+                "approvedBy": profile.approved_by,
+            },
+        }
 
     # ---------- Invite ----------
 
@@ -405,6 +481,121 @@ class AgentService:
             })
         return agents, total
 
+    def get_agents_summary(self) -> Dict[str, Any]:
+        """Consolidated summary for all non-deleted agents: profile status, assignments, latest invite, metadata.
+
+        Uses batched repository reads to avoid N+1 queries. Counts use stored ``agent_profiles.status``
+        strings compared to ``AgentStatus`` (INVITED → pendingInvites, PENDING_REVIEW → pendingReview,
+        DECLINED → declined, ACTIVE → activeAgents). ``lastFiveAgents``: five newest ``users.created_at``.
+
+        Returns:
+            Dict matching AgentSummaryResponse.
+
+        Raises:
+            HTTPException: 500 when the database layer raises SQLAlchemyError.
+        """
+        try:
+            rows = self._repo.list_all_agents_with_profiles()
+            agent_ids = [u.id for u, _ in rows]
+            emails = [u.email for u, _ in rows]
+            assignment_rows = self._repo.list_assignments_for_agents(agent_ids)
+            invites_by_email = self._repo.get_latest_invites_for_emails(emails)
+        except SQLAlchemyError as e:
+            api_logger.error(
+                format_log_message(
+                    LogMessages.RBAC.AGENTS_SUMMARY_QUERY_FAILED,
+                    error=str(e),
+                )
+            )
+            raise HTTPException(
+                status_code=HTTPStatus.INTERNAL_SERVER_ERROR,
+                detail=ErrorMessages.INTERNAL_SERVER_ERROR,
+            ) from e
+
+        by_agent: Dict[uuid.UUID, List[AdminAgentAssignment]] = defaultdict(list)
+        for a in assignment_rows:
+            by_agent[a.agent_id].append(a)
+
+        total_agents = len(rows)
+        active_agents = sum(1 for _, p in rows if p.status == AgentStatus.ACTIVE)
+        pending_invites = sum(1 for _, p in rows if p.status == AgentStatus.INVITED)
+        pending_review = sum(1 for _, p in rows if p.status == AgentStatus.PENDING_REVIEW)
+        declined = sum(1 for _, p in rows if p.status == AgentStatus.DECLINED)
+
+        last_rows = sorted(
+            rows,
+            key=lambda ur: (
+                ur[0].created_at.timestamp()
+                if ur[0].created_at is not None
+                else float("-inf")
+            ),
+            reverse=True,
+        )[:5]
+        last_five_out = [
+            self._agent_summary_payload(user, profile, by_agent, invites_by_email)
+            for user, profile in last_rows
+        ]
+
+        return {
+            "totalAgents": total_agents,
+            "activeAgents": active_agents,
+            "pendingInvites": pending_invites,
+            "pendingReview": pending_review,
+            "declined": declined,
+            "lastFiveAgents": last_five_out,
+        }
+
+    def get_top_agents_leaderboard(self) -> Dict[str, Any]:
+        """Rolling last 30 days (UTC through now): top ``Defaults.AGENT_LEADERBOARD_TOP_N`` agents.
+
+        Sorted by closed deals first, inquiry response rate second.
+
+        * **closedDeals** (primary rank): properties with ``deal_closed`` where ``updated_at`` is in the window.
+        * **responseRate** (tie-break): among leads with ``created_at`` in the window, share where
+          ``updated_at > created_at``.
+
+        Returns:
+            Dict with ``firstDate`` (30 days before end), ``lastDate`` (now UTC), and ``agents``.
+        """
+        period_start, period_end = _rolling_thirty_day_bounds_utc()
+        try:
+            rows = self._repo.fetch_top_agents_leaderboard_window(
+                period_start=period_start,
+                period_end=period_end,
+                limit=Defaults.AGENT_LEADERBOARD_TOP_N,
+            )
+        except SQLAlchemyError as e:
+            api_logger.error(
+                format_log_message(
+                    LogMessages.RBAC.AGENT_LEADERBOARD_QUERY_FAILED,
+                    error=str(e),
+                )
+            )
+            raise HTTPException(
+                status_code=HTTPStatus.INTERNAL_SERVER_ERROR,
+                detail=ErrorMessages.INTERNAL_SERVER_ERROR,
+            ) from e
+
+        agents_out: List[Dict[str, Any]] = []
+        for row in rows:
+            total_inq = int(row["total_inquiries"] or 0)
+            responded = int(row["responded_inquiries"] or 0)
+            if total_inq <= 0:
+                rate_str = "0%"
+            else:
+                rate_str = f"{int(round(100.0 * responded / total_inq))}%"
+            agents_out.append({
+                "name": str(row["full_name"] or ""),
+                "closedDeals": int(row["closed_deals"] or 0),
+                "responseRate": rate_str,
+                "area": row["service_area"],
+            })
+        return {
+            "firstDate": period_start,
+            "lastDate": period_end,
+            "agents": agents_out,
+        }
+
     def list_invites(
         self,
         current_user: User,
@@ -444,11 +635,7 @@ class AgentService:
         for a in assignments:
             admin_user = a.admin
             agent_user = a.agent
-            status = (
-                AgentAssignmentStatus.ACTIVE
-                if (a.is_active and a.revoked_at is None)
-                else AgentAssignmentStatus.INACTIVE_REVOKED
-            )
+            status = _admin_agent_assignment_status(a)
             result.append({
                 "id": a.id,
                 "admin_id": a.admin_id,

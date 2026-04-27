@@ -29,6 +29,10 @@ from app.schemas.user import (
     AgentInviteResponse,
     AgentListResponse,
     AgentListPaginatedResponse,
+    AgentSummaryItem,
+    AgentSummaryResponse,
+    TopAgentLeaderboardItem,
+    TopAgentsLeaderboardResponse,
     AgentOnboardingFormRequest,
     AgentOnboardingFormResponse,
     AgentStatusUpdateRequest,
@@ -147,6 +151,95 @@ def list_agents(
                 totalItems=total_items,
                 totalPages=total_pages,
             ),
+        ),
+        message=None,
+    )
+
+
+@router.get("/summary")
+def get_agents_summary(
+    current_user: Annotated[User, require_role(UserRoles.ADMIN)],
+    service: Annotated[AgentService, Depends(get_agent_service)],
+) -> StandardResponse[AgentSummaryResponse]:
+    """Admin: consolidated summary for all non-deleted agents (profile status, assignments, latest invite).
+
+    ``profileStatus`` is the raw ``agent_profiles.status`` string. Each assignment includes stored
+    ``isActive`` / ``revokedAt`` plus ``assignmentStatus`` (same labels as GET /agents/assignments).
+    Top-level counts use stored profile status: ``pendingInvites`` (``INVITED``), ``pendingReview``
+    (``PENDING_REVIEW``), ``declined`` (``DECLINED``), ``activeAgents`` (``ACTIVE``). ``lastFiveAgents``
+    are up to five agents with the newest ``users.created_at`` (full detail per agent). There is no
+    full ``agents`` list on this endpoint.
+
+    **Sample request:** ``GET /api/v1/agents/summary`` with ``Authorization: Bearer <token>`` (admin).
+
+    **Sample success JSON:**
+
+    .. code-block:: json
+
+        {
+          "success": true,
+          "data": {
+            "totalAgents": 1,
+            "activeAgents": 1,
+            "pendingInvites": 0,
+            "pendingReview": 0,
+            "declined": 0,
+            "lastFiveAgents": []
+          },
+          "message": null
+        }
+    """
+    payload = service.get_agents_summary()
+    return create_success_response(
+        data=AgentSummaryResponse(
+            totalAgents=payload["totalAgents"],
+            activeAgents=payload["activeAgents"],
+            pendingInvites=payload["pendingInvites"],
+            pendingReview=payload["pendingReview"],
+            declined=payload["declined"],
+            lastFiveAgents=[AgentSummaryItem(**row) for row in payload["lastFiveAgents"]],
+        ),
+        message=None,
+    )
+
+
+@router.get("/leaderboard")
+def get_agents_leaderboard(
+    current_user: Annotated[User, require_role(UserRoles.ADMIN)],
+    service: Annotated[AgentService, Depends(get_agent_service)],
+) -> StandardResponse[TopAgentsLeaderboardResponse]:
+    """Admin: **top 3 agents** over the **last 30 days UTC**.
+
+    **Window:** ``lastDate`` = current time (UTC); ``firstDate`` = 30 days before ``lastDate`` (inclusive range for metrics).
+
+    **Ranking:** (1) **closed deals** — primary; (2) **inquiry response rate** — secondary.
+
+    **Metrics**
+
+    - ``closedDeals``: listings with ``deal_closed`` whose ``updated_at`` falls in the window (inclusive).
+    - ``responseRate``: among inquiries with ``leads.created_at`` in the window, percentage where
+      ``updated_at > created_at``.
+    - ``area``: ``agent_profiles.service_area`` (nullable).
+
+    **Example:** ``GET /api/v1/agents/leaderboard``
+
+    **Example ``data.agents`` item:**
+
+    .. code-block:: json
+
+        {
+          "name": "Omar Shdeifat",
+          "closedDeals": 19,
+          "responseRate": "94%",
+          "area": "Dabouq"
+        }
+    """
+    payload = service.get_top_agents_leaderboard()
+    return create_success_response(
+        data=TopAgentsLeaderboardResponse(
+            firstDate=payload["firstDate"],
+            lastDate=payload["lastDate"],
+            agents=[TopAgentLeaderboardItem(**a) for a in payload["agents"]],
         ),
         message=None,
     )

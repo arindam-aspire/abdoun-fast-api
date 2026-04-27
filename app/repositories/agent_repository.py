@@ -1,9 +1,9 @@
 """Repository for agent invites, profiles, assignments, and user+profile persistence; no FastAPI/HTTP."""
 import uuid
 from datetime import datetime
-from typing import List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, func, or_, select, text
 from sqlalchemy.orm import Session, selectinload
 
 from app.models.user import (
@@ -31,14 +31,14 @@ class AgentRepository:
 
     def get_user_by_email(self, email: str) -> Optional[User]:
         """Get user by email (no eager loads)."""
-        stmt = select(User).where(User.email == email)
+        stmt = select(User).where(User.email == email, User.deleted_at.is_(None))
         return self._db.execute(stmt).scalar_one_or_none()
 
     def get_user_by_email_with_profile(self, email: str) -> Optional[User]:
         """Get user by email with profile loaded (for onboarding)."""
         stmt = (
             select(User)
-            .where(User.email == email)
+            .where(User.email == email, User.deleted_at.is_(None))
             .options(selectinload(User.profile))
         )
         return self._db.execute(stmt).scalar_one_or_none()
@@ -47,7 +47,7 @@ class AgentRepository:
         """Get user by id with profile and roles loaded."""
         stmt = (
             select(User)
-            .where(User.id == user_id)
+            .where(User.id == user_id, User.deleted_at.is_(None))
             .options(selectinload(User.profile), selectinload(User.roles))
         )
         return self._db.execute(stmt).scalar_one_or_none()
@@ -59,7 +59,7 @@ class AgentRepository:
         stmt = (
             select(User, AgentProfile)
             .join(AgentProfile, User.id == AgentProfile.user_id)
-            .where(User.id == agent_id)
+            .where(User.id == agent_id, User.deleted_at.is_(None))
         )
         if not include_deleted:
             stmt = stmt.where(AgentProfile.deleted_at.is_(None))
@@ -84,13 +84,13 @@ class AgentRepository:
         base = (
             select(User, AgentProfile)
             .join(AgentProfile, User.id == AgentProfile.user_id)
-            .where(AgentProfile.deleted_at.is_(None))
+            .where(User.deleted_at.is_(None), AgentProfile.deleted_at.is_(None))
         )
         base = self._apply_agent_filters(base, status, search)
         count_stmt = (
             select(func.count(User.id))
             .join(AgentProfile, User.id == AgentProfile.user_id)
-            .where(AgentProfile.deleted_at.is_(None))
+            .where(User.deleted_at.is_(None), AgentProfile.deleted_at.is_(None))
         )
         count_stmt = self._apply_agent_filters(count_stmt, status, search)
         total = self._db.execute(count_stmt).scalar() or 0
@@ -104,6 +104,44 @@ class AgentRepository:
         base = base.offset(offset).limit(limit)
         rows = self._db.execute(base).all()
         return [(r[0], r[1]) for r in rows], total
+
+    def list_all_agents_with_profiles(self) -> List[Tuple[User, AgentProfile]]:
+        """Return all non-deleted agents as (User, AgentProfile), ordered by full name."""
+        stmt = (
+            select(User, AgentProfile)
+            .join(AgentProfile, User.id == AgentProfile.user_id)
+            .where(User.deleted_at.is_(None), AgentProfile.deleted_at.is_(None))
+            .order_by(User.full_name.asc())
+        )
+        rows = self._db.execute(stmt).all()
+        return [(r[0], r[1]) for r in rows]
+
+    def list_assignments_for_agents(self, agent_ids: List[uuid.UUID]) -> List[AdminAgentAssignment]:
+        """All admin–agent assignments for the given agent ids (batch; avoids per-agent queries)."""
+        if not agent_ids:
+            return []
+        stmt = (
+            select(AdminAgentAssignment)
+            .where(AdminAgentAssignment.agent_id.in_(agent_ids))
+            .order_by(AdminAgentAssignment.agent_id, AdminAgentAssignment.assigned_at.desc())
+        )
+        return list(self._db.execute(stmt).unique().scalars().all())
+
+    def get_latest_invites_for_emails(self, emails: List[str]) -> Dict[str, AgentInvite]:
+        """Latest AgentInvite row per email (by created_at desc)."""
+        if not emails:
+            return {}
+        stmt = (
+            select(AgentInvite)
+            .where(AgentInvite.email.in_(emails))
+            .order_by(AgentInvite.email, AgentInvite.created_at.desc())
+        )
+        rows = list(self._db.execute(stmt).scalars().all())
+        latest: Dict[str, AgentInvite] = {}
+        for inv in rows:
+            if inv.email not in latest:
+                latest[inv.email] = inv
+        return latest
 
     def _apply_agent_filters(self, stmt, status: Optional[str], search: Optional[str]):
         """Apply status and search (name/email) filters to the given statement."""
@@ -222,7 +260,7 @@ class AgentRepository:
         stmt = (
             select(User.email, AgentProfile.status)
             .join(AgentProfile, User.id == AgentProfile.user_id)
-            .where(User.email.in_(emails))
+            .where(User.email.in_(emails), User.deleted_at.is_(None))
         )
         rows = self._db.execute(stmt).all()
         return dict(rows)
@@ -302,6 +340,81 @@ class AgentRepository:
         )
         self._db.add(assignment)
         return assignment
+
+    def fetch_top_agents_leaderboard_window(
+        self,
+        *,
+        period_start: datetime,
+        period_end: datetime,
+        limit: int,
+    ) -> List[Dict[str, Any]]:
+        """Agents with deals closed or inquiries in ``[period_start, period_end]`` inclusive (UTC).
+
+        Returns rows: full_name, service_area, closed_deals, total_inquiries, responded_inquiries.
+
+        Sort: (1) ``closed_deals`` descending — primary; (2) inquiry response rate descending — secondary;
+        (3) ``full_name`` ascending.
+
+        Inquiries: lead ``created_at`` in window; ``responded`` = ``updated_at > created_at``.
+        """
+        stmt = text(
+            """
+            WITH agent_scope AS (
+                SELECT u.id AS user_id, u.full_name, ap.service_area
+                FROM users u
+                INNER JOIN agent_profiles ap ON ap.user_id = u.id AND ap.deleted_at IS NULL
+            ),
+            deals AS (
+                SELECT p.agent_user_id AS user_id, COUNT(*)::int AS closed_deals
+                FROM properties_normalized p
+                WHERE COALESCE(p.deal_closed, false) = true
+                  AND p.agent_user_id IS NOT NULL
+                  AND p.updated_at >= :period_start
+                  AND p.updated_at <= :period_end
+                GROUP BY p.agent_user_id
+            ),
+            inquiries AS (
+                SELECT
+                    p.agent_user_id AS user_id,
+                    COUNT(l.id)::int AS total_inquiries,
+                    COUNT(l.id) FILTER (WHERE l.updated_at > l.created_at)::int AS responded_inquiries
+                FROM leads l
+                INNER JOIN properties_normalized p ON p.id = l.property_id
+                WHERE p.agent_user_id IS NOT NULL
+                  AND l.created_at >= :period_start
+                  AND l.created_at <= :period_end
+                GROUP BY p.agent_user_id
+            )
+            SELECT
+                a.full_name,
+                a.service_area,
+                COALESCE(d.closed_deals, 0)::int AS closed_deals,
+                COALESCE(i.total_inquiries, 0)::int AS total_inquiries,
+                COALESCE(i.responded_inquiries, 0)::int AS responded_inquiries
+            FROM agent_scope a
+            LEFT JOIN deals d ON d.user_id = a.user_id
+            LEFT JOIN inquiries i ON i.user_id = a.user_id
+            WHERE COALESCE(d.closed_deals, 0) > 0 OR COALESCE(i.total_inquiries, 0) > 0
+            ORDER BY
+                COALESCE(d.closed_deals, 0) DESC,
+                CASE
+                    WHEN COALESCE(i.total_inquiries, 0) > 0
+                    THEN COALESCE(i.responded_inquiries, 0)::float / NULLIF(i.total_inquiries, 0)
+                    ELSE 0.0
+                END DESC,
+                a.full_name ASC
+            LIMIT :limit
+            """
+        )
+        rows = self._db.execute(
+            stmt,
+            {
+                "period_start": period_start,
+                "period_end": period_end,
+                "limit": limit,
+            },
+        ).mappings().all()
+        return [dict(r) for r in rows]
 
     # ---------- Transaction ----------
 

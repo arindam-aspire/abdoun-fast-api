@@ -1,7 +1,12 @@
 """User, role, permission, agent profile, invite, and admin-agent assignment ORM models."""
+from __future__ import annotations
+
 import uuid
 from datetime import datetime
-from typing import List, Optional
+from typing import TYPE_CHECKING, List, Optional
+
+if TYPE_CHECKING:
+    from app.models.recently_viewed_property import RecentlyViewedProperty
 
 from sqlalchemy import Boolean, Column, DateTime, ForeignKey, String, Table, Text
 from sqlalchemy.dialects.postgresql import UUID
@@ -96,6 +101,12 @@ class User(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
+    deleted_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True, index=True
+    )
+    deleted_by: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), ForeignKey(FK_USERS_ID, ondelete=ONDELETE_SET_NULL), nullable=True, index=True
+    )
 
     roles: Mapped[List["Role"]] = relationship(
         "Role", 
@@ -120,7 +131,7 @@ class User(Base):
     assigned_admins: Mapped[List["AdminAgentAssignment"]] = relationship(
         "AdminAgentAssignment", foreign_keys="AdminAgentAssignment.agent_id", back_populates="agent"
     )
-    recent_views: Mapped[List["RecentlyViewedProperty"]] = relationship(
+    recent_views: Mapped[List[RecentlyViewedProperty]] = relationship(
         "RecentlyViewedProperty",
         back_populates="user",
         cascade="all, delete-orphan",

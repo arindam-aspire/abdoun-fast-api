@@ -4,7 +4,7 @@ from __future__ import annotations
 import uuid
 from typing import Optional
 
-from sqlalchemy import Select, select
+from sqlalchemy import Select, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.models.user import AgentProfile, Role, User
@@ -55,8 +55,8 @@ class AuthRepository:
         return self._db.execute(stmt).first() is not None
 
     def get_user_by_email(self, email: str) -> Optional[User]:
-        """Get user by email (no eager loads)."""
-        stmt: Select = select(User).where(User.email == email)
+        """Get user by email (no eager loads). Excludes soft-deleted users."""
+        stmt: Select = select(User).where(User.email == email, User.deleted_at.is_(None))
         return self._db.execute(stmt).scalar_one_or_none()
 
     def get_user_by_email_or_phone_with_profile(
@@ -68,7 +68,8 @@ class AuthRepository:
             select(User)
             .options(selectinload(User.profile))
             .where(
-                (User.email == username) | (User.phone_number == username)
+                ((User.email == username) | (User.phone_number == username))
+                & (User.deleted_at.is_(None))
             )
         )
         return self._db.execute(stmt).scalar_one_or_none()
@@ -81,7 +82,7 @@ class AuthRepository:
         stmt: Select = (
             select(User)
             .options(selectinload(User.profile))
-            .where(User.cognito_sub == cognito_sub)
+            .where(User.cognito_sub == cognito_sub, User.deleted_at.is_(None))
         )
         return self._db.execute(stmt).scalar_one_or_none()
 
@@ -93,7 +94,8 @@ class AuthRepository:
     ) -> Optional[User]:
         """Get user by cognito_sub or email (no profile)."""
         stmt: Select = select(User).where(
-            (User.cognito_sub == cognito_sub) | (User.email == email)
+            or_(User.cognito_sub == cognito_sub, User.email == email),
+            User.deleted_at.is_(None),
         )
         return self._db.execute(stmt).scalar_one_or_none()
 

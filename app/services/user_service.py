@@ -1,12 +1,12 @@
 """User, role, and permission service: list/get/update/delete users, assign/remove roles; uses UserRepository."""
 import uuid
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 from fastapi import HTTPException
 
 from app.repositories.user_repository import UserRepository
-from app.schemas.user import RoleAssignmentRequest, UserUpdate
-from app.utils.constants import ErrorMessages
+from app.schemas.user import RoleAssignmentRequest, UserTypeQuery, UserUpdate
+from app.utils.constants import USER_TYPE_QUERY_TO_ROLE_NAME, ErrorMessages
 from app.utils.log_messages import LogMessages, format_log_message
 from app.utils.logger import api_logger
 from app.utils.status_codes import HTTPStatus
@@ -29,18 +29,34 @@ class UserService:
     def list_users(
         self,
         *,
-        limit: int,
-        offset: int,
+        page: int,
+        page_size: int,
+        user_type: Optional[UserTypeQuery],
         role_name: Optional[str],
         search: Optional[str],
-    ) -> List[User]:
-        """List users with optional role and search filters; paginated."""
-        return self._repo.list_users(
-            limit=limit,
-            offset=offset,
-            role_name=role_name,
+        is_active: Optional[bool] = None,
+    ) -> Tuple[List[User], int]:
+        """List users with optional ``userType`` / ``role_name``, ``is_active``, search, and pagination."""
+        effective_role: Optional[str] = None
+        if user_type is not None:
+            effective_role = USER_TYPE_QUERY_TO_ROLE_NAME[user_type.value]
+        elif role_name:
+            effective_role = role_name
+
+        offset = (page - 1) * page_size
+        total = self._repo.count_users(
+            role_name=effective_role,
             search=search,
+            is_active=is_active,
         )
+        users = self._repo.list_users(
+            limit=page_size,
+            offset=offset,
+            role_name=effective_role,
+            search=search,
+            is_active=is_active,
+        )
+        return users, total
 
     def list_roles(self) -> List[Role]:
         """List all roles with permissions loaded."""
@@ -102,11 +118,16 @@ class UserService:
             )
 
     def delete_user(self, *, user_id: uuid.UUID, current_user: User) -> bool:
-        user = self._repo.get_user_by_id(user_id)
+        user = self._repo.get_user_by_id_including_deleted(user_id)
         if not user:
             raise HTTPException(
                 status_code=HTTPStatus.NOT_FOUND,
                 detail=ErrorMessages.USER_NOT_FOUND,
+            )
+        if user.deleted_at is not None:
+            raise HTTPException(
+                status_code=HTTPStatus.CONFLICT,
+                detail=ErrorMessages.USER_ALREADY_SOFT_DELETED,
             )
         if user.id == current_user.id:
             raise HTTPException(
@@ -114,7 +135,7 @@ class UserService:
                 detail=ErrorMessages.CANNOT_DEACTIVATE_SELF,
             )
         try:
-            self._repo.soft_delete_user(user)
+            self._repo.soft_delete_user(user, deleted_by_id=current_user.id)
             self._repo.commit()
             api_logger.info(
                 format_log_message(
