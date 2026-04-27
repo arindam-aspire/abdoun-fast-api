@@ -20,7 +20,11 @@ def get_presigned_upload_url(
     current_user: Annotated[User, Depends(get_current_user)],
     service: Annotated[UploadService, Depends(get_upload_service)],
 ):
-    """Return presigned upload information for direct S3 upload."""
+    """Return presigned upload for direct S3 PUT.
+
+    Send exactly one of ``submission_id`` (saved draft) or ``draft_client_id`` (client UUID before any submission row).
+    All calls require an authenticated user.
+    """
     data = service.generate_presigned_upload(body=body, user=current_user)
     return create_success_response(data=data, message=None)
 

@@ -160,3 +160,51 @@ def test_rejects_file_size_above_limit() -> None:
         )
     assert exc_info.value.status_code == 400
 
+
+def test_presigned_uses_draft_client_id_without_submission_row() -> None:
+    user = SimpleNamespace(id=uuid.uuid4())
+    repo = MagicMock()
+    s3 = MagicMock()
+    client_id = uuid.uuid4()
+    s3.generate_presigned_upload_url.return_value = "https://presigned"
+    s3.build_public_url.return_value = "https://public/object"
+    service = UploadService(repository=repo, s3_service=s3, settings=_settings())
+
+    out = service.generate_presigned_upload(
+        body=PresignedUploadRequest(
+            draft_client_id=client_id,
+            context="property_media_image",
+            file_name="front.jpg",
+            content_type="image/jpeg",
+            file_size=50,
+        ),
+        user=user,
+    )
+    assert not repo.get_submission_by_id.called
+    key = s3.generate_presigned_upload_url.call_args.kwargs["key"]
+    assert str(client_id) in key
+    assert "drafts/property-submissions" in key
+    assert out.upload_url == "https://presigned"
+
+
+def test_submission_id_path_still_loads_submission() -> None:
+    user = SimpleNamespace(id=uuid.uuid4())
+    repo = MagicMock()
+    s3 = MagicMock()
+    submission = _submission(user.id)
+    repo.get_submission_by_id.return_value = submission
+    s3.generate_presigned_upload_url.return_value = "x"
+    s3.build_public_url.return_value = "y"
+    service = UploadService(repository=repo, s3_service=s3, settings=_settings())
+    out = service.generate_presigned_upload(
+        body=PresignedUploadRequest(
+            submission_id=submission.id,
+            context="property_media_image",
+            file_name="a.jpg",
+            content_type="image/jpeg",
+        ),
+        user=user,
+    )
+    repo.get_submission_by_id.assert_called_once()
+    assert out.upload_url
+

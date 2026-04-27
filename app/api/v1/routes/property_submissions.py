@@ -9,6 +9,7 @@ from app.api.v1.deps.property_submissions import get_property_submission_service
 from app.api.v1.deps.security import get_current_user
 from app.models.user import User
 from app.schemas.property_submission import (
+    CreateAndSubmitPropertySubmissionRequest,
     CreatePropertySubmissionRequest,
     PropertySubmissionCreateResponse,
     PropertySubmissionDetailResponse,
@@ -29,8 +30,25 @@ def create_submission(
     service: Annotated[PropertySubmissionService, Depends(get_property_submission_service)],
     body: CreatePropertySubmissionRequest | None = None,
 ):
-    """Create a draft property submission for the current user."""
+    """Persist a draft: primary path is ``payload`` (Save as Draft with full stepper state from local/Redux).
+
+    Empty or omitted body remains supported for backward compatibility (older clients that created a row on entry).
+    """
     data = service.create_submission(user=current_user, body=body)
+    return create_success_response(data=data, message=None)
+
+
+@router.post(
+    "/submit",
+    response_model=StandardResponse[PropertySubmissionSubmitResponse],
+)
+def create_and_submit(
+    current_user: Annotated[User, Depends(get_current_user)],
+    service: Annotated[PropertySubmissionService, Depends(get_property_submission_service)],
+    body: CreateAndSubmitPropertySubmissionRequest,
+):
+    """Create a submission, validate, and submit in one atomic flow (e.g. Redux-first with no prior ``submission_id``)."""
+    data = service.create_and_submit_submission(user=current_user, body=body)
     return create_success_response(data=data, message=None)
 
 
@@ -52,7 +70,7 @@ def patch_submission(
     current_user: Annotated[User, Depends(get_current_user)],
     service: Annotated[PropertySubmissionService, Depends(get_property_submission_service)],
 ):
-    """Save any step payload for an in-progress submission."""
+    """Save progress: per-step (``step`` + ``data``) or full form (``payload`` + ``action=save_draft`` + ``current_step``)."""
     data = service.patch_submission(submission_id=submission_id, body=body, user=current_user)
     return create_success_response(data=data, message=None)
 

@@ -23,9 +23,11 @@ from app.schemas.property_submission import (
     AdminSubmissionListResponse,
     AdminSubmissionReviewRequest,
     AdminSubmissionReviewResponse,
+    CreateAndSubmitPropertySubmissionRequest,
     DEFAULT_STEP_COMPLETION,
     DEFAULT_SUBMISSION_PAYLOAD,
     STEP_INDEX,
+    STEP_ORDER,
     CreatePropertySubmissionRequest,
     PropertySubmissionCreateResponse,
     PropertySubmissionDetailResponse,
@@ -43,7 +45,11 @@ from app.utils.status_codes import HTTPStatus
 
 
 class PropertySubmissionService:
-    """Business logic for draft stepper save/resume/submit flow."""
+    """Business logic for list-your-property drafts and submit.
+
+    New clients keep stepper state locally until **Save as Draft** (create with ``payload``) or **Submit**
+    (``create_and_submit`` or existing ``POST .../{id}/submit``). Empty create remains for compatibility.
+    """
 
     def __init__(self, repository: PropertySubmissionRepository) -> None:
         self._repo = repository
@@ -54,12 +60,12 @@ class PropertySubmissionService:
         user: User,
         body: CreatePropertySubmissionRequest | None = None,
     ) -> PropertySubmissionCreateResponse:
-        payload = self._build_default_payload()
-        if body and body.payload:
-            for key, value in body.payload.items():
-                if key in payload and isinstance(value, dict):
-                    payload[key].update(value)
+        if body is not None and body.payload is not None:
+            return self.create_submission_with_payload(user=user, body=body)
+        return self._create_submission_empty(user=user)
 
+    def _create_submission_empty(self, *, user: User) -> PropertySubmissionCreateResponse:
+        payload = self._build_default_payload()
         submission = PropertyListingSubmission(
             submitted_by=user.id,
             status="draft",
@@ -77,16 +83,81 @@ class PropertySubmissionService:
             self._repo.rollback()
             raise HTTPException(status_code=HTTPStatus.INTERNAL_SERVER_ERROR, detail=ErrorMessages.REQUEST_FAILED)
 
+    def create_submission_with_payload(
+        self,
+        *,
+        user: User,
+        body: CreatePropertySubmissionRequest,
+    ) -> PropertySubmissionCreateResponse:
+        if body.payload is None:
+            return self._create_submission_empty(user=user)
+        merged = self._merge_into_default_submission_payload(body.payload)
+        self._validate_draft_payload_shape(merged)
+        step_completion = self._step_completion_for_merged_payload(merged)
+        last_completed_step = self._last_completed_from_step_completion(step_completion)
+        current_step = max(1, min(8, int(body.current_step)))
+        submission = PropertyListingSubmission(
+            submitted_by=user.id,
+            status="draft",
+            current_step=current_step,
+            last_completed_step=last_completed_step,
+            payload=copy.deepcopy(merged),
+            step_completion=step_completion,
+        )
+        self._sync_review_flags(submission, merged.get("review_submit", {}))
+        try:
+            self._repo.create_submission(submission)
+            self._repo.commit()
+            self._repo.refresh(submission)
+            return self._to_create_response(submission, include_payload=True)
+        except Exception:
+            self._repo.rollback()
+            raise HTTPException(status_code=HTTPStatus.INTERNAL_SERVER_ERROR, detail=ErrorMessages.REQUEST_FAILED)
+
+    def create_and_submit_submission(
+        self,
+        *,
+        user: User,
+        body: CreateAndSubmitPropertySubmissionRequest,
+    ) -> PropertySubmissionSubmitResponse:
+        if not body.confirm_submit:
+            raise HTTPException(status_code=HTTPStatus.BAD_REQUEST, detail="confirm_submit must be true")
+        merged = self._merge_into_default_submission_payload(body.payload)
+        self._validate_draft_payload_shape(merged)
+        step_completion = self._step_completion_for_merged_payload(merged)
+        last_completed_step = self._last_completed_from_step_completion(step_completion)
+        submission = PropertyListingSubmission(
+            submitted_by=user.id,
+            status="draft",
+            current_step=8,
+            last_completed_step=last_completed_step,
+            payload=copy.deepcopy(merged),
+            step_completion=step_completion,
+        )
+        self._sync_review_flags(submission, merged.get("review_submit", {}))
+        errors = self._validate_final_payload(payload=merged, submission=submission)
+        if errors:
+            raise HTTPException(status_code=HTTPStatus.BAD_REQUEST, detail=errors)
+        try:
+            self._repo.create_submission(submission)
+            self._repo.flush()
+        except Exception:
+            self._repo.rollback()
+            raise HTTPException(status_code=HTTPStatus.INTERNAL_SERVER_ERROR, detail=ErrorMessages.REQUEST_FAILED)
+        return self._apply_final_submission_persistence(submission=submission, user=user)
+
     def get_submission(self, *, submission_id: uuid.UUID, user: User) -> PropertySubmissionDetailResponse:
         submission = self._repo.get_submission_by_id(submission_id)
         self._ensure_can_access(submission, user)
+        pl = submission.payload or self._build_default_payload()
+        sc = self._compute_step_completion_map(pl)
         return PropertySubmissionDetailResponse(
             submission_id=submission.id,
             status=submission.status,
             current_step=submission.current_step,
-            last_completed_step=submission.last_completed_step,
-            step_completion=submission.step_completion or self._build_default_step_completion(),
-            payload=submission.payload or self._build_default_payload(),
+            last_completed_step=self._last_completed_from_step_completion(sc),
+            step_completion=sc,
+            payload=pl,
         )
 
     def patch_submission(
@@ -104,11 +175,58 @@ class PropertySubmissionService:
                 detail="Submission is locked for editing in current status",
             )
 
+        if body.payload is not None:
+            return self._patch_submission_with_full_payload(submission=submission, body=body, _user=user)
+
+        assert body.step is not None
+        return self._patch_submission_single_step(submission=submission, body=body, user=user)
+
+    def _patch_submission_with_full_payload(
+        self,
+        *,
+        submission: PropertyListingSubmission,
+        body: PropertySubmissionPatchRequest,
+        _user: User,
+    ) -> PropertySubmissionPatchResponse:
+        assert body.payload is not None
+        assert body.current_step is not None
+        merged = self._merge_into_default_submission_payload(body.payload)
+        self._validate_draft_payload_shape(merged)
+        self._sync_review_flags(submission, merged.get("review_submit", {}))
+        submission.current_step = max(1, min(8, int(body.current_step)))
+        sc = self._compute_step_completion_map(merged)
+        submission.last_completed_step = self._last_completed_from_step_completion(sc)
+        submission.step_completion = sc
+        submission.payload = copy.deepcopy(merged)
+        if submission.status in {"draft", "in_progress"}:
+            submission.status = "draft"
+        saved = STEP_ORDER[submission.current_step - 1]
+        try:
+            self._repo.commit()
+            self._repo.refresh(submission)
+            return PropertySubmissionPatchResponse(
+                submission_id=submission.id,
+                status=submission.status,
+                current_step=submission.current_step,
+                last_completed_step=submission.last_completed_step,
+                saved_step=saved,
+                step_completion=submission.step_completion,
+                payload=copy.deepcopy(submission.payload or self._build_default_payload()),
+            )
+        except Exception:
+            self._repo.rollback()
+            raise HTTPException(status_code=HTTPStatus.INTERNAL_SERVER_ERROR, detail=ErrorMessages.REQUEST_FAILED)
+
+    def _patch_submission_single_step(
+        self,
+        *,
+        submission: PropertyListingSubmission,
+        body: PropertySubmissionPatchRequest,
+        user: User,
+    ) -> PropertySubmissionPatchResponse:
+        assert body.step is not None
         # Work on deep copies so SQLAlchemy always sees JSON fields as changed.
         payload = copy.deepcopy(submission.payload or self._build_default_payload())
-        step_completion = copy.deepcopy(
-            submission.step_completion or self._build_default_step_completion()
-        )
         step_data = body.data or {}
         self._validate_step_patch(step=body.step, data=step_data)
         payload.setdefault(body.step, {})
@@ -123,13 +241,10 @@ class PropertySubmissionService:
         if body.step == "review_submit":
             self._sync_review_flags(submission, payload["review_submit"])
 
-        is_complete = self._validate_step_completion(body.step, payload[body.step])
-        step_completion[body.step] = is_complete
-
+        step_completion = self._compute_step_completion_map(payload)
         incoming_step = STEP_INDEX[body.step]
         submission.current_step = self._next_step(current=submission.current_step, incoming=incoming_step, action=body.action)
-        if is_complete:
-            submission.last_completed_step = max(submission.last_completed_step, incoming_step)
+        submission.last_completed_step = self._last_completed_from_step_completion(step_completion)
 
         if body.action == "save_draft" and submission.status in {"draft", "in_progress"}:
             submission.status = "draft"
@@ -197,6 +312,24 @@ class PropertySubmissionService:
                 status_code=HTTPStatus.CONFLICT,
                 detail="Cannot submit when submission is approved or rejected",
             )
+        return self._apply_final_submission_persistence(submission=submission, user=user)
+
+    def _apply_final_submission_persistence(
+        self,
+        *,
+        submission: PropertyListingSubmission,
+        user: User,
+    ) -> PropertySubmissionSubmitResponse:
+        """Run final validation, then one transactional write: property + media + owners + features + submitted row.
+
+        On any failure in the try block, ``rollback`` clears the session (including a freshly flushed submission
+        from ``create_and_submit``) so no partial normalized property is left visible.
+        """
+        if submission.status in {"approved", "rejected"}:
+            raise HTTPException(
+                status_code=HTTPStatus.CONFLICT,
+                detail="Cannot submit when submission is approved or rejected",
+            )
 
         payload = submission.payload or self._build_default_payload()
         errors = self._validate_final_payload(payload=payload, submission=submission)
@@ -213,7 +346,6 @@ class PropertySubmissionService:
                 submission.status = "submitted"
                 submission.submitted_at = submission.submitted_at or datetime.now(timezone.utc)
                 submission.property_id = property_obj.id
-            # Ensure persistence even when begin_transaction() reuses an existing implicit transaction.
             self._repo.commit()
             self._repo.refresh(submission)
             service_logger.info(
@@ -236,7 +368,7 @@ class PropertySubmissionService:
                 "property_submission_submit_failed submission_id=%s user_id=%s property_id=%s error=%s",
                 submission.id,
                 user.id,
-                submission.property_id,
+                getattr(submission, "property_id", None),
                 str(exc),
             )
             raise HTTPException(status_code=HTTPStatus.INTERNAL_SERVER_ERROR, detail=ErrorMessages.REQUEST_FAILED)
@@ -667,21 +799,142 @@ class PropertySubmissionService:
             self._validate_step_patch(step="amenities", data=amenities)
         return errors
 
+    @staticmethod
+    def _is_nonempty_text(value: Any) -> bool:
+        """True if *value* is a non-empty string after strip (used for title, name, phone)."""
+        if value is None:
+            return False
+        if isinstance(value, str):
+            return bool(value.strip())
+        return False
+
+    def _is_basic_information_complete(self, data: dict[str, Any]) -> bool:
+        if not data:
+            return False
+        purpose = str(data.get("listing_purpose") or "").strip().lower()
+        if purpose not in {"sale", "rent"}:
+            return False
+        if not self._is_nonempty_text(data.get("title")):
+            return False
+        if data.get("category_id") in (None, ""):
+            return False
+        if data.get("type_id") in (None, ""):
+            return False
+        return True
+
+    def _is_location_complete(self, data: dict[str, Any]) -> bool:
+        if not data:
+            return False
+        c, a = data.get("city_id"), data.get("area_id")
+        if c in (None, "") or a in (None, ""):
+            return False
+        if not self._is_nonempty_text(data.get("address")):
+            return False
+        return True
+
+    def _is_owner_information_complete(self, data: dict[str, Any]) -> bool:
+        """Match final submit: each owner has full name and at least one of phone or email (non-blank)."""
+        owners = data.get("owners")
+        if not isinstance(owners, list) or not owners:
+            return False
+        for owner in owners:
+            if not isinstance(owner, dict):
+                return False
+            if not self._is_nonempty_text(owner.get("full_name")):
+                return False
+            phone = self._is_nonempty_text(owner.get("phone"))
+            em = owner.get("email")
+            email = self._is_nonempty_text(em) if em is not None else False
+            if not (phone or email):
+                return False
+        return True
+
+    def _is_property_details_complete(self, data: dict[str, Any]) -> bool:
+        if not data or not isinstance(data, dict):
+            return False
+        for v in data.values():
+            if v is None or v is False:
+                continue
+            if isinstance(v, str) and not v.strip():
+                continue
+            if isinstance(v, (list, dict)) and not v:
+                continue
+            return True
+        return False
+
+    def _is_pricing_complete(self, data: dict[str, Any]) -> bool:
+        p = data.get("price")
+        if p in (None, ""):
+            return False
+        try:
+            return float(p) > 0
+        except (TypeError, ValueError):
+            return False
+
+    @staticmethod
+    def _is_amenities_complete(data: dict[str, Any]) -> bool:
+        """At least one feature id (same as a meaningful amenities selection in the UI)."""
+        if not data:
+            return False
+        ids = data.get("feature_ids")
+        if not isinstance(ids, list) or not ids:
+            return False
+        for x in ids:
+            if x in (None, ""):
+                continue
+            if isinstance(x, (int, float)) and not isinstance(x, bool):
+                return True
+        return False
+
+    def _is_media_documents_complete(self, data: dict[str, Any]) -> bool:
+        """At least one image/video/document row with a URL, or a non-empty YouTube / virtual-tour link."""
+        if not data or not isinstance(data, dict):
+            return False
+        for key in ("images", "videos", "documents"):
+            items = data.get(key)
+            if not isinstance(items, list):
+                continue
+            for row in items:
+                if isinstance(row, dict) and self._is_nonempty_text(row.get("url")):
+                    return True
+        for link_key in ("youtube_url", "virtual_tour_url"):
+            if self._is_nonempty_text(data.get(link_key)):
+                return True
+        return False
+
+    def _is_review_submit_complete(self, data: dict[str, Any]) -> bool:
+        if not data:
+            return False
+        for flag in ("terms_accepted", "privacy_accepted", "public_display_authorized", "fees_acknowledged"):
+            if not data.get(flag):
+                return False
+        return True
+
     def _validate_step_completion(self, step: SubmissionStep, data: dict[str, Any]) -> bool:
         if step == "basic_information":
-            return bool(data.get("listing_purpose") and data.get("category_id") and data.get("type_id"))
+            return self._is_basic_information_complete(data)
         if step == "location":
-            return bool(data.get("city_id") and data.get("area_id"))
+            return self._is_location_complete(data)
         if step == "owner_information":
-            return isinstance(data.get("owners", []), list)
+            return self._is_owner_information_complete(data)
+        if step == "property_details":
+            return self._is_property_details_complete(data)
         if step == "pricing":
-            return data.get("price") not in (None, "")
+            return self._is_pricing_complete(data)
+        if step == "amenities":
+            return self._is_amenities_complete(data)
+        if step == "media_documents":
+            return self._is_media_documents_complete(data)
         if step == "review_submit":
-            return all(
-                bool(data.get(flag))
-                for flag in ("terms_accepted", "privacy_accepted", "public_display_authorized", "fees_acknowledged")
-            )
-        return True
+            return self._is_review_submit_complete(data)
+        return False
+
+    def _compute_step_completion_map(self, payload: dict[str, Any]) -> dict[str, bool]:
+        """Recompute all step flags from the merged payload (single source of truth)."""
+        return {
+            step: self._validate_step_completion(step, self._step_data_for_step_validation(step, payload))
+            for step in STEP_ORDER
+        }
 
     def _sync_review_flags(self, submission: PropertyListingSubmission, review_payload: dict[str, Any]) -> None:
         submission.terms_accepted = bool(review_payload.get("terms_accepted", submission.terms_accepted))
@@ -708,13 +961,52 @@ class PropertySubmissionService:
     def _build_default_step_completion(self) -> dict[str, bool]:
         return dict(DEFAULT_STEP_COMPLETION)
 
-    def _to_create_response(self, submission: PropertyListingSubmission) -> PropertySubmissionCreateResponse:
+    def _merge_into_default_submission_payload(self, incoming: dict[str, Any]) -> dict[str, Any]:
+        return deep_merge_dict(self._build_default_payload(), incoming)
+
+    def _validate_draft_payload_shape(self, payload: dict[str, Any]) -> None:
+        for step in STEP_ORDER:
+            self._validate_step_patch(step=step, data=self._step_data_for_step_validation(step, payload))
+
+    def _step_data_for_step_validation(self, step: SubmissionStep, payload: dict[str, Any]) -> dict[str, Any]:
+        step_payload = payload.get(step)
+        if not isinstance(step_payload, dict):
+            if step == "owner_information":
+                return {"owners": []}
+            return {}
+        data = copy.deepcopy(step_payload)
+        if step == "owner_information" and not isinstance(data.get("owners"), list):
+            data["owners"] = []
+        return data
+
+    def _step_completion_for_merged_payload(self, payload: dict[str, Any]) -> dict[str, bool]:
+        return self._compute_step_completion_map(payload)
+
+    def _last_completed_from_step_completion(self, step_completion: dict[str, bool]) -> int:
+        last = 0
+        for step in STEP_ORDER:
+            if step_completion.get(step):
+                last = max(last, STEP_INDEX[step])
+        return last
+
+    def _to_create_response(
+        self,
+        submission: PropertyListingSubmission,
+        *,
+        include_payload: bool = False,
+    ) -> PropertySubmissionCreateResponse:
+        pl: dict[str, Any] | None
+        if include_payload:
+            pl = copy.deepcopy(submission.payload or self._build_default_payload())
+        else:
+            pl = None
         return PropertySubmissionCreateResponse(
             submission_id=submission.id,
             status=submission.status,
             current_step=submission.current_step,
             last_completed_step=submission.last_completed_step,
             step_completion=submission.step_completion or self._build_default_step_completion(),
+            payload=pl,
         )
 
     def _ensure_non_negative(self, value: Any, field: str) -> None:

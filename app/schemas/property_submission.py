@@ -1,9 +1,9 @@
 """Pydantic schemas for property listing submission workflow."""
 
 import uuid
-from typing import Any, Literal
+from typing import Any, Literal, Self
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 SubmissionStep = Literal[
@@ -72,9 +72,17 @@ class SubmissionFileMetadata(BaseModel):
 
 
 class CreatePropertySubmissionRequest(BaseModel):
-    """Optional prefill values for draft creation."""
+    """Create or replace a **server draft**.
+
+    **Recommended (new app flow):** send ``payload`` with the full stepper state when the user saves a draft
+    (Redux-first: no server round-trip on “Add property” alone).
+
+    **Backward compatible:** omit the body or omit ``payload`` to create an **empty** draft row (legacy clients);
+    the new UI does not need to call this empty variant on entry.
+    """
 
     payload: dict[str, Any] | None = None
+    current_step: int = Field(1, ge=1, le=8, description="Active step when saving the draft (default 1).")
 
 
 class PropertySubmissionCreateResponse(BaseModel):
@@ -83,6 +91,17 @@ class PropertySubmissionCreateResponse(BaseModel):
     current_step: int
     last_completed_step: int
     step_completion: dict[str, bool]
+    payload: dict[str, Any] | None = Field(
+        default=None,
+        description="When the client sent a full ``payload`` on create, the stored merged payload; otherwise null for empty create.",
+    )
+
+
+class CreateAndSubmitPropertySubmissionRequest(BaseModel):
+    """Create submission, validate, and persist the property in one request (Redux-first / no prior submission id)."""
+
+    payload: dict[str, Any]
+    confirm_submit: bool
 
 
 class PropertySubmissionDetailResponse(PropertySubmissionCreateResponse):
@@ -90,9 +109,34 @@ class PropertySubmissionDetailResponse(PropertySubmissionCreateResponse):
 
 
 class PropertySubmissionPatchRequest(BaseModel):
-    step: SubmissionStep
+    """Patch a single step (``step`` + ``data``) or replace the whole draft (``payload`` + ``action=save_draft``)."""
+
+    step: SubmissionStep | None = None
     action: SubmissionAction = "save"
     data: dict[str, Any] = Field(default_factory=dict)
+    payload: dict[str, Any] | None = None
+    current_step: int | None = Field(
+        default=None,
+        ge=1,
+        le=8,
+        description="Set when sending full ``payload``; active wizard step after save (default 1).",
+    )
+
+    @model_validator(mode="after")
+    def full_payload_vs_step(self) -> Self:
+        if self.payload is not None:
+            if self.action != "save_draft":
+                raise ValueError("When 'payload' is set, 'action' must be 'save_draft' (full draft save on existing id)")
+            if self.step is not None:
+                raise ValueError("Omit 'step' when sending full 'payload' (use 'current_step' instead)")
+            if self.data:
+                raise ValueError("Omit 'data' when sending full 'payload'")
+            if self.current_step is None:
+                self.current_step = 1
+        else:
+            if self.step is None:
+                raise ValueError("Field required: 'step' (or send 'payload' with 'action' save_draft to save the full form)")
+        return self
 
 
 class PropertySubmissionPatchResponse(BaseModel):

@@ -34,7 +34,11 @@ def _normalize_extension_set(extensions: list[str]) -> set[str]:
 
 
 class UploadService:
-    """Generate and validate S3 presigned upload URLs for stepper files."""
+    """Generate and validate S3 presigned upload URLs for stepper files.
+
+    ``submission_id`` targets a persisted draft; ``draft_client_id`` (with the same path layout) is for uploads
+    before a submission row exists. The route always requires an authenticated user.
+    """
 
     def __init__(
         self,
@@ -52,15 +56,21 @@ class UploadService:
         body: PresignedUploadRequest,
         user: User,
     ) -> PresignedUploadData:
-        """Validate request and return presigned upload information."""
-        submission = self._repo.get_submission_by_id(body.submission_id)
-        if submission is None or submission.submitted_by != user.id:
-            raise HTTPException(status_code=HTTPStatus.NOT_FOUND, detail="Submission not found")
-        if submission.status in {"approved", "rejected"}:
-            raise HTTPException(
-                status_code=HTTPStatus.CONFLICT,
-                detail="Uploads are not allowed for finalized submissions",
-            )
+        """Validate and return a presigned PUT + public ``url`` string (no ``s3_key`` in the response)."""
+        if body.submission_id is not None:
+            submission = self._repo.get_submission_by_id(body.submission_id)
+            if submission is None or submission.submitted_by != user.id:
+                raise HTTPException(status_code=HTTPStatus.NOT_FOUND, detail="Submission not found")
+            if submission.status in {"approved", "rejected"}:
+                raise HTTPException(
+                    status_code=HTTPStatus.CONFLICT,
+                    detail="Uploads are not allowed for finalized submissions",
+                )
+            path_id = body.submission_id
+        else:
+            path_id = body.draft_client_id
+            if path_id is None:  # pragma: no cover — enforced by PresignedUploadRequest
+                raise HTTPException(status_code=HTTPStatus.BAD_REQUEST, detail="draft_client_id is required")
 
         cleaned_name = (body.file_name or "").strip()
         if not cleaned_name:
@@ -83,7 +93,7 @@ class UploadService:
 
         key = self._build_draft_key(
             context=body.context,
-            submission_id=body.submission_id,
+            path_id=path_id,
             filename=cleaned_name,
         )
         expiry = self._settings.aws_s3_presigned_expiry
@@ -134,12 +144,13 @@ class UploadService:
                 detail=f"file_size exceeds max allowed size ({limit_mb} MB)",
             )
 
-    def _build_draft_key(self, *, context: str, submission_id, filename: str) -> str:
+    def _build_draft_key(self, *, context: str, path_id, filename: str) -> str:
+        """S3 key under ``drafts/property-submissions/{path_id}/...`` (submission or client draft id)."""
         if context == "property_media_image":
-            return draft_image_key(submission_id, filename)
+            return draft_image_key(path_id, filename)
         if context == "property_media_video":
-            return draft_video_key(submission_id, filename)
+            return draft_video_key(path_id, filename)
         if context == "property_document":
-            return draft_document_key(submission_id, filename)
-        return draft_owner_document_key(submission_id, filename)
+            return draft_document_key(path_id, filename)
+        return draft_owner_document_key(path_id, filename)
 

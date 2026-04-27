@@ -7,11 +7,13 @@ from contextlib import nullcontext
 
 import pytest
 from fastapi import HTTPException
+from pydantic import ValidationError
 
 from app.models.property_listing_submission import PropertyListingSubmission
 from app.services.property_submission_service import PropertySubmissionService
 from app.schemas.property_submission import (
     AdminSubmissionReviewRequest,
+    CreateAndSubmitPropertySubmissionRequest,
     CreatePropertySubmissionRequest,
     PropertySubmissionPatchRequest,
     PropertySubmissionSubmitRequest,
@@ -72,7 +74,127 @@ def test_create_submission_success(service: PropertySubmissionService, repo: Mag
     out = service.create_submission(user=user, body=CreatePropertySubmissionRequest())
     assert out.status == "draft"
     assert out.current_step == 1
+    assert out.payload is None
     repo.commit.assert_called_once()
+
+
+def test_create_submission_empty_body_uses_default(service: PropertySubmissionService, repo: MagicMock):
+    user = _user()
+    repo.create_submission.side_effect = lambda submission: setattr(submission, "id", uuid.uuid4())
+    out = service.create_submission(user=user, body=None)
+    assert out.status == "draft"
+    assert out.payload is None
+    assert repo.create_submission.call_count == 1
+
+
+def test_create_submission_with_full_payload_draft(service: PropertySubmissionService, repo: MagicMock) -> None:
+    user = _user()
+    mock_type = MagicMock()
+    mock_type.category_id = 1
+    repo.get_category_type.return_value = mock_type
+    repo.create_submission.side_effect = lambda submission: setattr(submission, "id", uuid.uuid4())
+    pl = {
+        "basic_information": {
+            "listing_purpose": "sale",
+            "category_id": 1,
+            "type_id": 2,
+            "title": "Hi",
+        },
+    }
+    out = service.create_submission(
+        user=user,
+        body=CreatePropertySubmissionRequest(payload=pl, current_step=2),
+    )
+    assert out.submission_id is not None
+    assert out.status == "draft"
+    assert out.current_step == 2
+    assert out.payload is not None
+    assert out.payload.get("basic_information", {}).get("title") == "Hi"
+
+
+def test_create_submission_rejects_s3_key_in_draft_images(service: PropertySubmissionService, repo: MagicMock) -> None:
+    user = _user()
+    pl = {
+        "media_documents": {
+            "images": [{"file_name": "a.jpg", "url": "https://x", "s3_key": "bad"}],
+        }
+    }
+    with pytest.raises(HTTPException) as e:
+        service.create_submission(user=user, body=CreatePropertySubmissionRequest(payload=pl))
+    assert e.value.status_code == 400
+
+
+def test_create_and_submit_success(service: PropertySubmissionService, repo: MagicMock) -> None:
+    user = _user()
+    sub = _ready_submission(user.id)
+    pl = sub.payload
+    body = CreateAndSubmitPropertySubmissionRequest(payload=pl, confirm_submit=True)
+    repo.create_submission.side_effect = lambda submission: setattr(submission, "id", uuid.uuid4())
+    mock_type = MagicMock()
+    mock_type.category_id = 1
+    repo.get_category_type.return_value = mock_type
+    mock_area = MagicMock()
+    mock_area.city_id = 1
+    repo.get_area.return_value = mock_area
+    repo.get_city.return_value = MagicMock()
+    repo.get_owner_by_email_or_phone.return_value = None
+    repo.get_user_by_phone.return_value = None
+    repo.get_user_by_email.return_value = None
+    repo.count_existing_features.return_value = 2
+    repo.get_property.return_value = None
+    repo.create_property.side_effect = lambda prop: setattr(prop, "id", uuid.uuid4())
+    out = service.create_and_submit_submission(user=user, body=body)
+    assert out.status == "submitted"
+    assert out.property_id is not None
+    assert repo.create_submission.call_count == 1
+
+
+def test_create_and_submit_skips_persist_on_validation_failure(
+    service: PropertySubmissionService, repo: MagicMock,
+) -> None:
+    user = _user()
+    pl = {
+        "basic_information": {
+            "listing_purpose": "sale",
+            "category_id": 1,
+            "type_id": 2,
+        },
+    }
+    with pytest.raises(HTTPException) as e:
+        service.create_and_submit_submission(
+            user=user,
+            body=CreateAndSubmitPropertySubmissionRequest(payload=pl, confirm_submit=True),
+        )
+    assert e.value.status_code == 400
+    assert not repo.create_submission.called
+
+
+def test_create_and_submit_rollback_on_upsert_failure(
+    service: PropertySubmissionService, repo: MagicMock,
+) -> None:
+    """Direct submit: persistence failure must rollback the session (no successful commit of partial property)."""
+    user = _user()
+    pl = _ready_submission(user.id).payload
+    body = CreateAndSubmitPropertySubmissionRequest(payload=pl, confirm_submit=True)
+    repo.create_submission.side_effect = lambda submission: setattr(submission, "id", uuid.uuid4())
+    mock_type = MagicMock()
+    mock_type.category_id = 1
+    repo.get_category_type.return_value = mock_type
+    mock_area = MagicMock()
+    mock_area.city_id = 1
+    repo.get_area.return_value = mock_area
+    repo.get_city.return_value = MagicMock()
+    repo.get_owner_by_email_or_phone.return_value = None
+    repo.get_user_by_phone.return_value = None
+    repo.get_user_by_email.return_value = None
+    repo.count_existing_features.return_value = 2
+    repo.get_property.return_value = None
+    repo.create_property.side_effect = RuntimeError("db error")
+    with pytest.raises(HTTPException) as exc_info:
+        service.create_and_submit_submission(user=user, body=body)
+    assert exc_info.value.status_code == 500
+    repo.rollback.assert_called()
+    assert not repo.commit.called
 
 
 def test_get_own_submission_success(service: PropertySubmissionService, repo: MagicMock):
@@ -1076,3 +1198,206 @@ def test_admin_review_on_draft_disallowed(service: PropertySubmissionService, re
             body=AdminSubmissionReviewRequest(action="approve", reason=None),
         )
     assert exc_info.value.status_code == 409
+
+
+def test_step_completion_empty_title_marks_basic_false(service: PropertySubmissionService) -> None:
+    svc = PropertySubmissionService(MagicMock())
+    data = {
+        "listing_purpose": "sale",
+        "category_id": 1,
+        "type_id": 1,
+        "title": "   ",
+        "description": "x",
+    }
+    assert svc._validate_step_completion("basic_information", data) is False  # type: ignore[arg-type]
+
+
+def test_step_completion_empty_owner_name_false(service: PropertySubmissionService) -> None:
+    svc = PropertySubmissionService(MagicMock())
+    data = {
+        "owners": [{"full_name": "", "phone": "+9627000000"}],
+    }
+    assert svc._validate_step_completion("owner_information", data) is False  # type: ignore[arg-type]
+
+
+def test_step_completion_owner_email_only_ok(service: PropertySubmissionService) -> None:
+    svc = PropertySubmissionService(MagicMock())
+    data = {
+        "owners": [
+            {
+                "full_name": "A",
+                "email": "a@example.com",
+            }
+        ],
+    }
+    assert svc._validate_step_completion("owner_information", data) is True  # type: ignore[arg-type]
+
+
+def test_step_completion_location_needs_address(service: PropertySubmissionService) -> None:
+    svc = PropertySubmissionService(MagicMock())
+    assert (
+        svc._validate_step_completion(
+            "location",
+            {"city_id": 1, "area_id": 1, "address": "  "},
+        )
+        is False
+    )
+    assert (
+        svc._validate_step_completion(
+            "location",
+            {"city_id": 1, "area_id": 1, "address": "Street 1"},
+        )
+        is True
+    )
+
+
+def test_step_completion_amenities_needs_one_feature(service: PropertySubmissionService) -> None:
+    svc = PropertySubmissionService(MagicMock())
+    assert svc._validate_step_completion("amenities", {"feature_ids": []}) is False  # type: ignore[arg-type]
+    assert svc._validate_step_completion("amenities", {"feature_ids": [1]}) is True  # type: ignore[arg-type]
+
+
+def test_step_completion_media_needs_file_or_link(service: PropertySubmissionService) -> None:
+    svc = PropertySubmissionService(MagicMock())
+    empty = {
+        "images": [],
+        "videos": [],
+        "documents": [],
+        "youtube_url": None,
+        "virtual_tour_url": None,
+    }
+    assert svc._validate_step_completion("media_documents", empty) is False  # type: ignore[arg-type]
+    with_img = {
+        **empty,
+        "images": [{"url": "https://s3/f.jpg", "file_name": "f.jpg"}],
+    }
+    assert svc._validate_step_completion("media_documents", with_img) is True  # type: ignore[arg-type]
+    with_tube = {**empty, "youtube_url": "https://youtube.com/watch?v=1"}
+    assert svc._validate_step_completion("media_documents", with_tube) is True  # type: ignore[arg-type]
+
+
+def test_step_completion_property_details_empty_dict_false(service: PropertySubmissionService) -> None:
+    svc = PropertySubmissionService(MagicMock())
+    assert svc._validate_step_completion("property_details", {}) is False  # type: ignore[arg-type]
+
+
+def test_step_completion_pricing_zero_false(service: PropertySubmissionService) -> None:
+    svc = PropertySubmissionService(MagicMock())
+    assert svc._validate_step_completion("pricing", {"price": 0, "currency": "JOD"}) is False  # type: ignore[arg-type]
+    assert svc._validate_step_completion("pricing", {"price": 1, "currency": "JOD"}) is True  # type: ignore[arg-type]
+
+
+def test_step_completion_review_all_false(service: PropertySubmissionService) -> None:
+    svc = PropertySubmissionService(MagicMock())
+    r = {k: False for k in ("terms_accepted", "privacy_accepted", "public_display_authorized", "fees_acknowledged")}
+    assert svc._validate_step_completion("review_submit", r) is False  # type: ignore[arg-type]
+    r2 = {k: True for k in r}
+    assert svc._validate_step_completion("review_submit", r2) is True  # type: ignore[arg-type]
+
+
+def test_step_completion_ready_payload_all_steps_true(
+    service: PropertySubmissionService, repo: MagicMock,
+) -> None:
+    pl = _ready_submission(_user().id).payload
+    m = service._compute_step_completion_map(pl)
+    for step in [
+        "basic_information",
+        "location",
+        "owner_information",
+        "property_details",
+        "pricing",
+        "amenities",
+        "media_documents",
+    ]:
+        assert m[step] is True, step
+    assert m["review_submit"] is True
+
+
+def test_patch_request_payload_requires_save_draft_action() -> None:
+    with pytest.raises(ValidationError):
+        PropertySubmissionPatchRequest(
+            action="next",
+            payload={"basic_information": {"title": "x"}},
+            current_step=1,
+        )
+
+
+def test_patch_request_rejects_step_with_payload() -> None:
+    with pytest.raises(ValidationError):
+        PropertySubmissionPatchRequest(
+            step="basic_information",
+            action="save_draft",
+            payload={"basic_information": {"title": "x"}},
+            current_step=1,
+        )
+
+
+def test_patch_full_payload_save_draft_without_step(
+    service: PropertySubmissionService, repo: MagicMock,
+) -> None:
+    """Redux-style: PATCH with whole ``payload`` + ``action=save_draft`` + ``current_step`` (no per-step ``step``)."""
+    user = _user()
+    submission = _submission(user.id)
+    repo.get_submission_by_id.return_value = submission
+    mock_type = MagicMock()
+    mock_type.category_id = 1
+    repo.get_category_type.return_value = mock_type
+    mock_area = MagicMock()
+    mock_area.city_id = 1
+    repo.get_area.return_value = mock_area
+    repo.get_city.return_value = MagicMock()
+    repo.count_existing_features.return_value = 1
+    pl = {
+        "basic_information": {
+            "listing_purpose": "rent",
+            "category_id": 1,
+            "type_id": 1,
+            "title": "rented apartment",
+            "description": "",
+        },
+        "location": {"city_id": 1, "area_id": 1, "address": ""},
+        "owner_information": {
+            "owners": [
+                {
+                    "full_name": "Jane",
+                    "phone": "+962700000000",
+                    "email": "a@b.com",
+                    "documents": [],
+                }
+            ]
+        },
+        "property_details": {"bedrooms": 2},
+        "pricing": {"price": 100, "currency": "JOD"},
+        "amenities": {"feature_ids": [1]},
+        "media_documents": {"images": [], "videos": [], "documents": []},
+        "review_submit": {
+            "terms_accepted": False,
+            "privacy_accepted": False,
+            "fees_acknowledged": False,
+            "public_display_authorized": False,
+        },
+    }
+    body = PropertySubmissionPatchRequest(
+        action="save_draft",
+        payload=pl,
+        current_step=5,
+    )
+    out = service.patch_submission(submission_id=submission.id, body=body, user=user)
+    assert out.current_step == 5
+    assert out.saved_step == "pricing"
+    assert out.payload["basic_information"]["title"] == "rented apartment"
+
+
+def test_get_submission_recomputes_step_completion_from_payload(
+    service: PropertySubmissionService, repo: MagicMock,
+) -> None:
+    """GET returns up-to-date flags derived from current payload (fixes stale DB rows)."""
+    user = _user()
+    submission = _ready_submission(user.id)
+    submission.step_completion = {k: True for k in (submission.step_completion or {})}
+    submission.last_completed_step = 7
+    submission.payload["basic_information"]["title"] = "   "
+    repo.get_submission_by_id.return_value = submission
+    out = service.get_submission(submission_id=submission.id, user=user)
+    assert out.step_completion.get("basic_information") is False
+    assert any(v is False for v in (out.step_completion or {}).values())
