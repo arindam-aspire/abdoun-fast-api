@@ -49,27 +49,16 @@ def test_properties_exclusive_response_shape(db_available):
         assert key in data
 
 
-def test_cities_response_shape(db_available):
-    """GET /api/v1/cities - returns data list and total."""
+def test_location_taxonomy_response_shape(db_available):
+    """GET /api/v1/location-taxonomy - returns data list and total."""
     if not db_available:
         pytest.skip("PostgreSQL not available")
-    r = client.get("/api/v1/cities")
-    assert r.status_code == EXPECTED_STATUS["cities_ok"]
+    r = client.get("/api/v1/location-taxonomy")
+    assert r.status_code == EXPECTED_STATUS["location_taxonomy_ok"]
     data = r.json()
     for key in LOCATION_RESPONSE_KEYS:
         assert key in data
     assert isinstance(data["data"], list)
-
-
-def test_areas_response_shape(db_available):
-    """GET /api/v1/areas - returns data list and total."""
-    if not db_available:
-        pytest.skip("PostgreSQL not available")
-    r = client.get("/api/v1/areas")
-    assert r.status_code == EXPECTED_STATUS["areas_ok"]
-    data = r.json()
-    for key in LOCATION_RESPONSE_KEYS:
-        assert key in data
 
 
 def test_geo_search_accepts_payload(db_available):
@@ -144,8 +133,7 @@ def test_public_paths_respond(db_available):
     """Step 13: Public paths exist and respond with expected status."""
     paths = [
         ("/health", 200),
-        ("/api/v1/cities", 200),
-        ("/api/v1/areas", 200),
+        ("/api/v1/location-taxonomy", 200),
         ("/api/v1/properties", 200),
     ]
     for path, expected in paths:

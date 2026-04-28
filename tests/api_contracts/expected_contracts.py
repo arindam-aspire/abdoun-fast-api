@@ -6,8 +6,7 @@ paths, methods, status codes, and response shapes remain unchanged.
 # Paths and methods that must remain unchanged (Step 13)
 API_PATHS = [
     ("GET", "/health"),
-    ("GET", "/api/v1/cities"),
-    ("GET", "/api/v1/areas"),
+    ("GET", "/api/v1/location-taxonomy"),
     ("GET", "/api/v1/properties"),
     ("GET", "/api/v1/properties/exclusive"),
     ("POST", "/api/v1/properties/geo-search"),
@@ -25,8 +24,7 @@ EXPECTED_STATUS = {
     "health_ok": 200,
     "properties_list_ok": 200,
     "properties_exclusive_ok": 200,
-    "cities_ok": 200,
-    "areas_ok": 200,
+    "location_taxonomy_ok": 200,
     "geo_search_ok": 200,
     "property_detail_404": 404,
     "auth_signup_validation_error": 422,

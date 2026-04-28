@@ -66,11 +66,12 @@ class AgentPropertyListResponse(BaseModel):
     total: int
     page: int
     limit: int
-    draft_submissions: list[AgentDraftSubmissionItem] = Field(
-        default_factory=list,
+    # Only included when `include_drafts=true` on the endpoint.
+    draft_submissions: list[AgentDraftSubmissionItem] | None = Field(
+        default=None,
         description="Draft / in_progress submissions without property_id (same submitter)",
     )
-    draft_submissions_total: int = 0
+    draft_submissions_total: int | None = None
 
 
 class AgentDraftSubmissionListResponse(BaseModel):

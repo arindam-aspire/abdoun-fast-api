@@ -1,31 +1,22 @@
-"""
-API endpoints for cities and areas (locations)
-"""
-from typing import Annotated, Optional
+"""API endpoints for location taxonomy (cities with nested areas)."""
 
-from fastapi import APIRouter, Depends, Query
+from __future__ import annotations
+
+from typing import Annotated
+
+from fastapi import APIRouter, Depends
 
 from app.api.v1.deps.locations import get_location_service
 from app.services.location_service import LocationService
-from app.utils.constants import ApiDocs
 
 
 router = APIRouter()
 
 
-@router.get("/cities")
-def list_cities(
+@router.get("/location-taxonomy")
+def get_location_taxonomy(
     service: Annotated[LocationService, Depends(get_location_service)],
 ) -> dict:
-    """Return a list of active cities."""
-    return service.list_cities()
-
-
-@router.get("/areas")
-def list_areas(
-    service: Annotated[LocationService, Depends(get_location_service)],
-    city: Annotated[Optional[str], Query(description=ApiDocs.FILTER_AREAS_BY_CITY_NAME)] = None,
-) -> dict:
-    """Return a list of areas, optionally filtered by city."""
-    return service.list_areas(city=city)
+    """Return active cities with their areas in one response."""
+    return service.get_location_taxonomy()
 

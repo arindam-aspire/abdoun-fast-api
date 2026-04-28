@@ -111,14 +111,13 @@ class AgentPropertyService:
                 )
             )
 
-        draft_items: list[AgentDraftSubmissionItem] = []
-        draft_total = 0
+        extra: dict[str, Any] = {}
         if include_drafts:
             draft_rows, draft_total = self._submissions.list_draft_submissions_without_property(
                 user_id=user.id,
                 limit=200,
             )
-            draft_items = [
+            extra["draft_submissions"] = [
                 AgentDraftSubmissionItem(
                     submission_id=d.id,
                     status=d.status,
@@ -129,15 +128,9 @@ class AgentPropertyService:
                 )
                 for d in draft_rows
             ]
+            extra["draft_submissions_total"] = draft_total
 
-        return AgentPropertyListResponse(
-            items=items,
-            total=total,
-            page=page,
-            limit=limit,
-            draft_submissions=draft_items,
-            draft_submissions_total=draft_total,
-        )
+        return AgentPropertyListResponse(items=items, total=total, page=page, limit=limit, **extra)
 
     def list_my_draft_submissions(self, *, user: User, page: int, limit: int) -> AgentDraftSubmissionListResponse:
         # Repo returns newest-first; no DB-level paging for drafts yet, so page in memory.

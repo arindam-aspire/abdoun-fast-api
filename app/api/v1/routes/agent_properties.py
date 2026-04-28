@@ -14,7 +14,11 @@ from app.utils.responses import StandardResponse, create_success_response
 router = APIRouter()
 
 
-@router.get("", response_model=StandardResponse[AgentPropertyListResponse])
+@router.get(
+    "",
+    response_model=StandardResponse[AgentPropertyListResponse],
+    response_model_exclude_unset=True,
+)
 def list_agent_properties(
     current_user: Annotated[User, Depends(get_current_user)],
     service: Annotated[AgentPropertyService, Depends(get_agent_property_service)],

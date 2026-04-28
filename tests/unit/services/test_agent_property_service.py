@@ -71,7 +71,7 @@ def test_list_my_properties_maps_rows() -> None:
     assert row.type_name == "Villa"
     assert row.price == Decimal("500000")
     assert row.submission_id is None
-    assert out.draft_submissions == []
+    assert out.draft_submissions is None
 
 
 def test_list_my_properties_includes_submission_moderation() -> None:
@@ -115,8 +115,8 @@ def test_list_my_properties_includes_draft_submissions() -> None:
     out = service.list_my_properties(user=user, page=1, limit=10)
 
     assert out.items == []
-    assert out.draft_submissions_total == 0
-    assert out.draft_submissions == []
+    assert out.draft_submissions_total is None
+    assert out.draft_submissions is None
 
     out_with_drafts = service.list_my_properties(user=user, page=1, limit=10, include_drafts=True)
     assert out_with_drafts.draft_submissions_total == 4
