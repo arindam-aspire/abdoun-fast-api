@@ -33,8 +33,8 @@ class AdminDashboardKpisResponse(BaseModel):
     """Scalar KPI row for a reporting month (full calendar month, UTC) with MoM vs previous month."""
 
     month: str
-    usersThisMonth: int
-    usersMoMDelta: float
+    registerUsersThisMonth: int
+    registerUsersMoMDelta: float
     agentsThisMonth: int
     agentsMoMDelta: float
     pendingApprovals: int
@@ -75,12 +75,23 @@ class AdminDashboardPropertyPerformanceResponse(BaseModel):
     pagination: PaginationInfo
 
 
+class AdminDashboardRecentActivityItem(BaseModel):
+    """Recent activity item displayed in dashboard timeline."""
+
+    text: str
+    time: str
+    tone: str
+
+
 class AdminDashboardSummaryResponse(BaseModel):
     """Legacy: platform-wide KPIs, 12-month series, lead mix, and top properties (current month UTC)."""
 
     month: str
-    usersThisMonth: int
-    usersMoMDelta: float
+    totalRegisterUserCount: int = Field(default=0, ge=0)
+    totalAgentCount: int = Field(default=0, ge=0)
+    totalAdminCount: int = Field(default=0, ge=0)
+    registerUsersThisMonth: int
+    registerUsersMoMDelta: float
     agentsThisMonth: int
     agentsMoMDelta: float
     pendingApprovals: int
@@ -97,3 +108,4 @@ class AdminDashboardSummaryResponse(BaseModel):
     leadSourceLabels: List[str]
     leadSourceValues: List[int]
     propertyPerformanceSeries: List[PropertyPerformanceItem]
+    recentActivity: List[AdminDashboardRecentActivityItem] = Field(default_factory=list)

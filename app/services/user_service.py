@@ -1,5 +1,6 @@
 """User, role, and permission service: list/get/update/delete users, assign/remove roles; uses UserRepository."""
 import uuid
+from datetime import datetime, timedelta
 from typing import List, Optional, Tuple
 
 from fastapi import HTTPException
@@ -35,6 +36,7 @@ class UserService:
         role_name: Optional[str],
         search: Optional[str],
         is_active: Optional[bool] = None,
+        period: Optional[str] = None,
     ) -> Tuple[List[User], int]:
         """List users with optional ``userType`` / ``role_name``, ``is_active``, search, and pagination."""
         effective_role: Optional[str] = None
@@ -43,11 +45,34 @@ class UserService:
         elif role_name:
             effective_role = role_name
 
+        created_after: Optional[datetime] = None
+        created_before: Optional[datetime] = None
+        if period:
+            p = period.strip().lower()
+            now = datetime.now()
+            created_before = now
+            if p == "daily":
+                created_after = now.replace(hour=0, minute=0, second=0, microsecond=0)
+            elif p == "weekly":
+                start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+                created_after = start - timedelta(days=start.weekday())
+            elif p == "monthly":
+                created_after = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+            elif p in {"all", "any"}:
+                created_after = None
+                created_before = None
+            else:
+                # Unknown period: ignore (keeps endpoint resilient)
+                created_after = None
+                created_before = None
+
         offset = (page - 1) * page_size
         total = self._repo.count_users(
             role_name=effective_role,
             search=search,
             is_active=is_active,
+            created_after=created_after,
+            created_before=created_before,
         )
         users = self._repo.list_users(
             limit=page_size,
@@ -55,6 +80,8 @@ class UserService:
             role_name=effective_role,
             search=search,
             is_active=is_active,
+            created_after=created_after,
+            created_before=created_before,
         )
         return users, total
 

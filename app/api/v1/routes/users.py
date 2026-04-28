@@ -49,6 +49,9 @@ def list_users(
     is_active: Annotated[
         Optional[bool], Query(description=ApiDocs.FILTER_USERS_BY_IS_ACTIVE)
     ] = None,
+    period: Annotated[
+        Optional[str], Query(description="User created_at window: daily/weekly/monthly/all")
+    ] = None,
 ):
     """List users with page-based pagination (like property search) and optional ``userType`` role filter.
 
@@ -64,6 +67,7 @@ def list_users(
         role_name=role_name,
         search=search,
         is_active=is_active,
+        period=period,
     )
     body = UsersListPaginatedResponse(
         users=[media_signer.user_response_from_orm(u) for u in users],

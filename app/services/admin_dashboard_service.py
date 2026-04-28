@@ -13,10 +13,12 @@ from fastapi import HTTPException
 from app.repositories.admin_dashboard_repository import (
     KpiRawSnapshot,
     PropertyPerformanceRow,
+    ActivityLogItem,
     AdminDashboardRepository,
 )
 from app.schemas.admin_dashboard import PropertyPerformancePeriod
-from app.utils.constants import ErrorMessages
+from app.models.user import User
+from app.utils.constants import ErrorMessages, UserRoles
 from app.utils.status_codes import HTTPStatus
 
 _MONTH_YM = re.compile(r"^(?P<y>\d{4})-(?P<m>0[1-9]|1[0-2])$")
@@ -49,8 +51,8 @@ def _parse_ym_or_400(ym: str) -> tuple[int, int]:
 def _kpi_to_public_dict(k: KpiRawSnapshot) -> Dict[str, Any]:
     return {
         "month": k.month_label,
-        "usersThisMonth": k.users_curr,
-        "usersMoMDelta": _mom_percent_change(k.users_curr, k.users_prev),
+        "registerUsersThisMonth": k.users_curr,
+        "registerUsersMoMDelta": _mom_percent_change(k.users_curr, k.users_prev),
         "agentsThisMonth": k.agents_curr,
         "agentsMoMDelta": _mom_percent_change(k.agents_curr, k.agents_prev),
         "pendingApprovals": k.pending_approvals,
@@ -61,6 +63,28 @@ def _kpi_to_public_dict(k: KpiRawSnapshot) -> Dict[str, Any]:
         "leadsMoMDelta": _mom_percent_change(k.leads_curr, k.leads_prev),
         "closedDealsThisMonth": k.deals_curr,
     }
+
+
+def _relative_time(activity_at: datetime) -> str:
+    """Return UI-friendly relative time string (matches agent dashboard behavior)."""
+    now = datetime.now(timezone.utc)
+    dt = activity_at if activity_at.tzinfo else activity_at.replace(tzinfo=timezone.utc)
+    delta = max((now - dt).total_seconds(), 0)
+
+    if delta < 60:
+        return "just now"
+    if delta < 3600:
+        minutes = int(delta // 60)
+        return f"{minutes} min ago"
+    if delta < 86400:
+        hours = int(delta // 3600)
+        return f"{hours} hr ago"
+    days = int(delta // 86400)
+    return f"{days} day ago" if days == 1 else f"{days} days ago"
+
+
+def _activity_items_to_public(items: List[ActivityLogItem]) -> List[dict]:
+    return [{"text": a.text, "time": _relative_time(a.activity_at), "tone": a.tone} for a in items]
 
 
 def _build_property_items(rows: List[PropertyPerformanceRow]) -> List[dict]:
@@ -91,6 +115,24 @@ class AdminDashboardService:
 
     def __init__(self, repo: AdminDashboardRepository) -> None:
         self._repo = repo
+
+    @staticmethod
+    def _has_direct_role(user: User, role_name: str) -> bool:
+        # Keep "direct role" distinct from inherited RBAC roles.
+        return role_name in {r.name for r in (user.roles or [])}
+
+    def _resolve_effective_admin_id(self, current_user: User) -> UUID:
+        """Resolve admin id for per-admin counts.
+
+        - If the caller is a real admin user (direct `admin` role), use their user id.
+        - If the caller is an agent inheriting admin role via assignment (RBAC feature),
+          use the inherited admin id (first, stable order).
+        - Fallback to caller id (keeps behavior deterministic even if data is inconsistent).
+        """
+        if self._has_direct_role(current_user, UserRoles.ADMIN):
+            return current_user.id
+        inherited = self._repo.fetch_inherited_admin_ids_for_agent(agent_id=current_user.id)
+        return inherited[0] if inherited else current_user.id
 
     def get_kpis(self, month: str) -> Dict[str, Any]:
         y, m = _parse_ym_or_400(month)
@@ -140,7 +182,7 @@ class AdminDashboardService:
             "totalItems": total,
         }
 
-    def get_dashboard_summary(self) -> Dict:
+    def get_dashboard_summary(self, current_user: User) -> Dict:
         """Backward-compatible monolithic payload for existing clients: current UTC month."""
         now_utc = datetime.now(timezone.utc)
         y, m = now_utc.year, now_utc.month
@@ -155,6 +197,16 @@ class AdminDashboardService:
             agent_id=None,
         )
         d = _kpi_to_public_dict(k)
+        # New: summary counts (exclude deleted only; include inactive).
+        d.update(self._repo.fetch_total_user_counts_by_role())
+        effective_admin_id = self._resolve_effective_admin_id(current_user)
+        d["totalAgentCount"] = self._repo.count_active_assigned_agents_for_admin(
+            admin_id=effective_admin_id
+        )
+        activity: List[ActivityLogItem] = self._repo.fetch_recent_activity_for_user(
+            user_id=effective_admin_id, limit=5
+        )
+        d["recentActivity"] = _activity_items_to_public(activity)
         d["monthLabels"] = tr.month_labels
         d["userGrowthSeries"] = tr.user_growth_series
         d["listingGrowthSeries"] = tr.listing_growth_series
@@ -163,3 +215,11 @@ class AdminDashboardService:
         d["leadSourceValues"] = lead_vals
         d["propertyPerformanceSeries"] = _build_property_items(pr)
         return d
+
+    def get_recent_activity(self, current_user: User, *, limit: int = 5) -> List[dict]:
+        """Return recent activity items for the effective admin user (max 50; default 5)."""
+        effective_admin_id = self._resolve_effective_admin_id(current_user)
+        activity: List[ActivityLogItem] = self._repo.fetch_recent_activity_for_user(
+            user_id=effective_admin_id, limit=limit
+        )
+        return _activity_items_to_public(activity)

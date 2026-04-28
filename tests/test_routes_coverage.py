@@ -173,8 +173,8 @@ def _fake_admin_dashboard_service():
     s = MagicMock()
     s.get_kpis.return_value = {
         "month": "2026-01",
-        "usersThisMonth": 0,
-        "usersMoMDelta": 0.0,
+        "registerUsersThisMonth": 0,
+        "registerUsersMoMDelta": 0.0,
         "agentsThisMonth": 0,
         "agentsMoMDelta": 0.0,
         "pendingApprovals": 0,
@@ -193,10 +193,11 @@ def _fake_admin_dashboard_service():
         "leadGrowthSeries": [0] * 12,
     }
     s.get_property_performance.return_value = {"items": [], "page": 1, "limit": 5, "totalItems": 0}
+    s.get_recent_activity.return_value = []
     s.get_dashboard_summary.return_value = {
         "month": "2026-01",
-        "usersThisMonth": 0,
-        "usersMoMDelta": 0.0,
+        "registerUsersThisMonth": 0,
+        "registerUsersMoMDelta": 0.0,
         "agentsThisMonth": 0,
         "agentsMoMDelta": 0.0,
         "pendingApprovals": 0,
@@ -213,6 +214,7 @@ def _fake_admin_dashboard_service():
         "leadSourceLabels": [],
         "leadSourceValues": [],
         "propertyPerformanceSeries": [],
+        "recentActivity": [],
     }
     return s
 
@@ -473,6 +475,38 @@ def test_admin_routes_dashboard_summary(client, mock_db):
     app.dependency_overrides[get_admin_dashboard_service] = _fake_admin_dashboard_service
     try:
         r = client.get("/api/v1/admin/dashboard/summary", headers={"Authorization": "Bearer x"})
+        assert r.status_code == 200
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
+        app.dependency_overrides.pop(get_db, None)
+        app.dependency_overrides.pop(get_admin_dashboard_service, None)
+
+
+def test_admin_routes_dashboard_recent_activity(client, mock_db):
+    app.dependency_overrides[get_current_user] = _fake_admin_user_sync
+    app.dependency_overrides[get_db] = _fake_get_db(mock_db)
+    app.dependency_overrides[get_admin_dashboard_service] = _fake_admin_dashboard_service
+    try:
+        r = client.get(
+            "/api/v1/admin/dashboard/recent-activity",
+            headers={"Authorization": "Bearer x"},
+        )
+        assert r.status_code == 200
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
+        app.dependency_overrides.pop(get_db, None)
+        app.dependency_overrides.pop(get_admin_dashboard_service, None)
+
+
+def test_admin_routes_recent_activity(client, mock_db):
+    app.dependency_overrides[get_current_user] = _fake_admin_user_sync
+    app.dependency_overrides[get_db] = _fake_get_db(mock_db)
+    app.dependency_overrides[get_admin_dashboard_service] = _fake_admin_dashboard_service
+    try:
+        r = client.get(
+            "/api/v1/admin/recent-activity",
+            headers={"Authorization": "Bearer x"},
+        )
         assert r.status_code == 200
     finally:
         app.dependency_overrides.pop(get_current_user, None)

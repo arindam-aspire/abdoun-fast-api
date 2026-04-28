@@ -32,11 +32,17 @@ class UserRepository:
         role_name: Optional[str] = None,
         search: Optional[str] = None,
         is_active: Optional[bool] = None,
+        created_after: Optional[datetime] = None,
+        created_before: Optional[datetime] = None,
     ) -> int:
         """Count distinct users matching optional role, search, and ``is_active`` filters."""
         inner = select(User.id).where(User.deleted_at.is_(None))
         if is_active is not None:
             inner = inner.where(User.is_active == is_active)
+        if created_after is not None:
+            inner = inner.where(User.created_at >= created_after)
+        if created_before is not None:
+            inner = inner.where(User.created_at <= created_before)
         if role_name:
             inner = inner.join(User.roles).where(Role.name == role_name)
         if search and search.strip():
@@ -60,12 +66,19 @@ class UserRepository:
         role_name: Optional[str] = None,
         search: Optional[str] = None,
         is_active: Optional[bool] = None,
+        created_after: Optional[datetime] = None,
+        created_before: Optional[datetime] = None,
     ) -> List[User]:
         """List users with optional role, search, and ``is_active`` filters; paginated."""
         stmt = self._base_user_query().where(User.deleted_at.is_(None))
 
         if is_active is not None:
             stmt = stmt.where(User.is_active == is_active)
+
+        if created_after is not None:
+            stmt = stmt.where(User.created_at >= created_after)
+        if created_before is not None:
+            stmt = stmt.where(User.created_at <= created_before)
 
         if role_name:
             stmt = stmt.join(User.roles).where(Role.name == role_name)

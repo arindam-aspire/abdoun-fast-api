@@ -3,9 +3,15 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime, timezone
 from unittest.mock import MagicMock
 
-from app.repositories.admin_dashboard_repository import KpiRawSnapshot, PropertyPerformanceRow, TrendsRaw
+from app.repositories.admin_dashboard_repository import (
+    ActivityLogItem,
+    KpiRawSnapshot,
+    PropertyPerformanceRow,
+    TrendsRaw,
+)
 from app.schemas.admin_dashboard import PropertyPerformancePeriod
 from app.services.admin_dashboard_service import AdminDashboardService, _mom_percent_change
 
@@ -37,7 +43,7 @@ def test_get_kpis_from_repo():
     service = AdminDashboardService(repo)
     out = service.get_kpis("2026-01")
     assert out["month"] == "2026-01"
-    assert out["usersMoMDelta"] == 25.0
+    assert out["registerUsersMoMDelta"] == 25.0
     assert out["closedDealsThisMonth"] == 3
     assert out["pendingApprovals"] == 1
     repo.fetch_kpis.assert_called_once()
@@ -134,14 +140,30 @@ def test_get_dashboard_summary_builds_payload():
     repo.fetch_rolling_cumulative_12m_utc.return_value = t
     repo.fetch_lead_source_breakdown.return_value = (["Unspecified", "WhatsApp"], [5, 3])
     repo.fetch_top_properties_by_views.return_value = (pr, 1)
+    repo.fetch_total_user_counts_by_role.return_value = {
+        "totalRegisterUserCount": 123,
+        "totalAdminCount": 7,
+    }
+    repo.count_active_assigned_agents_for_admin.return_value = 9
+    repo.fetch_inherited_admin_ids_for_agent.return_value = []
+    repo.fetch_recent_activity_for_user.return_value = [
+        ActivityLogItem(text="Did something", tone="info", activity_at=datetime.now(timezone.utc))
+    ]
     service = AdminDashboardService(repo)
-    out = service.get_dashboard_summary()
+    current_user = MagicMock()
+    current_user.id = uuid.uuid4()
+    current_user.roles = []
+    out = service.get_dashboard_summary(current_user)
     assert "month" in out
-    assert out["usersThisMonth"] == 10
+    assert out["totalRegisterUserCount"] == 123
+    assert out["totalAdminCount"] == 7
+    assert out["totalAgentCount"] == 9
+    assert out["registerUsersThisMonth"] == 10
     assert out["leadSourceLabels"] == ["Unspecified", "WhatsApp"]
     assert out["propertyPerformanceSeries"][0]["propertyId"] == str(pid)
     assert out["propertyPerformanceSeries"][0]["agentId"] == str(aid)
     assert "A" in out["propertyPerformanceSeries"][0]["label"]
+    assert isinstance(out.get("recentActivity"), list)
     repo.fetch_top_properties_by_views.assert_called_once_with(
         period="monthly", page=1, limit=5, agent_id=None
     )

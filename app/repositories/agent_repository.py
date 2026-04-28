@@ -75,27 +75,34 @@ class AgentRepository:
         sort_order: str,
         page: int,
         limit: int,
+        period: Optional[str] = None,
     ) -> Tuple[List[Tuple[User, AgentProfile]], int]:
         """List (User, AgentProfile) with filters and pagination.
 
         Returns:
             Tuple of (list of (user, profile), total_count).
         """
+        latest_inv = self._latest_invite_per_email_subquery()
+
         base = (
-            select(User, AgentProfile)
+            select(User, AgentProfile, latest_inv.c.invited_at_ts, latest_inv.c.invited_by_name)
             .join(AgentProfile, User.id == AgentProfile.user_id)
+            .outerjoin(latest_inv, latest_inv.c.email == User.email)
             .where(User.deleted_at.is_(None), AgentProfile.deleted_at.is_(None))
         )
-        base = self._apply_agent_filters(base, status, search)
+        base = self._apply_agent_filters(base, status, search, latest_inv, period)
+
         count_stmt = (
             select(func.count(User.id))
+            .select_from(User)
             .join(AgentProfile, User.id == AgentProfile.user_id)
+            .outerjoin(latest_inv, latest_inv.c.email == User.email)
             .where(User.deleted_at.is_(None), AgentProfile.deleted_at.is_(None))
         )
-        count_stmt = self._apply_agent_filters(count_stmt, status, search)
+        count_stmt = self._apply_agent_filters(count_stmt, status, search, latest_inv, period)
         total = self._db.execute(count_stmt).scalar() or 0
 
-        order_col = self._get_agent_order_column(sort_by)
+        order_col = self._get_agent_order_column(sort_by, latest_inv)
         if sort_order.lower() == SortOrder.ASC:
             base = base.order_by(order_col.asc())
         else:
@@ -103,7 +110,9 @@ class AgentRepository:
         offset = (page - 1) * limit
         base = base.offset(offset).limit(limit)
         rows = self._db.execute(base).all()
-        return [(r[0], r[1]) for r in rows], total
+        # Backward-compat return type: keep (User, AgentProfile) pairs for callers that don't need
+        # invite fields (most callers). Current service may still read extra columns via row tuple.
+        return [(r[0], r[1], r[2], r[3]) for r in rows], total
 
     def list_all_agents_with_profiles(self) -> List[Tuple[User, AgentProfile]]:
         """Return all non-deleted agents as (User, AgentProfile), ordered by full name."""
@@ -143,8 +152,15 @@ class AgentRepository:
                 latest[inv.email] = inv
         return latest
 
-    def _apply_agent_filters(self, stmt, status: Optional[str], search: Optional[str]):
-        """Apply status and search (name/email) filters to the given statement."""
+    def _apply_agent_filters(
+        self,
+        stmt,
+        status: Optional[str],
+        search: Optional[str],
+        latest_inv,
+        period: Optional[str],
+    ):
+        """Apply status, search (name/email), and optional invite-time period filters."""
         if status:
             stmt = stmt.where(AgentProfile.status == status)
         if search and search.strip():
@@ -155,21 +171,73 @@ class AgentRepository:
                     User.email.ilike(pattern),
                 )
             )
+        if period:
+            period = period.strip().lower()
+            now = datetime.now()
+            if period == "daily":
+                start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+            elif period == "weekly":
+                # ISO week starts on Monday; normalize to start-of-day
+                start = (now.replace(hour=0, minute=0, second=0, microsecond=0))
+                start = start.replace(day=(start.day - start.weekday()))
+            elif period == "monthly":
+                start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+            elif period in {"all", "any"}:
+                start = None
+            else:
+                # Unknown period value: treat as no-op filter (keeps endpoint resilient)
+                start = None
+            if start is not None:
+                # When period filter is requested, require an invite timestamp.
+                stmt = stmt.where(
+                    latest_inv.c.invited_at_ts.is_not(None),
+                    latest_inv.c.invited_at_ts >= start,
+                    latest_inv.c.invited_at_ts <= now,
+                )
         return stmt
 
-    def _get_agent_order_column(self, sort_by: str):
+    def _get_agent_order_column(self, sort_by: str, latest_inv):
         """Resolve sort_by API name to SQLAlchemy column for ordering."""
         if sort_by == AgentSortField.INVITED_AT:
-            return (
-                AgentProfile.form_submitted_at
-                if hasattr(AgentProfile, "form_submitted_at")
-                else User.created_at
-            )
+            # True "invitedAt": latest invite invited_at (or created_at fallback) per email.
+            return latest_inv.c.invited_at_ts
         if sort_by == AgentSortField.EMAIL:
             return User.email
         if sort_by == AgentSortField.FULL_NAME:
             return User.full_name
         return User.created_at
+
+    def _latest_invite_per_email_subquery(self):
+        """Latest invite per email with inviter name and invited timestamp.
+
+        invited_at_ts is COALESCE(agent_invites.invited_at, agent_invites.created_at) for the latest invite row.
+        """
+        invited_at_ts = func.coalesce(AgentInvite.invited_at, AgentInvite.created_at).label(
+            "invited_at_ts"
+        )
+        rn = func.row_number().over(
+            partition_by=AgentInvite.email,
+            order_by=invited_at_ts.desc(),
+        ).label("rn")
+        inner = (
+            select(
+                AgentInvite.email.label("email"),
+                invited_at_ts,
+                User.full_name.label("invited_by_name"),
+                rn,
+            )
+            .outerjoin(User, User.id == AgentInvite.invited_by)
+            .where(AgentInvite.revoked_at.is_(None))
+        ).subquery()
+        return (
+            select(
+                inner.c.email,
+                inner.c.invited_at_ts,
+                inner.c.invited_by_name,
+            )
+            .where(inner.c.rn == 1)
+            .subquery()
+        )
 
     # ---------- AgentInvite ----------
 

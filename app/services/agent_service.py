@@ -448,6 +448,7 @@ class AgentService:
         limit: int,
         sort_by: str,
         sort_order: str,
+        period: Optional[str] = None,
     ) -> Tuple[List[Dict[str, Any]], int]:
         """
         Returns (list of agent list items as dicts, total_count).
@@ -461,11 +462,10 @@ class AgentService:
             sort_order=sort_order,
             page=page,
             limit=limit,
+            period=period,
         )
         agents = []
-        for user, profile in rows:
-            invite_info = self._repo.get_latest_invite_for_email(user.email)
-            invite, inviter_name = invite_info or (None, None)
+        for user, profile, invited_at_ts, invited_by_name in rows:
             agents.append({
                 "id": user.id,
                 "email": user.email,
@@ -473,8 +473,8 @@ class AgentService:
                 "phone": user.phone_number if user.phone_number else None,
                 "serviceArea": profile.service_area,
                 "status": profile.status,
-                "invitedAt": invite.created_at if invite else None,
-                "invitedBy": inviter_name,
+                "invitedAt": invited_at_ts,
+                "invitedBy": invited_by_name,
                 "formSubmittedAt": profile.form_submitted_at,
                 "reviewedAt": profile.reviewed_at,
                 "declineReason": profile.decline_reason,

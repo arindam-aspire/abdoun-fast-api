@@ -12,6 +12,7 @@ from app.models.user import User
 from app.schemas.admin_dashboard import (
     AdminDashboardKpisResponse,
     AdminDashboardPropertyPerformanceResponse,
+    AdminDashboardRecentActivityItem,
     AdminDashboardSummaryResponse,
     AdminDashboardTrendsResponse,
     PropertyPerformanceItem,
@@ -105,9 +106,38 @@ def get_admin_property_performance(
 
 @router.get("/dashboard/summary")
 def get_admin_dashboard_summary(
-    _current_user: Annotated[User, require_role(UserRoles.ADMIN)],
+    current_user: Annotated[User, require_role(UserRoles.ADMIN)],
     service: Annotated[AdminDashboardService, Depends(get_admin_dashboard_service)],
 ) -> StandardResponse[AdminDashboardSummaryResponse]:
     """Legacy: all dashboard widgets in one payload (current UTC month KPIs, 12-month trends, etc.)."""
-    data = service.get_dashboard_summary()
+    data = service.get_dashboard_summary(current_user)
     return create_success_response(data=AdminDashboardSummaryResponse(**data), message=None)
+
+
+@router.get("/dashboard/recent-activity")
+def get_admin_dashboard_recent_activity(
+    current_user: Annotated[User, require_role(UserRoles.ADMIN)],
+    service: Annotated[AdminDashboardService, Depends(get_admin_dashboard_service)],
+) -> StandardResponse[list[AdminDashboardRecentActivityItem]]:
+    """Recent activity timeline items for the authenticated admin (max 5).
+
+    Backward-compatible alias for `/admin/recent-activity`.
+    """
+    items = service.get_recent_activity(current_user, limit=5)
+    return create_success_response(
+        data=[AdminDashboardRecentActivityItem(**i) for i in items],
+        message=None,
+    )
+
+
+@router.get("/recent-activity")
+def get_admin_recent_activity(
+    current_user: Annotated[User, require_role(UserRoles.ADMIN)],
+    service: Annotated[AdminDashboardService, Depends(get_admin_dashboard_service)],
+) -> StandardResponse[list[AdminDashboardRecentActivityItem]]:
+    """Recent activity timeline items for the authenticated admin (max 5)."""
+    items = service.get_recent_activity(current_user, limit=5)
+    return create_success_response(
+        data=[AdminDashboardRecentActivityItem(**i) for i in items],
+        message=None,
+    )
