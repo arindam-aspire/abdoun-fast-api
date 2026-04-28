@@ -10,6 +10,7 @@ from fastapi import HTTPException
 from pydantic import ValidationError
 
 from app.models.property_listing_submission import PropertyListingSubmission
+from app.repositories.property_submission_repository import PropertySubmissionRepository
 from app.services.property_submission_service import PropertySubmissionService
 from app.schemas.property_submission import (
     AdminSubmissionReviewRequest,
@@ -918,18 +919,69 @@ def test_resubmit_from_changes_requested_moves_back_to_submitted(service: Proper
     assert out.status == "submitted"
 
 
-def test_submit_rejected_submission_disallowed(service: PropertySubmissionService, repo: MagicMock):
+def test_resubmit_from_rejected_moves_back_to_submitted_and_clears_review(service: PropertySubmissionService, repo: MagicMock):
     user = _user()
     submission = _ready_submission(user.id)
     submission.status = "rejected"
+    submission.review_reason = "Needs better photos"
+    submission.reviewed_at = datetime.now()
+    repo.get_submission_by_id.return_value = submission
+    mock_type = MagicMock()
+    mock_type.category_id = 1
+    repo.get_category_type.return_value = mock_type
+    mock_area = MagicMock()
+    mock_area.city_id = 1
+    repo.get_area.return_value = mock_area
+    repo.get_city.return_value = MagicMock()
+    repo.count_existing_features.return_value = 2
+    repo.get_property.return_value = None
+    repo.get_owner_by_email_or_phone.return_value = None
+    repo.get_user_by_email.return_value = None
+    repo.get_user_by_phone.return_value = None
+    repo.create_property.side_effect = lambda prop: setattr(prop, "id", uuid.uuid4())
+    out = service.submit_submission(
+        submission_id=submission.id,
+        body=PropertySubmissionSubmitRequest(confirm_submit=True),
+        user=user,
+    )
+    assert out.status == "submitted"
+    assert submission.review_reason is None
+    assert submission.reviewed_at is None
+
+
+def test_patch_rejected_allows_editing(service: PropertySubmissionService, repo: MagicMock):
+    user = _user()
+    submission = _submission(user.id)
+    submission.status = "rejected"
+    repo.get_submission_by_id.return_value = submission
+    body = PropertySubmissionPatchRequest(step="pricing", action="save", data={"price": 1000, "currency": "JOD"})
+    out = service.patch_submission(submission_id=submission.id, body=body, user=user)
+    assert out.status == "rejected"
+
+
+def test_delete_rejected_succeeds(service: PropertySubmissionService, repo: MagicMock):
+    user = _user()
+    submission = _submission(user.id)
+    submission.status = "rejected"
+    submission.property_id = uuid.uuid4()
+    repo.get_submission_by_id.return_value = submission
+    out = service.delete_submission(submission_id=submission.id, user=user)
+    assert out.submission_id == submission.id
+    assert out.property_id == submission.property_id
+    repo.delete_submission_and_property.assert_called_once()
+    repo.commit.assert_called_once()
+
+
+def test_delete_submitted_is_blocked(service: PropertySubmissionService, repo: MagicMock):
+    user = _user()
+    submission = _submission(user.id)
+    submission.status = "submitted"
+    submission.property_id = uuid.uuid4()
     repo.get_submission_by_id.return_value = submission
     with pytest.raises(HTTPException) as exc_info:
-        service.submit_submission(
-            submission_id=submission.id,
-            body=PropertySubmissionSubmitRequest(confirm_submit=True),
-            user=user,
-        )
+        service.delete_submission(submission_id=submission.id, user=user)
     assert exc_info.value.status_code == 409
+    repo.delete_submission_and_property.assert_not_called()
 
 
 def test_same_owner_reused_across_submissions(service: PropertySubmissionService, repo: MagicMock):
@@ -1401,3 +1453,22 @@ def test_get_submission_recomputes_step_completion_from_payload(
     out = service.get_submission(submission_id=submission.id, user=user)
     assert out.step_completion.get("basic_information") is False
     assert any(v is False for v in (out.step_completion or {}).values())
+
+
+def test_admin_visible_submission_statuses_exclude_drafts() -> None:
+    assert "draft" not in PropertySubmissionRepository.ADMIN_VISIBLE_SUBMISSION_STATUSES
+    assert "in_progress" not in PropertySubmissionRepository.ADMIN_VISIBLE_SUBMISSION_STATUSES
+    assert set(PropertySubmissionRepository.ADMIN_VISIBLE_SUBMISSION_STATUSES) == {
+        "submitted",
+        "changes_requested",
+        "approved",
+        "rejected",
+    }
+
+
+def test_list_admin_submissions_rejects_draft_status_query_param(
+    service: PropertySubmissionService,
+) -> None:
+    with pytest.raises(HTTPException) as exc_info:
+        service.list_admin_submissions(status="draft", page=1, limit=10)
+    assert exc_info.value.status_code == 400

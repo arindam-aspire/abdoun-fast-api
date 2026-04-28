@@ -418,6 +418,7 @@ class ApiRoutes:
     AGENT_PROPERTIES_TAG = "agent-properties"
     SEARCH_TAG = "search"
     LOCATIONS_TAG = "locations"
+    TAXONOMY_TAG = "taxonomy"
 
 
 class ConfigDefaults:

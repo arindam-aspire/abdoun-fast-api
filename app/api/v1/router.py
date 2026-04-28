@@ -10,6 +10,7 @@ from app.api.v1.routes import (
     properties,
     search,
     locations,
+    property_taxonomy,
     auth,
     agents,
     admin,
@@ -114,5 +115,10 @@ api_router.include_router(
 api_router.include_router(
     locations.router,
     tags=[ApiRoutes.LOCATIONS_TAG],
+)
+
+api_router.include_router(
+    property_taxonomy.router,
+    tags=[ApiRoutes.TAXONOMY_TAG],
 )
 

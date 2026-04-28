@@ -38,6 +38,12 @@ class AgentPropertyListItem(BaseModel):
     submission_submitted_at: datetime | None = None
     submission_reviewed_at: datetime | None = None
     submission_review_reason: str | None = None
+    submission_workflow_label: str | None = Field(
+        default=None,
+        description="Stable key for agent UX: e.g. pending_admin_approval, verified (when workflow approved), rejected. Distinct from catalog `status_slug` (Verified).",
+    )
+    can_edit_submission: bool = False
+    can_delete_submission: bool = False
 
 
 class AgentDraftSubmissionItem(BaseModel):
@@ -49,6 +55,8 @@ class AgentDraftSubmissionItem(BaseModel):
     last_completed_step: int
     title: str | None = Field(default=None, description="From payload.basic_information.title when present")
     updated_at: datetime
+    can_edit: bool = True
+    can_delete: bool = True
 
 
 class AgentPropertyListResponse(BaseModel):
@@ -63,3 +71,12 @@ class AgentPropertyListResponse(BaseModel):
         description="Draft / in_progress submissions without property_id (same submitter)",
     )
     draft_submissions_total: int = 0
+
+
+class AgentDraftSubmissionListResponse(BaseModel):
+    """Draft-only listing for the agent dashboard (no normalized property row yet)."""
+
+    items: list[AgentDraftSubmissionItem]
+    total: int
+    page: int
+    limit: int

@@ -11,6 +11,7 @@ from app.repositories.property_repository import PropertyRepository
 from app.repositories.property_submission_repository import PropertySubmissionRepository
 from app.schemas.agent_properties import (
     AgentDraftSubmissionItem,
+    AgentDraftSubmissionListResponse,
     AgentPropertyListItem,
     AgentPropertyListResponse,
 )
@@ -26,6 +27,32 @@ def _draft_title_from_payload(payload: dict[str, Any] | None) -> str | None:
     return None
 
 
+def _submission_workflow_label(submission_status: str | None) -> str | None:
+    """Map stored workflow value to a stable key for the agent UI (e.g. ``verified`` when `approved`)."""
+    if not submission_status:
+        return None
+    return {
+        "draft": "draft",
+        "in_progress": "draft",
+        "submitted": "pending_admin_approval",
+        "changes_requested": "changes_requested",
+        "rejected": "rejected",
+        "approved": "verified",
+    }.get(submission_status, submission_status)
+
+
+def _can_edit_submission(submission_status: str | None) -> bool:
+    if not submission_status:
+        return False
+    return submission_status not in {"submitted", "approved"}
+
+
+def _can_delete_submission(submission_status: str | None) -> bool:
+    if not submission_status:
+        return False
+    return submission_status in {"rejected", "draft", "in_progress", "changes_requested"}
+
+
 class AgentPropertyService:
     """Read-side service for creator-scoped property rows and related submission state."""
 
@@ -38,7 +65,9 @@ class AgentPropertyService:
         self._properties = property_repository
         self._submissions = submission_repository
 
-    def list_my_properties(self, *, user: User, page: int, limit: int) -> AgentPropertyListResponse:
+    def list_my_properties(
+        self, *, user: User, page: int, limit: int, include_drafts: bool = False
+    ) -> AgentPropertyListResponse:
         rows, total = self._properties.list_properties_created_by(user_id=user.id, page=page, page_size=limit)
         property_ids = [p.id for p in rows]
         submission_by_property = self._submissions.list_submissions_linked_to_properties(
@@ -53,6 +82,7 @@ class AgentPropertyService:
             status_obj = getattr(p, "property_status", None)
             price_val = p.price if p.price is not None else Decimal("0")
             sub: PropertyListingSubmission | None = submission_by_property.get(p.id)
+            wf = sub.status if sub else None
             items.append(
                 AgentPropertyListItem(
                     property_id=p.id,
@@ -71,28 +101,34 @@ class AgentPropertyService:
                     created_at=p.created_at,
                     updated_at=p.updated_at,
                     submission_id=sub.id if sub else None,
-                    submission_status=sub.status if sub else None,
+                    submission_status=wf,
                     submission_submitted_at=sub.submitted_at if sub else None,
                     submission_reviewed_at=sub.reviewed_at if sub else None,
                     submission_review_reason=sub.review_reason if sub else None,
+                    submission_workflow_label=_submission_workflow_label(wf),
+                    can_edit_submission=_can_edit_submission(wf),
+                    can_delete_submission=_can_delete_submission(wf),
                 )
             )
 
-        draft_rows, draft_total = self._submissions.list_draft_submissions_without_property(
-            user_id=user.id,
-            limit=200,
-        )
-        draft_items = [
-            AgentDraftSubmissionItem(
-                submission_id=d.id,
-                status=d.status,
-                current_step=d.current_step,
-                last_completed_step=d.last_completed_step,
-                title=_draft_title_from_payload(d.payload if isinstance(d.payload, dict) else None),
-                updated_at=d.updated_at,
+        draft_items: list[AgentDraftSubmissionItem] = []
+        draft_total = 0
+        if include_drafts:
+            draft_rows, draft_total = self._submissions.list_draft_submissions_without_property(
+                user_id=user.id,
+                limit=200,
             )
-            for d in draft_rows
-        ]
+            draft_items = [
+                AgentDraftSubmissionItem(
+                    submission_id=d.id,
+                    status=d.status,
+                    current_step=d.current_step,
+                    last_completed_step=d.last_completed_step,
+                    title=_draft_title_from_payload(d.payload if isinstance(d.payload, dict) else None),
+                    updated_at=d.updated_at,
+                )
+                for d in draft_rows
+            ]
 
         return AgentPropertyListResponse(
             items=items,
@@ -102,3 +138,21 @@ class AgentPropertyService:
             draft_submissions=draft_items,
             draft_submissions_total=draft_total,
         )
+
+    def list_my_draft_submissions(self, *, user: User, page: int, limit: int) -> AgentDraftSubmissionListResponse:
+        # Repo returns newest-first; no DB-level paging for drafts yet, so page in memory.
+        rows, total = self._submissions.list_draft_submissions_without_property(user_id=user.id, limit=200)
+        items = [
+            AgentDraftSubmissionItem(
+                submission_id=d.id,
+                status=d.status,
+                current_step=d.current_step,
+                last_completed_step=d.last_completed_step,
+                title=_draft_title_from_payload(d.payload if isinstance(d.payload, dict) else None),
+                updated_at=d.updated_at,
+            )
+            for d in rows
+        ]
+        offset = max(page - 1, 0) * limit
+        paged = items[offset : offset + limit]
+        return AgentDraftSubmissionListResponse(items=paged, total=total, page=page, limit=limit)

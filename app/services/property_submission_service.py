@@ -31,6 +31,7 @@ from app.schemas.property_submission import (
     CreatePropertySubmissionRequest,
     PropertySubmissionCreateResponse,
     PropertySubmissionDetailResponse,
+    PropertySubmissionDeleteResponse,
     PropertySubmissionPatchRequest,
     PropertySubmissionPatchResponse,
     PropertySubmissionSubmitRequest,
@@ -151,6 +152,9 @@ class PropertySubmissionService:
         self._ensure_can_access(submission, user)
         pl = submission.payload or self._build_default_payload()
         sc = self._compute_step_completion_map(pl)
+        reviewed_at = (
+            submission.reviewed_at.isoformat() if getattr(submission, "reviewed_at", None) else None
+        )
         return PropertySubmissionDetailResponse(
             submission_id=submission.id,
             status=submission.status,
@@ -158,6 +162,9 @@ class PropertySubmissionService:
             last_completed_step=self._last_completed_from_step_completion(sc),
             step_completion=sc,
             payload=pl,
+            reviewed_by=getattr(submission, "reviewed_by", None),
+            reviewed_at=reviewed_at,
+            review_reason=getattr(submission, "review_reason", None),
         )
 
     def patch_submission(
@@ -169,7 +176,7 @@ class PropertySubmissionService:
     ) -> PropertySubmissionPatchResponse:
         submission = self._repo.get_submission_by_id(submission_id)
         self._ensure_can_access(submission, user)
-        if submission.status in {"submitted", "approved", "rejected"}:
+        if submission.status in {"submitted", "approved"}:
             raise HTTPException(
                 status_code=HTTPStatus.CONFLICT,
                 detail="Submission is locked for editing in current status",
@@ -200,6 +207,7 @@ class PropertySubmissionService:
         submission.payload = copy.deepcopy(merged)
         if submission.status in {"draft", "in_progress"}:
             submission.status = "draft"
+        # Edits after admin rejection: keep `rejected` until agent resubmits.
         saved = STEP_ORDER[submission.current_step - 1]
         try:
             self._repo.commit()
@@ -248,6 +256,8 @@ class PropertySubmissionService:
 
         if body.action == "save_draft" and submission.status in {"draft", "in_progress"}:
             submission.status = "draft"
+        elif submission.status == "rejected":
+            pass
         elif submission.status == "draft":
             submission.status = "in_progress"
 
@@ -307,10 +317,10 @@ class PropertySubmissionService:
                 user.id,
             )
 
-        if submission.status in {"approved", "rejected"}:
+        if submission.status == "approved":
             raise HTTPException(
                 status_code=HTTPStatus.CONFLICT,
-                detail="Cannot submit when submission is approved or rejected",
+                detail="Cannot submit when submission is already approved",
             )
         return self._apply_final_submission_persistence(submission=submission, user=user)
 
@@ -325,10 +335,10 @@ class PropertySubmissionService:
         On any failure in the try block, ``rollback`` clears the session (including a freshly flushed submission
         from ``create_and_submit``) so no partial normalized property is left visible.
         """
-        if submission.status in {"approved", "rejected"}:
+        if submission.status == "approved":
             raise HTTPException(
                 status_code=HTTPStatus.CONFLICT,
-                detail="Cannot submit when submission is approved or rejected",
+                detail="Cannot submit when submission is already approved",
             )
 
         payload = submission.payload or self._build_default_payload()
@@ -342,6 +352,10 @@ class PropertySubmissionService:
                 self._replace_property_media(property_obj.id, payload.get("media_documents", {}))
                 self._replace_property_owners(property_obj.id, payload.get("owner_information", {}))
                 self._replace_property_features(property_obj.id, payload.get("amenities", {}))
+
+                submission.reviewed_by = None
+                submission.reviewed_at = None
+                submission.review_reason = None
 
                 submission.status = "submitted"
                 submission.submitted_at = submission.submitted_at or datetime.now(timezone.utc)
@@ -373,6 +387,27 @@ class PropertySubmissionService:
             )
             raise HTTPException(status_code=HTTPStatus.INTERNAL_SERVER_ERROR, detail=ErrorMessages.REQUEST_FAILED)
 
+    def delete_submission(self, *, submission_id: uuid.UUID, user: User) -> PropertySubmissionDeleteResponse:
+        """Remove a draft, rejected, or *changes requested* row (and its property when linked).
+
+        **Not allowed** while ``submitted`` (awaiting admin) or ``approved`` (final).
+        """
+        submission = self._repo.get_submission_by_id(submission_id)
+        self._ensure_can_access(submission, user)
+        if submission.status not in {"rejected", "draft", "in_progress", "changes_requested"}:
+            raise HTTPException(
+                status_code=HTTPStatus.CONFLICT,
+                detail="This submission cannot be deleted in its current status",
+            )
+        removed_property_id = submission.property_id
+        try:
+            self._repo.delete_submission_and_property(submission=submission)
+            self._repo.commit()
+        except Exception:
+            self._repo.rollback()
+            raise HTTPException(status_code=HTTPStatus.INTERNAL_SERVER_ERROR, detail=ErrorMessages.REQUEST_FAILED)
+        return PropertySubmissionDeleteResponse(submission_id=submission_id, property_id=removed_property_id)
+
     def list_admin_submissions(
         self,
         *,
@@ -380,22 +415,25 @@ class PropertySubmissionService:
         page: int,
         limit: int,
     ) -> AdminSubmissionListResponse:
-        allowed_statuses = {"submitted", "changes_requested", "approved", "rejected"}
+        allowed_statuses = set(PropertySubmissionRepository.ADMIN_VISIBLE_SUBMISSION_STATUSES)
         if status and status not in allowed_statuses:
             raise HTTPException(status_code=HTTPStatus.BAD_REQUEST, detail="Invalid status filter")
         rows = self._repo.list_admin_submissions(status=status, page=page, limit=limit)
         total = self._repo.count_admin_submissions(status=status)
         items = [
             AdminSubmissionListItem(
-                submission_id=row.id,
-                submitted_by=row.submitted_by,
-                status=row.status,
-                property_id=row.property_id,
-                current_step=row.current_step,
-                submitted_at=row.submitted_at.isoformat() if row.submitted_at else None,
-                reviewed_at=row.reviewed_at.isoformat() if row.reviewed_at else None,
+                submission_id=submission.id,
+                submitted_by=submission.submitted_by,
+                submitted_by_name=submitted_by_name,
+                status=submission.status,
+                property_id=submission.property_id,
+                property_title=property_title,
+                property_reference_number=property_reference_number,
+                current_step=submission.current_step,
+                submitted_at=submission.submitted_at.isoformat() if submission.submitted_at else None,
+                reviewed_at=submission.reviewed_at.isoformat() if submission.reviewed_at else None,
             )
-            for row in rows
+            for (submission, submitted_by_name, property_title, property_reference_number) in rows
         ]
         return AdminSubmissionListResponse(items=items, page=page, limit=limit, total=total)
 

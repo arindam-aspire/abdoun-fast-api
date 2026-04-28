@@ -1,7 +1,7 @@
 """Repository for property listing submission workflow persistence."""
 
 import uuid
-from typing import Any, List, Tuple
+from typing import Any, ClassVar, List, Tuple
 from contextlib import nullcontext
 
 from sqlalchemy import delete, func, select
@@ -16,6 +16,7 @@ from app.models.property_normalized import (
     PropertyFeature,
     PropertyMedia,
     PropertyNormalized,
+    PropertyTranslation,
     PropertyType,
 )
 from app.models.user import User
@@ -23,6 +24,14 @@ from app.models.user import User
 
 class PropertySubmissionRepository:
     """Persistence operations for property submission workflow."""
+
+    # Rows visible on the admin moderation list (excludes agent-only ``draft`` / ``in_progress``).
+    ADMIN_VISIBLE_SUBMISSION_STATUSES: ClassVar[tuple[str, ...]] = (
+        "submitted",
+        "changes_requested",
+        "approved",
+        "rejected",
+    )
 
     def __init__(self, db: Session) -> None:
         self._db = db
@@ -41,16 +50,30 @@ class PropertySubmissionRepository:
         status: str | None,
         page: int,
         limit: int,
-    ) -> list[PropertyListingSubmission]:
-        stmt = select(PropertyListingSubmission).order_by(PropertyListingSubmission.updated_at.desc())
+    ) -> list[tuple[PropertyListingSubmission, str | None, str | None, str | None]]:
+        """Paginated rows for the admin moderation queue (excludes ``draft`` / ``in_progress``)."""
+        stmt = (
+            select(
+                PropertyListingSubmission,
+                User.full_name,
+                PropertyNormalized.title,
+                PropertyNormalized.reference_number,
+            )
+            .where(PropertyListingSubmission.status.in_(self.ADMIN_VISIBLE_SUBMISSION_STATUSES))
+            .join(User, User.id == PropertyListingSubmission.submitted_by)
+            .outerjoin(PropertyNormalized, PropertyNormalized.id == PropertyListingSubmission.property_id)
+            .order_by(PropertyListingSubmission.updated_at.desc())
+        )
         if status:
             stmt = stmt.where(PropertyListingSubmission.status == status)
         offset = max(page - 1, 0) * limit
         stmt = stmt.offset(offset).limit(limit)
-        return list(self._db.execute(stmt).scalars().all())
+        return list(self._db.execute(stmt).all())
 
     def count_admin_submissions(self, *, status: str | None) -> int:
-        stmt = select(func.count(PropertyListingSubmission.id))
+        stmt = select(func.count(PropertyListingSubmission.id)).where(
+            PropertyListingSubmission.status.in_(self.ADMIN_VISIBLE_SUBMISSION_STATUSES)
+        )
         if status:
             stmt = stmt.where(PropertyListingSubmission.status == status)
         return int(self._db.execute(stmt).scalar() or 0)
@@ -207,3 +230,18 @@ class PropertySubmissionRepository:
         if self._db.in_transaction():
             return nullcontext()
         return self._db.begin()
+
+    def delete_submission_and_property(self, *, submission: PropertyListingSubmission) -> None:
+        """Remove linked ``properties_normalized`` row (if any) and the submission. Caller must commit.
+
+        Child rows (property_owner, property_features, property_media) are cleared first; other
+        references use DB-level CASCADE or SET NULL (e.g. user_property_favorites, leads).
+        """
+        if submission.property_id is not None:
+            pid = submission.property_id
+            self.replace_property_owners(pid)
+            self.replace_property_features(pid)
+            self.replace_property_media(pid)
+            self._db.execute(delete(PropertyTranslation).where(PropertyTranslation.property_id == pid))
+            self._db.execute(delete(PropertyNormalized).where(PropertyNormalized.id == pid))
+        self._db.delete(submission)

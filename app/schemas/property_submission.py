@@ -106,6 +106,9 @@ class CreateAndSubmitPropertySubmissionRequest(BaseModel):
 
 class PropertySubmissionDetailResponse(PropertySubmissionCreateResponse):
     payload: dict[str, Any]
+    reviewed_by: uuid.UUID | None = None
+    reviewed_at: str | None = None
+    review_reason: str | None = None
 
 
 class PropertySubmissionPatchRequest(BaseModel):
@@ -162,14 +165,25 @@ class PropertySubmissionSubmitResponse(BaseModel):
     status: str
 
 
+class PropertySubmissionDeleteResponse(BaseModel):
+    submission_id: uuid.UUID
+    property_id: uuid.UUID | None = Field(
+        default=None,
+        description="Normalized property id if one was removed; null when the draft had no property row yet.",
+    )
+
+
 AdminReviewAction = Literal["approve", "changes_requested", "reject"]
 
 
 class AdminSubmissionListItem(BaseModel):
     submission_id: uuid.UUID
     submitted_by: uuid.UUID
+    submitted_by_name: str | None = None
     status: str
     property_id: uuid.UUID | None = None
+    property_title: str | None = None
+    property_reference_number: str | None = None
     current_step: int
     submitted_at: str | None = None
     reviewed_at: str | None = None

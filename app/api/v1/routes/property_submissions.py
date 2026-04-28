@@ -12,6 +12,7 @@ from app.schemas.property_submission import (
     CreateAndSubmitPropertySubmissionRequest,
     CreatePropertySubmissionRequest,
     PropertySubmissionCreateResponse,
+    PropertySubmissionDeleteResponse,
     PropertySubmissionDetailResponse,
     PropertySubmissionPatchRequest,
     PropertySubmissionPatchResponse,
@@ -82,6 +83,23 @@ def submit_submission(
     current_user: Annotated[User, Depends(get_current_user)],
     service: Annotated[PropertySubmissionService, Depends(get_property_submission_service)],
 ):
-    """Final submit: validate and persist into normalized property tables."""
+    """Final submit: validate and persist into normalized property tables.
+
+    After admin **reject**, the agent can edit and call this again to re-enter **submitted** (pending review).
+    """
     data = service.submit_submission(submission_id=submission_id, body=body, user=current_user)
+    return create_success_response(data=data, message=None)
+
+
+@router.delete("/{submission_id}", response_model=StandardResponse[PropertySubmissionDeleteResponse])
+def delete_submission(
+    submission_id: uuid.UUID,
+    current_user: Annotated[User, Depends(get_current_user)],
+    service: Annotated[PropertySubmissionService, Depends(get_property_submission_service)],
+):
+    """Abandon a draft, delete after rejection, or clear *changes requested*; not allowed when pending or approved.
+
+    **Edit** remains ``PATCH /{submission_id}``; use this to remove a submission the agent is allowed to drop.
+    """
+    data = service.delete_submission(submission_id=submission_id, user=current_user)
     return create_success_response(data=data, message=None)

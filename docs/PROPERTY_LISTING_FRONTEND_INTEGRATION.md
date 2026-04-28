@@ -132,9 +132,10 @@ All under: **`/api/v1/property-submissions`** (plus one extra path below for dir
 |--------|------|---------|
 | `POST` | `/property-submissions` | **Save as Draft** (send `payload`) or **empty create** (compat) |
 | `POST` | `/property-submissions/submit` | **Direct submit** (full `payload`, no prior `submission_id`) |
-| `GET` | `/property-submissions/{submission_id}` | Load draft + payload |
-| `PATCH` | `/property-submissions/{submission_id}` | Save step (`step`, `action`, `data`) for a **persisted** draft |
-| `POST` | `/property-submissions/{submission_id}/submit` | Final validate + persist (existing `submission_id`) |
+| `GET` | `/property-submissions/{submission_id}` | Load draft + payload; includes `review_reason` / `reviewed_at` when admin has reviewed |
+| `PATCH` | `/property-submissions/{submission_id}` | Save step; **not** available while `submitted` or `approved` (after admin **reject** or **changes requested**, `PATCH` works again) |
+| `POST` | `/property-submissions/{submission_id}/submit` | Final validate + persist; call again after editing a **rejected** submission to return to **submitted** (clears review fields) |
+| `DELETE` | `/property-submissions/{submission_id}` | Abandon **draft** / **changes_requested** / **rejected** (removes linked property when present). **Not** when `submitted` (pending) or `approved` |
 
 ### 4.1 Create / Save as Draft
 
@@ -538,7 +539,7 @@ All under: **`/api/v1/admin/property-submissions`**
 
 | Method | Path | Purpose |
 |--------|------|---------|
-| `GET` | `/admin/property-submissions` | Paginated list |
+| `GET` | `/admin/property-submissions` | Paginated moderation queue only (**submitted**, **changes_requested**, **approved**, **rejected**; **draft** / **in_progress** never appear) |
 | `GET` | `/admin/property-submissions/{submission_id}` | Full detail including `payload` |
 | `POST` | `/admin/property-submissions/{submission_id}/review` | Approve / changes / reject |
 
@@ -556,8 +557,11 @@ Response `data`:
     {
       "submission_id": "...",
       "submitted_by": "...",
+      "submitted_by_name": "Agent Name",
       "status": "submitted",
       "property_id": "...",
+      "property_title": "Postman Villa",
+      "property_reference_number": "REF-1",
       "current_step": 8,
       "submitted_at": "...",
       "reviewed_at": null

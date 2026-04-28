@@ -90,6 +90,9 @@ def test_list_my_properties_includes_submission_moderation() -> None:
     assert row.submission_id == sub.id
     assert row.submission_status == "submitted"
     assert row.submission_submitted_at == sub.submitted_at
+    assert row.submission_workflow_label == "pending_admin_approval"
+    assert row.can_edit_submission is False
+    assert row.can_delete_submission is False
 
 
 def test_list_my_properties_includes_draft_submissions() -> None:
@@ -112,10 +115,81 @@ def test_list_my_properties_includes_draft_submissions() -> None:
     out = service.list_my_properties(user=user, page=1, limit=10)
 
     assert out.items == []
-    assert out.draft_submissions_total == 4
-    assert len(out.draft_submissions) == 1
-    assert out.draft_submissions[0].submission_id == draft.id
-    assert out.draft_submissions[0].title == "WIP Title"
+    assert out.draft_submissions_total == 0
+    assert out.draft_submissions == []
+
+    out_with_drafts = service.list_my_properties(user=user, page=1, limit=10, include_drafts=True)
+    assert out_with_drafts.draft_submissions_total == 4
+    assert len(out_with_drafts.draft_submissions) == 1
+    assert out_with_drafts.draft_submissions[0].submission_id == draft.id
+    assert out_with_drafts.draft_submissions[0].title == "WIP Title"
+    assert out_with_drafts.draft_submissions[0].can_edit is True
+    assert out_with_drafts.draft_submissions[0].can_delete is True
+
+
+def test_list_my_draft_submissions_separate_api_shape() -> None:
+    prop_repo = MagicMock()
+    sub_repo = MagicMock()
+    user = _user()
+    prop_repo.list_properties_created_by.return_value = ([], 0)
+    sub_repo.list_submissions_linked_to_properties.return_value = {}
+    draft1 = SimpleNamespace(
+        id=uuid.uuid4(),
+        status="draft",
+        current_step=2,
+        last_completed_step=1,
+        payload={"basic_information": {"title": "Draft 1"}},
+        updated_at=datetime(2026, 2, 2, tzinfo=timezone.utc),
+    )
+    draft2 = SimpleNamespace(
+        id=uuid.uuid4(),
+        status="in_progress",
+        current_step=3,
+        last_completed_step=2,
+        payload={"basic_information": {"title": "Draft 2"}},
+        updated_at=datetime(2026, 2, 3, tzinfo=timezone.utc),
+    )
+    sub_repo.list_draft_submissions_without_property.return_value = ([draft2, draft1], 2)
+    service = AgentPropertyService(property_repository=prop_repo, submission_repository=sub_repo)
+
+    out = service.list_my_draft_submissions(user=user, page=1, limit=10)
+    assert out.total == 2
+    assert len(out.items) == 2
+    assert out.items[0].title == "Draft 2"
+
+
+def test_list_my_properties_rejected_allows_edit_delete() -> None:
+    prop_repo = MagicMock()
+    sub_repo = MagicMock()
+    pid = uuid.uuid4()
+    user = _user()
+    prop_repo.list_properties_created_by.return_value = ([_property_row(pid)], 1)
+    sub = _submission(pid, user.id, status="rejected")
+    sub.review_reason = "Too vague"
+    sub_repo.list_submissions_linked_to_properties.return_value = {pid: sub}
+    sub_repo.list_draft_submissions_without_property.return_value = ([], 0)
+    service = AgentPropertyService(property_repository=prop_repo, submission_repository=sub_repo)
+
+    row = service.list_my_properties(user=user, page=1, limit=10).items[0]
+    assert row.submission_workflow_label == "rejected"
+    assert row.can_edit_submission is True
+    assert row.can_delete_submission is True
+
+
+def test_list_my_properties_approved_maps_workflow_to_verified() -> None:
+    prop_repo = MagicMock()
+    sub_repo = MagicMock()
+    pid = uuid.uuid4()
+    user = _user()
+    prop_repo.list_properties_created_by.return_value = ([_property_row(pid)], 1)
+    sub = _submission(pid, user.id, status="approved")
+    sub_repo.list_submissions_linked_to_properties.return_value = {pid: sub}
+    sub_repo.list_draft_submissions_without_property.return_value = ([], 0)
+    service = AgentPropertyService(property_repository=prop_repo, submission_repository=sub_repo)
+    row = service.list_my_properties(user=user, page=1, limit=10).items[0]
+    assert row.submission_workflow_label == "verified"
+    assert row.can_edit_submission is False
+    assert row.can_delete_submission is False
 
 
 def test_list_my_properties_empty() -> None:

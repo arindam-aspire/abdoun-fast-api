@@ -29,7 +29,11 @@ def list_submissions_for_admin(
     page: int = Query(default=1, ge=1),
     limit: int = Query(default=10, ge=1, le=200),
 ):
-    """List submissions for moderation with optional status filter."""
+    """List submissions for moderation with optional status filter.
+
+    Excludes agent-only rows (**draft**, **in_progress**); only the moderation queue
+    (**submitted**, **changes_requested**, **approved**, **rejected**) appears.
+    """
     data = service.list_admin_submissions(status=status, page=page, limit=limit)
     return create_success_response(data=data, message=None)
 
