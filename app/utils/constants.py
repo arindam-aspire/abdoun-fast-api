@@ -392,6 +392,7 @@ class ApiRoutes:
     """API route prefixes and tags."""
 
     AUTH_PREFIX = "/auth"
+    AGENT_PREFIX = "/agent"
     AGENTS_PREFIX = "/agents"
     ADMIN_PREFIX = "/admin"
     USERS_PREFIX = "/users"
@@ -405,6 +406,7 @@ class ApiRoutes:
     AGENT_PROPERTIES_PREFIX = "/agent-properties"
 
     AUTH_TAG = "auth"
+    AGENT_TAG = "agent"
     AGENTS_TAG = "agents"
     ADMIN_TAG = "admin"
     USERS_TAG = "users"

@@ -68,12 +68,14 @@ def test_dashboard_service_returns_payload_for_agent():
         views_mtd_current=100,
         views_mtd_previous=80,
     )
+    repo.fetch_top_properties_by_views.return_value = []
     service = AgentDashboardService(repo)
     user = _make_user(roles=["agent"])
 
     data = service.get_dashboard_summary(user)
 
     repo.get_metrics.assert_called_once()
+    repo.fetch_top_properties_by_views.assert_called_once()
     call_kwargs = repo.get_metrics.call_args.kwargs
     assert call_kwargs["agent_ids"] == [user.id]
 
@@ -85,4 +87,5 @@ def test_dashboard_service_returns_payload_for_agent():
     assert data["leadsChangePercent"] == -20.0
     assert data["dealsClosedChangePercent"] == 0.0
     assert data["propertyViewsChangePercent"] == 25.0
+    assert data["propertyPerformance"] == []
 

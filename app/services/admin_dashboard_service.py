@@ -213,7 +213,10 @@ class AdminDashboardService:
         d["leadGrowthSeries"] = tr.lead_growth_series
         d["leadSourceLabels"] = lead_labels
         d["leadSourceValues"] = lead_vals
-        d["propertyPerformanceSeries"] = _build_property_items(pr)
+        perf_items = _build_property_items(pr)
+        d["propertyPerformanceSeries"] = perf_items
+        # New (non-breaking): top 5 items for clients expecting `propertyPerformance`.
+        d["propertyPerformance"] = perf_items[:5]
         return d
 
     def get_recent_activity(self, current_user: User, *, limit: int = 5) -> List[dict]:

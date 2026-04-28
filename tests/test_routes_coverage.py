@@ -214,6 +214,7 @@ def _fake_admin_dashboard_service():
         "leadSourceLabels": [],
         "leadSourceValues": [],
         "propertyPerformanceSeries": [],
+        "propertyPerformance": [],
         "recentActivity": [],
     }
     return s
@@ -237,6 +238,7 @@ def _fake_agent_dashboard_service():
         "leadsChangePercent": 0.0,
         "dealsClosedChangePercent": 0.0,
         "propertyViewsChangePercent": 0.0,
+        "propertyPerformance": [],
         "recentActivity": [],
     }
     return s
@@ -552,7 +554,23 @@ def test_admin_routes_property_performance(client, mock_db):
     app.dependency_overrides[get_admin_dashboard_service] = _fake_admin_dashboard_service
     try:
         r = client.get(
-            "/api/v1/admin/dashboard/property-performance?pageSize=3",
+            "/api/v1/admin/property-performance?pageSize=3",
+            headers={"Authorization": "Bearer x"},
+        )
+        assert r.status_code == 200
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
+        app.dependency_overrides.pop(get_db, None)
+        app.dependency_overrides.pop(get_admin_dashboard_service, None)
+
+
+def test_agent_routes_property_performance(client, mock_db):
+    app.dependency_overrides[get_current_user] = _fake_agent_user_sync
+    app.dependency_overrides[get_db] = _fake_get_db(mock_db)
+    app.dependency_overrides[get_admin_dashboard_service] = _fake_admin_dashboard_service
+    try:
+        r = client.get(
+            "/api/v1/agent/property-performance?page=1&pageSize=3&limit=all",
             headers={"Authorization": "Bearer x"},
         )
         assert r.status_code == 200

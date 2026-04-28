@@ -108,4 +108,5 @@ class AdminDashboardSummaryResponse(BaseModel):
     leadSourceLabels: List[str]
     leadSourceValues: List[int]
     propertyPerformanceSeries: List[PropertyPerformanceItem]
+    propertyPerformance: List[PropertyPerformanceItem] = Field(default_factory=list)
     recentActivity: List[AdminDashboardRecentActivityItem] = Field(default_factory=list)

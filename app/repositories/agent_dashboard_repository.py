@@ -10,6 +10,11 @@ from typing import List
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from app.repositories.admin_dashboard_repository import (
+    PropertyPerformanceRow,
+    _property_performance_time_filter_sql,
+)
+
 
 
 @dataclass
@@ -275,6 +280,61 @@ class AgentDashboardRepository:
             ),
             mtd_params,
         ).mappings().one()
+
+    def fetch_top_properties_by_views(
+        self,
+        *,
+        agent_id: uuid.UUID,
+        period: str = "monthly",
+        limit: int = 5,
+    ) -> list[PropertyPerformanceRow]:
+        """Top properties by view count for a single agent (used on agent dashboard summary)."""
+        time_sql = _property_performance_time_filter_sql(period)
+        lim = max(1, min(limit, 100))
+        perf_rows = self._db.execute(
+            text(
+                f"""
+                SELECT
+                    p.id AS property_id,
+                    p.agent_user_id AS agent_user_id,
+                    COALESCE(u.full_name, 'Unassigned') AS agent_name,
+                    pc.name AS category_name,
+                    pt.name AS type_name,
+                    LOWER(NULLIF(TRIM(COALESCE(pt.slug, '')), '')) AS type_slug,
+                    COALESCE(NULLIF(TRIM(a.name), ''), NULLIF(TRIM(p.location_name), ''), '') AS area_or_location,
+                    p.title AS title,
+                    COUNT(pv.id)::int AS view_count
+                FROM property_views pv
+                INNER JOIN properties_normalized p ON p.id = pv.property_id
+                LEFT JOIN users u ON u.id = p.agent_user_id
+                LEFT JOIN property_categories pc ON pc.id = p.category_id
+                LEFT JOIN property_types pt ON pt.id = p.type_id
+                LEFT JOIN areas a ON a.id = p.location_id
+                WHERE p.agent_user_id = :aid
+                {time_sql}
+                GROUP BY p.id, p.agent_user_id, u.full_name, pc.name, pt.name, pt.slug, a.name, p.location_name, p.title
+                ORDER BY view_count DESC, p.id ASC
+                LIMIT :lim
+                """
+            ),
+            {"aid": agent_id, "lim": lim},
+        ).mappings().all()
+        return [
+            PropertyPerformanceRow(
+                property_id=r["property_id"],
+                agent_user_id=r["agent_user_id"],
+                agent_name=(r["agent_name"] or "Unassigned")
+                if r["agent_name"] is not None
+                else "Unassigned",
+                category_name=r["category_name"],
+                type_name=r["type_name"],
+                type_slug=r["type_slug"] if r["type_slug"] else None,
+                area_or_location=r["area_or_location"] or "",
+                title=r["title"],
+                view_count=int(r["view_count"] or 0),
+            )
+            for r in perf_rows
+        ]
 
     def get_metrics(self, agent_ids: List[uuid.UUID], *, activity_limit: int = 5) -> DashboardSummaryMetrics:
         """Compute all summary metrics for given agent ids.

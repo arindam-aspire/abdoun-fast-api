@@ -54,14 +54,13 @@ def get_admin_dashboard_trends(
     return create_success_response(data=AdminDashboardTrendsResponse(**data), message=None)
 
 
-@router.get("/dashboard/property-performance")
+@router.get("/property-performance")
 def get_admin_property_performance(
     _current_user: Annotated[User, require_role(UserRoles.ADMIN)],
     service: Annotated[AdminDashboardService, Depends(get_admin_dashboard_service)],
-    time_scope: Annotated[
+    period: Annotated[
         PropertyPerformancePeriod,
         Query(
-            alias="limit",
             description=(
                 "View window: all (default), weekly, monthly, yearly "
                 "(trailing 7 / 30 / 365 days by wall-clock interval; case-insensitive)."
@@ -78,14 +77,24 @@ def get_admin_property_performance(
             le=100,
         ),
     ] = 5,
+    # Compatibility alias (older clients used `limit` for the period/window)
+    limit_compat: Annotated[
+        Optional[PropertyPerformancePeriod],
+        Query(
+            alias="limit",
+            deprecated=True,
+            description="Deprecated. Use `period` instead (all/weekly/monthly/yearly).",
+        ),
+    ] = None,
     agentId: Annotated[
         Optional[uuid.UUID],
         Query(description="If set, restrict to this agent’s listings only."),
     ] = None,
 ) -> StandardResponse[AdminDashboardPropertyPerformanceResponse]:
     """Top properties by view count for the bar chart; paginated (see ``pagination`` in the payload)."""
+    effective_period = limit_compat or period
     data = service.get_property_performance(
-        period=time_scope, page=page, limit=page_size, agent_id=agentId
+        period=effective_period, page=page, limit=page_size, agent_id=agentId
     )
     lim = int(data["limit"])
     total_items = int(data["totalItems"])

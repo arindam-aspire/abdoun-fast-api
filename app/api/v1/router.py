@@ -7,6 +7,7 @@ Route prefixes and tags are centralized in `app/utils/constants.py` (`ApiRoutes`
 from fastapi import APIRouter
 
 from app.api.v1.routes import (
+    agent,
     properties,
     search,
     locations,
@@ -32,6 +33,12 @@ api_router.include_router(
     auth.router,
     prefix=ApiRoutes.AUTH_PREFIX,
     tags=[ApiRoutes.AUTH_TAG],
+)
+
+api_router.include_router(
+    agent.router,
+    prefix=ApiRoutes.AGENT_PREFIX,
+    tags=[ApiRoutes.AGENT_TAG],
 )
 
 api_router.include_router(

@@ -605,6 +605,18 @@ class DashboardRecentActivityItem(BaseModel):
     tone: str
 
 
+class AgentPropertyPerformanceItem(BaseModel):
+    """Property performance item on agent dashboard (same shape as admin dashboard item)."""
+
+    label: str
+    value: int = Field(ge=0)
+    propertyId: str
+    propertyTitle: str = ""
+    propertyType: str = ""
+    agentId: Optional[str] = None
+    agentName: str
+
+
 class AgentDashboardSummaryResponse(BaseModel):
     """Dashboard summary for currently authenticated admin/agent scope."""
 
@@ -622,6 +634,7 @@ class AgentDashboardSummaryResponse(BaseModel):
     leadsChangePercent: float
     dealsClosedChangePercent: float
     propertyViewsChangePercent: float
+    propertyPerformance: List[AgentPropertyPerformanceItem] = Field(default_factory=list)
     recentActivity: List[DashboardRecentActivityItem]
 
 

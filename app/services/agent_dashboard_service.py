@@ -10,6 +10,7 @@ from fastapi import HTTPException
 
 from app.models.user import User
 from app.repositories.agent_dashboard_repository import AgentDashboardRepository
+from app.services.admin_dashboard_service import _build_property_items
 from app.utils.constants import ErrorMessages, UserRoles
 from app.utils.status_codes import HTTPStatus
 
@@ -59,6 +60,7 @@ class AgentDashboardService:
             )
         agent_ids = [current_user.id]
         metrics = self._repo.get_metrics(agent_ids=agent_ids)
+        perf_rows = self._repo.fetch_top_properties_by_views(agent_id=current_user.id, limit=5)
 
         conversion_rate = Decimal("0")
         if metrics.leads_this_month > 0:
@@ -93,6 +95,7 @@ class AgentDashboardService:
                 metrics.views_mtd_current,
                 metrics.views_mtd_previous,
             ),
+            "propertyPerformance": _build_property_items(perf_rows)[:5],
             "recentActivity": [
                 {
                     "text": item.text,
