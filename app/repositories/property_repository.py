@@ -5,7 +5,7 @@ import uuid
 from typing import Any, List, Optional, Tuple
 
 from sqlalchemy import Select, and_, func, or_, select
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.models.property_normalized import (
     Area,
@@ -15,6 +15,7 @@ from app.models.property_normalized import (
     PropertyNormalized as Property,
     PropertyType,
 )
+from app.models.user import User
 from app.models.owner import Owner, PropertyOwner
 from app.utils.constants import ListingStatus, PropertyExclusiveFilter
 
@@ -45,6 +46,7 @@ class PropertyRepository:
     ) -> Optional[Property]:
         """Load property by UUID with given joinedload options."""
         stmt = self._base_detail_query(options=options).where(Property.id == property_uuid)
+        stmt = stmt.where(Property.deleted_at.is_(None))
         return (
             self._db.execute(stmt)
             .unique()
@@ -56,7 +58,7 @@ class PropertyRepository:
         from app.schemas.property import uuid_to_int_hash
         candidate_ids = (
             self._db.execute(
-                select(Property.id).where(Property.property_hash == target_hash)
+                select(Property.id).where(Property.property_hash == target_hash, Property.deleted_at.is_(None))
             )
             .scalars()
             .all()
@@ -287,10 +289,13 @@ class PropertyRepository:
         stmt = stmt.join(City, Property.city_id == City.id)
         stmt = stmt.join(Area, Property.location_id == Area.id)
 
+        stmt = stmt.where(Property.deleted_at.is_(None))
         if filters:
             stmt = stmt.where(and_(*filters))
 
-        count_stmt = self.build_count_statement(filters, requires_joins)
+        count_filters = list(filters)
+        count_filters.append(Property.deleted_at.is_(None))
+        count_stmt = self.build_count_statement(count_filters, requires_joins)
         total = self._db.execute(count_stmt).scalar() or 0
 
         offset = (page - 1) * page_size
@@ -315,7 +320,7 @@ class PropertyRepository:
         stmt = stmt.join(PropertyCategory, Property.category_id == PropertyCategory.id)
         stmt = stmt.join(City, Property.city_id == City.id)
 
-        filters: List[Any] = [Property.id != source_property.id]
+        filters: List[Any] = [Property.id != source_property.id, Property.deleted_at.is_(None)]
         if source_property.category_id:
             filters.append(Property.category_id == source_property.category_id)
         if source_property.city_id:
@@ -389,6 +394,10 @@ class PropertyRepository:
             joinedload(Property.property_status),
             joinedload(Property.translations),
             joinedload(Property.features).joinedload(PropertyFeature.feature),
+            joinedload(Property.agent_user).joinedload(User.profile),
+            joinedload(Property.agent_user).selectinload(User.roles),
+            joinedload(Property.created_by_user).joinedload(User.profile),
+            joinedload(Property.created_by_user).selectinload(User.roles),
         ]
         return self.load_property_with_options(property_uuid=property_uuid, options=options)
 
@@ -406,6 +415,7 @@ class PropertyRepository:
             joinedload(Property.city),
             joinedload(Property.area_rel),
         )
+        stmt = stmt.where(Property.deleted_at.is_(None))
         if bounds is not None:
             min_lng, min_lat, max_lng, max_lat = bounds
             envelope = func.ST_MakeEnvelope(
@@ -467,7 +477,42 @@ class PropertyRepository:
         Returns:
             Tuple of (property rows with type/status/category loaded, total count).
         """
-        filters = Property.created_by == user_id
+        filters = and_(Property.created_by == user_id, Property.deleted_at.is_(None))
+        count_stmt = select(func.count(Property.id)).where(filters)
+        total = int(self._db.execute(count_stmt).scalar() or 0)
+
+        stmt = (
+            select(Property)
+            .options(
+                joinedload(Property.category),
+                joinedload(Property.type),
+                joinedload(Property.property_status),
+            )
+            .where(filters)
+            .order_by(func.coalesce(Property.updated_at, Property.created_at).desc())
+        )
+        offset = max(page - 1, 0) * page_size
+        stmt = stmt.offset(offset).limit(page_size)
+        rows = self._db.execute(stmt).unique().scalars().all()
+        return list(rows), total
+
+    def list_properties_for_agent(
+        self,
+        *,
+        agent_user_id: uuid.UUID,
+        page: int,
+        page_size: int,
+    ) -> Tuple[List[Property], int]:
+        """List properties that should appear on the agent dashboard.
+
+        Includes:
+        - properties created by the agent (``created_by``)
+        - properties assigned to the agent (``agent_user_id``)
+        """
+        filters = and_(
+            or_(Property.created_by == agent_user_id, Property.agent_user_id == agent_user_id),
+            Property.deleted_at.is_(None),
+        )
         count_stmt = select(func.count(Property.id)).where(filters)
         total = int(self._db.execute(count_stmt).scalar() or 0)
 

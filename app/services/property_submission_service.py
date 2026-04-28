@@ -55,6 +55,14 @@ class PropertySubmissionService:
     def __init__(self, repository: PropertySubmissionRepository) -> None:
         self._repo = repository
 
+    @staticmethod
+    def _user_has_role(user: User, role_name: str) -> bool:
+        roles = getattr(user, "roles", None) or []
+        for r in roles:
+            if getattr(r, "name", None) == role_name:
+                return True
+        return False
+
     def create_submission(
         self,
         *,
@@ -146,6 +154,154 @@ class PropertySubmissionService:
             self._repo.rollback()
             raise HTTPException(status_code=HTTPStatus.INTERNAL_SERVER_ERROR, detail=ErrorMessages.REQUEST_FAILED)
         return self._apply_final_submission_persistence(submission=submission, user=user)
+
+    def admin_create_and_approve_submission(
+        self,
+        *,
+        admin_user: User,
+        body: CreateAndSubmitPropertySubmissionRequest,
+    ) -> PropertySubmissionSubmitResponse:
+        """Admin creates a property using the same payload but gets immediate approval.
+
+        This keeps the draft/submission payload identical to the agent flow, but skips the
+        pending moderation status by setting the submission to ``approved`` at submit time.
+        """
+        if not body.confirm_submit:
+            raise HTTPException(status_code=HTTPStatus.BAD_REQUEST, detail="confirm_submit must be true")
+
+        merged = self._merge_into_default_submission_payload(body.payload)
+        self._validate_draft_payload_shape(merged)
+        step_completion = self._step_completion_for_merged_payload(merged)
+        last_completed_step = self._last_completed_from_step_completion(step_completion)
+        submission = PropertyListingSubmission(
+            submitted_by=admin_user.id,
+            status="draft",
+            current_step=8,
+            last_completed_step=last_completed_step,
+            payload=copy.deepcopy(merged),
+            step_completion=step_completion,
+        )
+        self._sync_review_flags(submission, merged.get("review_submit", {}))
+        errors = self._validate_final_payload(payload=merged, submission=submission)
+        if errors:
+            raise HTTPException(status_code=HTTPStatus.BAD_REQUEST, detail=errors)
+
+        payload = merged
+        now_utc = datetime.now(timezone.utc)
+        verified_status_id = 1
+        try:
+            verified_row = self._repo.get_property_status_by_slug("verified")
+            if verified_row is not None:
+                verified_status_id = int(verified_row.id)
+        except Exception:
+            verified_status_id = 1
+        try:
+            with self._repo.begin_transaction():
+                self._repo.create_submission(submission)
+                self._repo.flush()
+
+                property_obj = self._upsert_property(submission=submission, payload=payload, user=admin_user)
+                self._replace_property_media(property_obj.id, payload.get("media_documents", {}))
+                self._replace_property_owners(property_obj.id, payload.get("owner_information", {}))
+                self._replace_property_features(property_obj.id, payload.get("amenities", {}))
+
+                # Approved immediately for admin-created properties.
+                submission.reviewed_by = admin_user.id
+                submission.reviewed_at = now_utc
+                submission.review_reason = None
+                submission.submitted_at = submission.submitted_at or now_utc
+                submission.property_id = property_obj.id
+                submission.status = "approved"
+
+                property_obj.property_status_id = verified_status_id
+                property_obj.approved_by_user_id = admin_user.id
+                property_obj.updated_by_user_id = admin_user.id
+
+            self._repo.commit()
+            self._repo.refresh(submission)
+            return PropertySubmissionSubmitResponse(
+                submission_id=submission.id,
+                property_id=property_obj.id,
+                status=submission.status,
+            )
+        except HTTPException:
+            self._repo.rollback()
+            raise
+        except Exception:
+            self._repo.rollback()
+            raise HTTPException(status_code=HTTPStatus.INTERNAL_SERVER_ERROR, detail=ErrorMessages.REQUEST_FAILED)
+
+    def admin_submit_existing_draft_and_approve(
+        self,
+        *,
+        submission_id: uuid.UUID,
+        admin_user: User,
+        confirm_submit: bool,
+    ) -> PropertySubmissionSubmitResponse:
+        """Admin submits an existing draft submission and auto-approves it."""
+        if not confirm_submit:
+            raise HTTPException(status_code=HTTPStatus.BAD_REQUEST, detail="confirm_submit must be true")
+
+        submission = self._repo.get_submission_by_id(submission_id)
+        if submission is None or submission.submitted_by != admin_user.id:
+            raise HTTPException(status_code=HTTPStatus.NOT_FOUND, detail="Submission not found")
+
+        if submission.status in {"submitted", "approved"}:
+            raise HTTPException(status_code=HTTPStatus.CONFLICT, detail="Submission is already finalized")
+
+        payload = submission.payload or self._build_default_payload()
+        merged = self._merge_into_default_submission_payload(payload)
+        self._validate_draft_payload_shape(merged)
+        step_completion = self._step_completion_for_merged_payload(merged)
+        submission.step_completion = step_completion
+        submission.last_completed_step = self._last_completed_from_step_completion(step_completion)
+        submission.current_step = 8
+        submission.payload = copy.deepcopy(merged)
+        self._sync_review_flags(submission, merged.get("review_submit", {}))
+        errors = self._validate_final_payload(payload=merged, submission=submission)
+        if errors:
+            raise HTTPException(status_code=HTTPStatus.BAD_REQUEST, detail=errors)
+
+        now_utc = datetime.now(timezone.utc)
+        verified_status_id = 1
+        try:
+            verified_row = self._repo.get_property_status_by_slug("verified")
+            if verified_row is not None:
+                verified_status_id = int(verified_row.id)
+        except Exception:
+            verified_status_id = 1
+
+        try:
+            with self._repo.begin_transaction():
+                property_obj = self._upsert_property(submission=submission, payload=merged, user=admin_user)
+                self._replace_property_media(property_obj.id, merged.get("media_documents", {}))
+                self._replace_property_owners(property_obj.id, merged.get("owner_information", {}))
+                self._replace_property_features(property_obj.id, merged.get("amenities", {}))
+
+                submission.reviewed_by = admin_user.id
+                submission.reviewed_at = now_utc
+                submission.review_reason = None
+                submission.submitted_at = submission.submitted_at or now_utc
+                submission.property_id = property_obj.id
+                submission.status = "approved"
+
+                property_obj.property_status_id = verified_status_id
+                property_obj.approved_by_user_id = admin_user.id
+                property_obj.updated_by_user_id = admin_user.id
+
+            self._repo.commit()
+            self._repo.refresh(submission)
+            return PropertySubmissionSubmitResponse(
+                submission_id=submission.id,
+                property_id=property_obj.id,
+                status=submission.status,
+            )
+        except HTTPException:
+            self._repo.rollback()
+            raise
+        except Exception:
+            self._repo.rollback()
+            raise HTTPException(status_code=HTTPStatus.INTERNAL_SERVER_ERROR, detail=ErrorMessages.REQUEST_FAILED)
 
     def get_submission(self, *, submission_id: uuid.UUID, user: User) -> PropertySubmissionDetailResponse:
         submission = self._repo.get_submission_by_id(submission_id)
@@ -388,9 +544,9 @@ class PropertySubmissionService:
             raise HTTPException(status_code=HTTPStatus.INTERNAL_SERVER_ERROR, detail=ErrorMessages.REQUEST_FAILED)
 
     def delete_submission(self, *, submission_id: uuid.UUID, user: User) -> PropertySubmissionDeleteResponse:
-        """Remove a draft, rejected, or *changes requested* row (and its property when linked).
+        """Soft delete a draft/rejected/changes requested submission (and its property when linked).
 
-        **Not allowed** while ``submitted`` (awaiting admin) or ``approved`` (final).
+        Does not hard delete any rows; blocked while ``submitted`` or ``approved``.
         """
         submission = self._repo.get_submission_by_id(submission_id)
         self._ensure_can_access(submission, user)
@@ -399,14 +555,106 @@ class PropertySubmissionService:
                 status_code=HTTPStatus.CONFLICT,
                 detail="This submission cannot be deleted in its current status",
             )
+        now_utc = datetime.now(timezone.utc)
         removed_property_id = submission.property_id
         try:
-            self._repo.delete_submission_and_property(submission=submission)
+            submission.deleted_at = now_utc
+            submission.deleted_by = user.id
+            submission.delete_reason = None
+
+            if submission.property_id is not None:
+                prop = self._repo.get_property(submission.property_id, include_deleted=True)
+                if prop is not None:
+                    prop.deleted_at = now_utc
+                    prop.deleted_by = user.id
+                    prop.delete_reason = None
             self._repo.commit()
         except Exception:
             self._repo.rollback()
             raise HTTPException(status_code=HTTPStatus.INTERNAL_SERVER_ERROR, detail=ErrorMessages.REQUEST_FAILED)
-        return PropertySubmissionDeleteResponse(submission_id=submission_id, property_id=removed_property_id)
+        return PropertySubmissionDeleteResponse(
+            submission_id=submission_id,
+            property_id=removed_property_id,
+            status="deleted",
+            deleted_at=now_utc.isoformat(),
+        )
+
+    def delete_submission_with_reason(
+        self,
+        *,
+        submission_id: uuid.UUID,
+        user: User,
+        reason: str | None,
+    ) -> PropertySubmissionDeleteResponse:
+        """Compatibility wrapper to support delete reason via query param (soft delete)."""
+        submission = self._repo.get_submission_by_id(submission_id)
+        self._ensure_can_access(submission, user)
+        if submission.status not in {"rejected", "draft", "in_progress", "changes_requested"}:
+            raise HTTPException(
+                status_code=HTTPStatus.CONFLICT,
+                detail="This submission cannot be deleted in its current status",
+            )
+        now_utc = datetime.now(timezone.utc)
+        removed_property_id = submission.property_id
+        reason_clean = (reason or "").strip() or None
+        try:
+            submission.deleted_at = now_utc
+            submission.deleted_by = user.id
+            submission.delete_reason = reason_clean
+
+            if submission.property_id is not None:
+                prop = self._repo.get_property(submission.property_id, include_deleted=True)
+                if prop is not None:
+                    prop.deleted_at = now_utc
+                    prop.deleted_by = user.id
+                    prop.delete_reason = reason_clean
+            self._repo.commit()
+        except Exception:
+            self._repo.rollback()
+            raise HTTPException(status_code=HTTPStatus.INTERNAL_SERVER_ERROR, detail=ErrorMessages.REQUEST_FAILED)
+        return PropertySubmissionDeleteResponse(
+            submission_id=submission_id,
+            property_id=removed_property_id,
+            status="deleted",
+            deleted_at=now_utc.isoformat(),
+        )
+
+    def admin_soft_delete_submission(
+        self,
+        *,
+        submission_id: uuid.UUID,
+        admin_user: User,
+        reason: str | None,
+    ) -> PropertySubmissionDeleteResponse:
+        """Admin soft delete any submission (and linked property)."""
+        submission = self._repo.get_submission_by_id(submission_id, include_deleted=True)
+        if submission is None or getattr(submission, "deleted_at", None) is not None:
+            raise HTTPException(status_code=HTTPStatus.NOT_FOUND, detail="Submission not found")
+
+        now_utc = datetime.now(timezone.utc)
+        reason_clean = (reason or "").strip() or None
+        removed_property_id = submission.property_id
+        try:
+            submission.deleted_at = now_utc
+            submission.deleted_by = admin_user.id
+            submission.delete_reason = reason_clean
+
+            if submission.property_id is not None:
+                prop = self._repo.get_property(submission.property_id, include_deleted=True)
+                if prop is not None:
+                    prop.deleted_at = now_utc
+                    prop.deleted_by = admin_user.id
+                    prop.delete_reason = reason_clean
+            self._repo.commit()
+        except Exception:
+            self._repo.rollback()
+            raise HTTPException(status_code=HTTPStatus.INTERNAL_SERVER_ERROR, detail=ErrorMessages.REQUEST_FAILED)
+        return PropertySubmissionDeleteResponse(
+            submission_id=submission.id,
+            property_id=removed_property_id,
+            status="deleted",
+            deleted_at=now_utc.isoformat(),
+        )
 
     def list_admin_submissions(
         self,
@@ -414,12 +662,13 @@ class PropertySubmissionService:
         status: str | None,
         page: int,
         limit: int,
+        include_deleted: bool = False,
     ) -> AdminSubmissionListResponse:
         allowed_statuses = set(PropertySubmissionRepository.ADMIN_VISIBLE_SUBMISSION_STATUSES)
         if status and status not in allowed_statuses:
             raise HTTPException(status_code=HTTPStatus.BAD_REQUEST, detail="Invalid status filter")
-        rows = self._repo.list_admin_submissions(status=status, page=page, limit=limit)
-        total = self._repo.count_admin_submissions(status=status)
+        rows = self._repo.list_admin_submissions(status=status, page=page, limit=limit, include_deleted=include_deleted)
+        total = self._repo.count_admin_submissions(status=status, include_deleted=include_deleted)
         items = [
             AdminSubmissionListItem(
                 submission_id=submission.id,
@@ -427,24 +676,81 @@ class PropertySubmissionService:
                 submitted_by_name=submitted_by_name,
                 status=submission.status,
                 property_id=submission.property_id,
+                agent_user_id=agent_user_id,
+                has_assigned_agent=bool(agent_user_id),
+                property_hash=property_hash,
                 property_title=property_title,
                 property_reference_number=property_reference_number,
                 current_step=submission.current_step,
                 submitted_at=submission.submitted_at.isoformat() if submission.submitted_at else None,
                 reviewed_at=submission.reviewed_at.isoformat() if submission.reviewed_at else None,
             )
-            for (submission, submitted_by_name, property_title, property_reference_number) in rows
+            for (
+                submission,
+                submitted_by_name,
+                property_hash,
+                property_title,
+                property_reference_number,
+                agent_user_id,
+            ) in rows
         ]
         return AdminSubmissionListResponse(items=items, page=page, limit=limit, total=total)
+
+    def list_my_draft_submissions(
+        self,
+        *,
+        user: User,
+        page: int,
+        limit: int,
+    ):
+        """List draft / in-progress submissions without a property row yet (current user).
+
+        This is used by admin UI as well when an admin is using the stepper flow.
+        It intentionally contains no agent assignment fields; agent assignment is handled separately.
+        """
+        rows, total = self._repo.list_draft_submissions_without_property(user_id=user.id, limit=200)
+        items = []
+        for d in rows:
+            title = None
+            payload = d.payload if isinstance(d.payload, dict) else None
+            if payload:
+                basic = payload.get("basic_information") or {}
+                t = basic.get("title")
+                if isinstance(t, str) and t.strip():
+                    title = t.strip()
+            items.append(
+                {
+                    "submission_id": d.id,
+                    "status": d.status,
+                    "current_step": d.current_step,
+                    "last_completed_step": d.last_completed_step,
+                    "title": title,
+                    "updated_at": d.updated_at,
+                    "can_edit": True,
+                    "can_delete": True,
+                }
+            )
+        offset = max(page - 1, 0) * limit
+        paged = items[offset : offset + limit]
+        return {"items": paged, "total": total, "page": page, "limit": limit}
 
     def get_admin_submission(self, *, submission_id: uuid.UUID) -> AdminSubmissionDetailResponse:
         submission = self._repo.get_submission_by_id(submission_id)
         if submission is None:
             raise HTTPException(status_code=HTTPStatus.NOT_FOUND, detail="Submission not found")
+        property_hash: int | None = None
+        if submission.property_id is not None:
+            prop = self._repo.get_property(submission.property_id)
+            if prop is not None:
+                try:
+                    property_hash = int(getattr(prop, "property_hash", None)) if getattr(prop, "property_hash", None) is not None else None
+                except Exception:
+                    property_hash = None
         return AdminSubmissionDetailResponse(
             submission_id=submission.id,
             status=submission.status,
             property_id=submission.property_id,
+            property_hash=property_hash,
             submitted_by=submission.submitted_by,
             submitted_at=submission.submitted_at.isoformat() if submission.submitted_at else None,
             reviewed_by=submission.reviewed_by,
@@ -480,11 +786,20 @@ class PropertySubmissionService:
             submission.reviewed_by = admin_user.id
             submission.reviewed_at = datetime.now(timezone.utc)
             submission.review_reason = body.reason.strip() if body.reason else None
-            # Keep property_status alignment with existing convention (1 as active).
+            # Set catalog status to verified when approved.
             if submission.property_id and new_status == "approved":
                 property_obj = self._repo.get_property(submission.property_id)
                 if property_obj is not None:
-                    property_obj.property_status_id = 1
+                    verified_status_id = 1
+                    try:
+                        verified_row = self._repo.get_property_status_by_slug("verified")
+                        if verified_row is not None:
+                            verified_status_id = int(verified_row.id)
+                    except Exception:
+                        verified_status_id = 1
+                    property_obj.property_status_id = verified_status_id
+                    property_obj.approved_by_user_id = admin_user.id
+                    property_obj.updated_by_user_id = admin_user.id
             self._repo.commit()
             self._repo.refresh(submission)
             return AdminSubmissionReviewResponse(
@@ -542,6 +857,9 @@ class PropertySubmissionService:
                 youtube_url=media.get("youtube_url"),
                 virtual_tour_url=media.get("virtual_tour_url"),
                 created_by=user.id,
+                # If an agent is creating the property, treat them as the listing/assigned agent by default.
+                # Admin-created properties intentionally leave this null until explicitly assigned.
+                agent_user_id=(user.id if self._user_has_role(user, "agent") else None),
                 property_hash=0,
             )
             self._repo.create_property(property_obj)
@@ -582,6 +900,10 @@ class PropertySubmissionService:
             property_obj.maintenance_fee = self._decimal_or_none(pricing.get("maintenance_fee"))
             property_obj.youtube_url = media.get("youtube_url")
             property_obj.virtual_tour_url = media.get("virtual_tour_url")
+            # Backfill (non-destructive): if this property was created by an agent and has no explicit agent yet,
+            # set the creator as the listing/assigned agent.
+            if getattr(property_obj, "agent_user_id", None) is None and self._user_has_role(user, "agent"):
+                property_obj.agent_user_id = user.id
             service_logger.info(
                 "property_submission_property_updated submission_id=%s user_id=%s property_id=%s",
                 submission.id,

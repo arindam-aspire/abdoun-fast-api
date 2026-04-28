@@ -24,6 +24,7 @@ from app.api.v1.routes import (
     admin_property_submissions,
     uploads,
     agent_properties,
+    admin_properties,
 )
 from app.utils.constants import ApiRoutes
 
@@ -93,6 +94,12 @@ api_router.include_router(
     admin_property_submissions.router,
     prefix=ApiRoutes.ADMIN_PROPERTY_SUBMISSIONS_PREFIX,
     tags=[ApiRoutes.ADMIN_PROPERTY_SUBMISSIONS_TAG],
+)
+
+api_router.include_router(
+    admin_properties.router,
+    prefix=ApiRoutes.ADMIN_PREFIX,
+    tags=[ApiRoutes.ADMIN_TAG],
 )
 
 api_router.include_router(

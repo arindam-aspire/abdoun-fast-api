@@ -965,11 +965,18 @@ def test_delete_rejected_succeeds(service: PropertySubmissionService, repo: Magi
     submission.status = "rejected"
     submission.property_id = uuid.uuid4()
     repo.get_submission_by_id.return_value = submission
-    out = service.delete_submission(submission_id=submission.id, user=user)
+    prop = MagicMock()
+    repo.get_property.return_value = prop
+    out = service.delete_submission_with_reason(submission_id=submission.id, user=user, reason="duplicate")
     assert out.submission_id == submission.id
     assert out.property_id == submission.property_id
-    repo.delete_submission_and_property.assert_called_once()
     repo.commit.assert_called_once()
+    assert submission.deleted_at is not None
+    assert submission.deleted_by == user.id
+    assert submission.delete_reason == "duplicate"
+    assert prop.deleted_at is not None
+    assert prop.deleted_by == user.id
+    assert prop.delete_reason == "duplicate"
 
 
 def test_delete_submitted_is_blocked(service: PropertySubmissionService, repo: MagicMock):
@@ -979,9 +986,78 @@ def test_delete_submitted_is_blocked(service: PropertySubmissionService, repo: M
     submission.property_id = uuid.uuid4()
     repo.get_submission_by_id.return_value = submission
     with pytest.raises(HTTPException) as exc_info:
-        service.delete_submission(submission_id=submission.id, user=user)
+        service.delete_submission_with_reason(submission_id=submission.id, user=user, reason="x")
     assert exc_info.value.status_code == 409
-    repo.delete_submission_and_property.assert_not_called()
+    assert not repo.commit.called
+
+
+def test_delete_draft_succeeds_soft_delete(service: PropertySubmissionService, repo: MagicMock) -> None:
+    user = _user()
+    submission = _submission(user.id)
+    submission.status = "draft"
+    repo.get_submission_by_id.return_value = submission
+    out = service.delete_submission_with_reason(submission_id=submission.id, user=user, reason=None)
+    assert out.status == "deleted"
+    assert submission.deleted_at is not None
+    assert submission.deleted_by == user.id
+    repo.commit.assert_called_once()
+
+
+def test_delete_approved_is_blocked(service: PropertySubmissionService, repo: MagicMock) -> None:
+    user = _user()
+    submission = _submission(user.id)
+    submission.status = "approved"
+    repo.get_submission_by_id.return_value = submission
+    with pytest.raises(HTTPException) as exc_info:
+        service.delete_submission_with_reason(submission_id=submission.id, user=user, reason="x")
+    assert exc_info.value.status_code == 409
+
+
+def test_list_my_drafts_returns_paged_items(service: PropertySubmissionService, repo: MagicMock) -> None:
+    user = _user()
+    d1 = _submission(user.id)
+    d1.status = "draft"
+    d1.property_id = None
+    d1.payload["basic_information"]["title"] = "Draft A"
+    d2 = _submission(user.id)
+    d2.status = "in_progress"
+    d2.property_id = None
+    d2.payload["basic_information"]["title"] = "Draft B"
+    repo.list_draft_submissions_without_property.return_value = ([d2, d1], 2)
+    out = service.list_my_draft_submissions(user=user, page=1, limit=1)
+    assert out["total"] == 2
+    assert len(out["items"]) == 1
+    assert out["items"][0]["title"] in {"Draft A", "Draft B"}
+
+
+def test_admin_submit_existing_draft_auto_approves(service: PropertySubmissionService, repo: MagicMock) -> None:
+    admin = _user()
+    submission = _ready_submission(admin.id)
+    submission.status = "draft"
+    submission.property_id = None
+    repo.get_submission_by_id.return_value = submission
+    mock_type = MagicMock()
+    mock_type.category_id = 1
+    repo.get_category_type.return_value = mock_type
+    mock_area = MagicMock()
+    mock_area.city_id = 1
+    repo.get_area.return_value = mock_area
+    repo.get_city.return_value = MagicMock()
+    repo.get_owner_by_email_or_phone.return_value = None
+    repo.get_user_by_phone.return_value = None
+    repo.get_user_by_email.return_value = None
+    repo.count_existing_features.return_value = 2
+    verified_row = MagicMock()
+    verified_row.id = 1
+    repo.get_property_status_by_slug.return_value = verified_row
+    repo.get_property.return_value = None
+    repo.create_property.side_effect = lambda prop: setattr(prop, "id", uuid.uuid4())
+    out = service.admin_submit_existing_draft_and_approve(
+        submission_id=submission.id,
+        admin_user=admin,
+        confirm_submit=True,
+    )
+    assert out.status == "approved"
 
 
 def test_same_owner_reused_across_submissions(service: PropertySubmissionService, repo: MagicMock):
@@ -1472,3 +1548,20 @@ def test_list_admin_submissions_rejects_draft_status_query_param(
     with pytest.raises(HTTPException) as exc_info:
         service.list_admin_submissions(status="draft", page=1, limit=10)
     assert exc_info.value.status_code == 400
+
+
+def test_list_admin_submissions_includes_property_hash_when_available(
+    service: PropertySubmissionService, repo: MagicMock
+) -> None:
+    user = _user()
+    submission = _ready_submission(user.id)
+    submission.status = "submitted"
+    repo.list_admin_submissions.return_value = [
+        (submission, "Agent Name", 117296771, "Postman Villa", "REF-1", None)
+    ]
+    repo.count_admin_submissions.return_value = 1
+    out = service.list_admin_submissions(status="submitted", page=1, limit=10)
+    assert out.total == 1
+    assert out.items[0].property_hash == 117296771
+    assert out.items[0].agent_user_id is None
+    assert out.items[0].has_assigned_agent is False

@@ -68,7 +68,7 @@ class AgentPropertyService:
     def list_my_properties(
         self, *, user: User, page: int, limit: int, include_drafts: bool = False
     ) -> AgentPropertyListResponse:
-        rows, total = self._properties.list_properties_created_by(user_id=user.id, page=page, page_size=limit)
+        rows, total = self._properties.list_properties_for_agent(agent_user_id=user.id, page=page, page_size=limit)
         property_ids = [p.id for p in rows]
         submission_by_property = self._submissions.list_submissions_linked_to_properties(
             user_id=user.id,

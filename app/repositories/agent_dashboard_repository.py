@@ -127,6 +127,7 @@ class AgentDashboardRepository:
                 FROM leads l
                 JOIN properties_normalized p ON p.id = l.property_id
                 WHERE p.agent_user_id = ANY(:agent_ids)
+                  AND p.deleted_at IS NULL
                   AND l.created_at >= date_trunc('day', (NOW() AT TIME ZONE 'UTC') - INTERVAL '29 days')
                 GROUP BY DATE(l.created_at AT TIME ZONE 'UTC')
                 ORDER BY day ASC
@@ -175,6 +176,7 @@ class AgentDashboardRepository:
                 FROM properties_normalized p
                 LEFT JOIN property_status ps ON ps.id = p.property_status_id
                 WHERE p.agent_user_id = ANY(:agent_ids)
+                  AND p.deleted_at IS NULL
                 """
             ),
             params,
@@ -195,6 +197,7 @@ class AgentDashboardRepository:
                 FROM leads l
                 JOIN properties_normalized p ON p.id = l.property_id
                 WHERE p.agent_user_id = ANY(:agent_ids)
+                  AND p.deleted_at IS NULL
                 """
             ),
             params,
@@ -207,6 +210,7 @@ class AgentDashboardRepository:
                 FROM property_views pv
                 JOIN properties_normalized p ON p.id = pv.property_id
                 WHERE p.agent_user_id = ANY(:agent_ids)
+                  AND p.deleted_at IS NULL
                 """
             ),
             params,
@@ -226,12 +230,14 @@ class AgentDashboardRepository:
                         SELECT COUNT(*)::int
                         FROM properties_normalized p
                         WHERE p.agent_user_id = ANY(:agent_ids)
+                          AND p.deleted_at IS NULL
                           AND p.created_at >= :cs AND p.created_at <= :ce
                     ) AS listings_curr,
                     (
                         SELECT COUNT(*)::int
                         FROM properties_normalized p
                         WHERE p.agent_user_id = ANY(:agent_ids)
+                          AND p.deleted_at IS NULL
                           AND p.created_at >= :ps AND p.created_at <= :pe
                     ) AS listings_prev,
                     (
@@ -239,6 +245,7 @@ class AgentDashboardRepository:
                         FROM leads l
                         JOIN properties_normalized p ON p.id = l.property_id
                         WHERE p.agent_user_id = ANY(:agent_ids)
+                          AND p.deleted_at IS NULL
                           AND l.created_at >= :cs AND l.created_at <= :ce
                     ) AS leads_curr,
                     (
@@ -246,12 +253,14 @@ class AgentDashboardRepository:
                         FROM leads l
                         JOIN properties_normalized p ON p.id = l.property_id
                         WHERE p.agent_user_id = ANY(:agent_ids)
+                          AND p.deleted_at IS NULL
                           AND l.created_at >= :ps AND l.created_at <= :pe
                     ) AS leads_prev,
                     (
                         SELECT COUNT(*)::int
                         FROM properties_normalized p
                         WHERE p.agent_user_id = ANY(:agent_ids)
+                          AND p.deleted_at IS NULL
                           AND COALESCE(p.deal_closed, false) = true
                           AND p.updated_at >= :cs AND p.updated_at <= :ce
                     ) AS deals_curr,
@@ -259,6 +268,7 @@ class AgentDashboardRepository:
                         SELECT COUNT(*)::int
                         FROM properties_normalized p
                         WHERE p.agent_user_id = ANY(:agent_ids)
+                          AND p.deleted_at IS NULL
                           AND COALESCE(p.deal_closed, false) = true
                           AND p.updated_at >= :ps AND p.updated_at <= :pe
                     ) AS deals_prev,
@@ -267,6 +277,7 @@ class AgentDashboardRepository:
                         FROM property_views pv
                         JOIN properties_normalized p ON p.id = pv.property_id
                         WHERE p.agent_user_id = ANY(:agent_ids)
+                          AND p.deleted_at IS NULL
                           AND pv.viewed_at >= :cs AND pv.viewed_at <= :ce
                     ) AS views_curr,
                     (
@@ -274,6 +285,7 @@ class AgentDashboardRepository:
                         FROM property_views pv
                         JOIN properties_normalized p ON p.id = pv.property_id
                         WHERE p.agent_user_id = ANY(:agent_ids)
+                          AND p.deleted_at IS NULL
                           AND pv.viewed_at >= :ps AND pv.viewed_at <= :pe
                     ) AS views_prev
                 """

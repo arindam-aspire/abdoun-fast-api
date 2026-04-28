@@ -61,6 +61,8 @@ class UploadService:
             submission = self._repo.get_submission_by_id(body.submission_id)
             if submission is None or submission.submitted_by != user.id:
                 raise HTTPException(status_code=HTTPStatus.NOT_FOUND, detail="Submission not found")
+            if getattr(submission, "deleted_at", None) is not None:
+                raise HTTPException(status_code=HTTPStatus.NOT_FOUND, detail="Submission not found")
             if submission.status in {"approved", "rejected"}:
                 raise HTTPException(
                     status_code=HTTPStatus.CONFLICT,

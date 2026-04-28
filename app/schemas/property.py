@@ -223,6 +223,7 @@ class PropertyMediaStructured(BaseModel):
 
 
 class PropertyAgentMock(BaseModel):
+    # Frontend historically expects int ids; for normalized UUID users we send a stable int hash.
     id: int
     name: str
     phone: str
@@ -286,6 +287,66 @@ def get_mock_created_by() -> PropertyCreatedByMock:
         name="Admin Sarah",
         role="super_admin",
     )
+
+
+def _role_names(user_obj: Any) -> set[str]:
+    roles = getattr(user_obj, "roles", None) or []
+    names: set[str] = set()
+    for r in roles:
+        n = getattr(r, "name", None)
+        if n:
+            names.add(str(n))
+    return names
+
+
+def _user_to_agent_payload(user_obj: Any) -> PropertyAgentMock:
+    phone = getattr(user_obj, "phone_number", None) or ""
+    return PropertyAgentMock(
+        id=uuid_to_int_hash(getattr(user_obj, "id")),
+        name=str(getattr(user_obj, "full_name", "") or ""),
+        phone=str(phone),
+        whatsapp=str(phone),
+        email=str(getattr(user_obj, "email", "") or ""),
+        photo=getattr(user_obj, "profile_picture_url", None),
+        license_number=None,
+    )
+
+
+def _user_to_created_by_payload(user_obj: Any) -> PropertyCreatedByMock:
+    roles = _role_names(user_obj)
+    # Prefer an explicit role label; fall back to "user".
+    role = "agent" if "agent" in roles else ("admin" if "admin" in roles else "user")
+    return PropertyCreatedByMock(
+        id=uuid_to_int_hash(getattr(user_obj, "id")),
+        name=str(getattr(user_obj, "full_name", "") or ""),
+        role=role,
+    )
+
+
+def _resolve_agent_for_property(obj: Property) -> Optional[PropertyAgentMock]:
+    """
+    Agent display rules:
+    - If property has an explicit agent assignment (agent_user_id), show that agent.
+    - Else, if the creator is an agent, show the creator as the agent.
+    - Else (admin-created, unassigned), return None.
+    """
+    agent_user = getattr(obj, "agent_user", None)
+    if agent_user is not None and getattr(agent_user, "id", None) is not None:
+        return _user_to_agent_payload(agent_user)
+
+    created_by_user = getattr(obj, "created_by_user", None)
+    if created_by_user is None:
+        return None
+    if "agent" in _role_names(created_by_user):
+        return _user_to_agent_payload(created_by_user)
+    return None
+
+
+def _resolve_created_by_for_property(obj: Property) -> Optional[PropertyCreatedByMock]:
+    created_by_user = getattr(obj, "created_by_user", None)
+    if created_by_user is None or getattr(created_by_user, "id", None) is None:
+        return None
+    return _user_to_created_by_payload(created_by_user)
 
 
 def _determine_listing_type(obj: Property) -> str:
@@ -1332,9 +1393,9 @@ class PropertyDetail(BaseModel):
             expires_at=getattr(obj, "expires_at", None),
             sold_at=getattr(obj, "sold_at", None),
             rented_at=getattr(obj, "rented_at", None),
-            agent=get_mock_agent(),
+            agent=_resolve_agent_for_property(obj),
             owner=get_mock_owner(),
-            created_by=get_mock_created_by(),
+            created_by=_resolve_created_by_for_property(obj),
         )
 
 

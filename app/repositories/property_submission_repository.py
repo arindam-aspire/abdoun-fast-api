@@ -4,7 +4,7 @@ import uuid
 from typing import Any, ClassVar, List, Tuple
 from contextlib import nullcontext
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import and_, delete, func, select
 from sqlalchemy.orm import Session
 
 from app.models.owner import Owner, PropertyOwner
@@ -17,6 +17,7 @@ from app.models.property_normalized import (
     PropertyMedia,
     PropertyNormalized,
     PropertyTranslation,
+    PropertyStatus,
     PropertyType,
 )
 from app.models.user import User
@@ -40,8 +41,16 @@ class PropertySubmissionRepository:
         self._db.add(submission)
         return submission
 
-    def get_submission_by_id(self, submission_id: uuid.UUID) -> PropertyListingSubmission | None:
-        stmt = select(PropertyListingSubmission).where(PropertyListingSubmission.id == submission_id)
+    def get_submission_by_id(
+        self,
+        submission_id: uuid.UUID,
+        *,
+        include_deleted: bool = False,
+    ) -> PropertyListingSubmission | None:
+        filters = [PropertyListingSubmission.id == submission_id]
+        if not include_deleted:
+            filters.append(PropertyListingSubmission.deleted_at.is_(None))
+        stmt = select(PropertyListingSubmission).where(and_(*filters))
         return self._db.execute(stmt).scalar_one_or_none()
 
     def list_admin_submissions(
@@ -50,30 +59,46 @@ class PropertySubmissionRepository:
         status: str | None,
         page: int,
         limit: int,
-    ) -> list[tuple[PropertyListingSubmission, str | None, str | None, str | None]]:
+        include_deleted: bool = False,
+    ) -> list[
+        tuple[
+            PropertyListingSubmission,
+            str | None,
+            int | None,
+            str | None,
+            str | None,
+            uuid.UUID | None,
+        ]
+    ]:
         """Paginated rows for the admin moderation queue (excludes ``draft`` / ``in_progress``)."""
         stmt = (
             select(
                 PropertyListingSubmission,
                 User.full_name,
+                PropertyNormalized.property_hash,
                 PropertyNormalized.title,
                 PropertyNormalized.reference_number,
+                PropertyNormalized.agent_user_id,
             )
             .where(PropertyListingSubmission.status.in_(self.ADMIN_VISIBLE_SUBMISSION_STATUSES))
             .join(User, User.id == PropertyListingSubmission.submitted_by)
             .outerjoin(PropertyNormalized, PropertyNormalized.id == PropertyListingSubmission.property_id)
             .order_by(PropertyListingSubmission.updated_at.desc())
         )
+        if not include_deleted:
+            stmt = stmt.where(PropertyListingSubmission.deleted_at.is_(None))
         if status:
             stmt = stmt.where(PropertyListingSubmission.status == status)
         offset = max(page - 1, 0) * limit
         stmt = stmt.offset(offset).limit(limit)
         return list(self._db.execute(stmt).all())
 
-    def count_admin_submissions(self, *, status: str | None) -> int:
+    def count_admin_submissions(self, *, status: str | None, include_deleted: bool = False) -> int:
         stmt = select(func.count(PropertyListingSubmission.id)).where(
             PropertyListingSubmission.status.in_(self.ADMIN_VISIBLE_SUBMISSION_STATUSES)
         )
+        if not include_deleted:
+            stmt = stmt.where(PropertyListingSubmission.deleted_at.is_(None))
         if status:
             stmt = stmt.where(PropertyListingSubmission.status == status)
         return int(self._db.execute(stmt).scalar() or 0)
@@ -93,6 +118,7 @@ class PropertySubmissionRepository:
                 PropertyListingSubmission.submitted_by == user_id,
                 PropertyListingSubmission.property_id.is_not(None),
                 PropertyListingSubmission.property_id.in_(property_ids),
+                PropertyListingSubmission.deleted_at.is_(None),
             )
             .order_by(PropertyListingSubmission.updated_at.desc())
         )
@@ -116,6 +142,7 @@ class PropertySubmissionRepository:
             PropertyListingSubmission.submitted_by == user_id,
             PropertyListingSubmission.property_id.is_(None),
             PropertyListingSubmission.status.in_(statuses),
+            PropertyListingSubmission.deleted_at.is_(None),
         )
         count_stmt = select(func.count(PropertyListingSubmission.id)).where(*filters)
         total = int(self._db.execute(count_stmt).scalar() or 0)
@@ -146,8 +173,16 @@ class PropertySubmissionRepository:
         stmt = select(Feature.id).where(Feature.id.in_(feature_ids))
         return len(self._db.execute(stmt).scalars().all())
 
-    def get_property(self, property_id: uuid.UUID) -> PropertyNormalized | None:
-        stmt = select(PropertyNormalized).where(PropertyNormalized.id == property_id)
+    def get_property(self, property_id: uuid.UUID, *, include_deleted: bool = False) -> PropertyNormalized | None:
+        filters = [PropertyNormalized.id == property_id]
+        if not include_deleted:
+            filters.append(PropertyNormalized.deleted_at.is_(None))
+        stmt = select(PropertyNormalized).where(and_(*filters))
+        return self._db.execute(stmt).scalar_one_or_none()
+
+    def get_property_status_by_slug(self, slug: str) -> PropertyStatus | None:
+        """Look up a property_status row by slug (case-sensitive; slugs are stored lower)."""
+        stmt = select(PropertyStatus).where(PropertyStatus.slug == slug)
         return self._db.execute(stmt).scalar_one_or_none()
 
     def get_owner_by_email_or_phone(

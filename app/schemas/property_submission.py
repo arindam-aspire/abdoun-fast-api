@@ -159,6 +159,12 @@ class PropertySubmissionSubmitRequest(BaseModel):
     confirm_submit: bool
 
 
+class AdminPropertySubmissionSubmitExistingRequest(BaseModel):
+    """Admin submits an existing draft submission by id (auto-approves)."""
+
+    confirm_submit: bool
+
+
 class PropertySubmissionSubmitResponse(BaseModel):
     submission_id: uuid.UUID
     property_id: uuid.UUID
@@ -171,6 +177,8 @@ class PropertySubmissionDeleteResponse(BaseModel):
         default=None,
         description="Normalized property id if one was removed; null when the draft had no property row yet.",
     )
+    status: str | None = Field(default=None, description="Action result status (e.g. deleted).")
+    deleted_at: str | None = Field(default=None, description="ISO timestamp when soft delete occurred.")
 
 
 AdminReviewAction = Literal["approve", "changes_requested", "reject"]
@@ -182,6 +190,18 @@ class AdminSubmissionListItem(BaseModel):
     submitted_by_name: str | None = None
     status: str
     property_id: uuid.UUID | None = None
+    agent_user_id: uuid.UUID | None = Field(
+        default=None,
+        description="Explicit assigned agent for the property (properties_normalized.agent_user_id). Null means unassigned.",
+    )
+    has_assigned_agent: bool = Field(
+        default=False,
+        description="Convenience flag derived from agent_user_id; true when an agent is explicitly assigned.",
+    )
+    property_hash: int | None = Field(
+        default=None,
+        description="Numeric property id used by GET /api/v1/properties/{property_id} (same as properties_normalized.property_hash).",
+    )
     property_title: str | None = None
     property_reference_number: str | None = None
     current_step: int
@@ -200,6 +220,10 @@ class AdminSubmissionDetailResponse(BaseModel):
     submission_id: uuid.UUID
     status: str
     property_id: uuid.UUID | None = None
+    property_hash: int | None = Field(
+        default=None,
+        description="Numeric property id used by GET /api/v1/properties/{property_id} (same as properties_normalized.property_hash).",
+    )
     submitted_by: uuid.UUID
     submitted_at: str | None = None
     reviewed_by: uuid.UUID | None = None

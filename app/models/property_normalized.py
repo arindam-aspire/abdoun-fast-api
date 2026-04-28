@@ -286,12 +286,22 @@ class PropertyNormalized(Base):
     approved_by_user_id = Column(UUID(as_uuid=True), ForeignKey(FK_USERS_ID, ondelete=ONDELETE_SET_NULL), nullable=True, index=True)
     deal_closed = Column(Boolean, default=False, nullable=False)
 
+    deleted_at = Column(DateTime(timezone=True), nullable=True, index=True)
+    deleted_by = Column(UUID(as_uuid=True), ForeignKey(FK_USERS_ID, ondelete=ONDELETE_SET_NULL), nullable=True, index=True)
+    delete_reason = Column(Text, nullable=True)
+
     # Relationships
     category = relationship("PropertyCategory", foreign_keys=[category_id])
     type = relationship("PropertyType", foreign_keys=[type_id])
     property_status = relationship("PropertyStatus", foreign_keys=[property_status_id])
     city = relationship("City", foreign_keys=[city_id])
     area_rel = relationship("Area", foreign_keys=[location_id])
+
+    # User relationships (assignment + auditing)
+    # - For admin-created properties, agent_user will be null until explicitly assigned.
+    # - For agent-created properties, created_by_user will typically be that agent.
+    created_by_user = relationship("User", foreign_keys=[created_by], lazy="selectin")
+    agent_user = relationship("User", foreign_keys=[agent_user_id], lazy="selectin")
     
     features = relationship(
         "PropertyFeature",

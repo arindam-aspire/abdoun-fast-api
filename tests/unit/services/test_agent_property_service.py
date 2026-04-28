@@ -53,7 +53,7 @@ def test_list_my_properties_maps_rows() -> None:
     sub_repo = MagicMock()
     pid = uuid.uuid4()
     user = _user()
-    prop_repo.list_properties_created_by.return_value = ([_property_row(pid)], 1)
+    prop_repo.list_properties_for_agent.return_value = ([_property_row(pid)], 1)
     sub_repo.list_submissions_linked_to_properties.return_value = {}
     sub_repo.list_draft_submissions_without_property.return_value = ([], 0)
     service = AgentPropertyService(property_repository=prop_repo, submission_repository=sub_repo)
@@ -79,7 +79,7 @@ def test_list_my_properties_includes_submission_moderation() -> None:
     sub_repo = MagicMock()
     pid = uuid.uuid4()
     user = _user()
-    prop_repo.list_properties_created_by.return_value = ([_property_row(pid)], 1)
+    prop_repo.list_properties_for_agent.return_value = ([_property_row(pid)], 1)
     sub = _submission(pid, user.id, status="submitted")
     sub_repo.list_submissions_linked_to_properties.return_value = {pid: sub}
     sub_repo.list_draft_submissions_without_property.return_value = ([], 0)
@@ -99,7 +99,7 @@ def test_list_my_properties_includes_draft_submissions() -> None:
     prop_repo = MagicMock()
     sub_repo = MagicMock()
     user = _user()
-    prop_repo.list_properties_created_by.return_value = ([], 0)
+    prop_repo.list_properties_for_agent.return_value = ([], 0)
     sub_repo.list_submissions_linked_to_properties.return_value = {}
     draft = SimpleNamespace(
         id=uuid.uuid4(),
@@ -131,7 +131,7 @@ def test_list_my_draft_submissions_separate_api_shape() -> None:
     prop_repo = MagicMock()
     sub_repo = MagicMock()
     user = _user()
-    prop_repo.list_properties_created_by.return_value = ([], 0)
+    prop_repo.list_properties_for_agent.return_value = ([], 0)
     sub_repo.list_submissions_linked_to_properties.return_value = {}
     draft1 = SimpleNamespace(
         id=uuid.uuid4(),
@@ -163,7 +163,7 @@ def test_list_my_properties_rejected_allows_edit_delete() -> None:
     sub_repo = MagicMock()
     pid = uuid.uuid4()
     user = _user()
-    prop_repo.list_properties_created_by.return_value = ([_property_row(pid)], 1)
+    prop_repo.list_properties_for_agent.return_value = ([_property_row(pid)], 1)
     sub = _submission(pid, user.id, status="rejected")
     sub.review_reason = "Too vague"
     sub_repo.list_submissions_linked_to_properties.return_value = {pid: sub}
@@ -181,7 +181,7 @@ def test_list_my_properties_approved_maps_workflow_to_verified() -> None:
     sub_repo = MagicMock()
     pid = uuid.uuid4()
     user = _user()
-    prop_repo.list_properties_created_by.return_value = ([_property_row(pid)], 1)
+    prop_repo.list_properties_for_agent.return_value = ([_property_row(pid)], 1)
     sub = _submission(pid, user.id, status="approved")
     sub_repo.list_submissions_linked_to_properties.return_value = {pid: sub}
     sub_repo.list_draft_submissions_without_property.return_value = ([], 0)
@@ -195,7 +195,7 @@ def test_list_my_properties_approved_maps_workflow_to_verified() -> None:
 def test_list_my_properties_empty() -> None:
     prop_repo = MagicMock()
     sub_repo = MagicMock()
-    prop_repo.list_properties_created_by.return_value = ([], 0)
+    prop_repo.list_properties_for_agent.return_value = ([], 0)
     sub_repo.list_submissions_linked_to_properties.return_value = {}
     sub_repo.list_draft_submissions_without_property.return_value = ([], 0)
     service = AgentPropertyService(property_repository=prop_repo, submission_repository=sub_repo)

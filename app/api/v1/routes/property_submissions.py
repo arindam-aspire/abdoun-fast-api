@@ -3,7 +3,7 @@
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 
 from app.api.v1.deps.property_submissions import get_property_submission_service
 from app.api.v1.deps.security import get_current_user
@@ -96,10 +96,11 @@ def delete_submission(
     submission_id: uuid.UUID,
     current_user: Annotated[User, Depends(get_current_user)],
     service: Annotated[PropertySubmissionService, Depends(get_property_submission_service)],
+    reason: str | None = Query(default=None, description="Optional deletion reason (soft delete)."),
 ):
     """Abandon a draft, delete after rejection, or clear *changes requested*; not allowed when pending or approved.
 
     **Edit** remains ``PATCH /{submission_id}``; use this to remove a submission the agent is allowed to drop.
     """
-    data = service.delete_submission(submission_id=submission_id, user=current_user)
+    data = service.delete_submission_with_reason(submission_id=submission_id, user=current_user, reason=reason)
     return create_success_response(data=data, message=None)

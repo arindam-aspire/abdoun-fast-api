@@ -24,7 +24,7 @@ def _settings() -> SimpleNamespace:
 
 
 def _submission(user_id: uuid.UUID) -> SimpleNamespace:
-    return SimpleNamespace(id=uuid.uuid4(), submitted_by=user_id, status="draft")
+    return SimpleNamespace(id=uuid.uuid4(), submitted_by=user_id, status="draft", deleted_at=None)
 
 
 def test_presigned_url_generation_for_each_context() -> None:
@@ -207,4 +207,25 @@ def test_submission_id_path_still_loads_submission() -> None:
     )
     repo.get_submission_by_id.assert_called_once()
     assert out.upload_url
+
+
+def test_presigned_blocks_deleted_submission_id() -> None:
+    user = SimpleNamespace(id=uuid.uuid4())
+    repo = MagicMock()
+    s3 = MagicMock()
+    submission = _submission(user.id)
+    submission.deleted_at = object()
+    repo.get_submission_by_id.return_value = submission
+    service = UploadService(repository=repo, s3_service=s3, settings=_settings())
+    with pytest.raises(HTTPException) as exc_info:
+        service.generate_presigned_upload(
+            body=PresignedUploadRequest(
+                submission_id=submission.id,
+                context="property_media_image",
+                file_name="a.jpg",
+                content_type="image/jpeg",
+            ),
+            user=user,
+        )
+    assert exc_info.value.status_code == 404
 
