@@ -99,6 +99,22 @@ class AuthRepository:
         )
         return self._db.execute(stmt).scalar_one_or_none()
 
+    def get_user_by_cognito_or_email_including_deleted(
+        self,
+        *,
+        cognito_sub: str,
+        email: str,
+    ) -> Optional[User]:
+        """Get user by cognito_sub or email, including soft-deleted users.
+
+        Used for login flows to ensure deleted users cannot re-create accounts
+        via social login callbacks.
+        """
+        stmt: Select = select(User).where(
+            or_(User.cognito_sub == cognito_sub, User.email == email),
+        )
+        return self._db.execute(stmt).scalar_one_or_none()
+
     def create_user(
         self,
         *,

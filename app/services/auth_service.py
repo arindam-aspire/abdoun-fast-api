@@ -51,6 +51,81 @@ class AuthService:
             self._media_url_signer.apply_user_response(user_response)
         return user_response
 
+    def _ensure_user_login_allowed(self, user: User) -> None:
+        """Block token issuance for inactive or deleted users (defense-in-depth)."""
+        if getattr(user, "deleted_at", None) is not None:
+            raise HTTPException(
+                status_code=HTTPStatus.FORBIDDEN,
+                detail=ErrorMessages.USER_ACCOUNT_DELETED,
+            )
+        if not getattr(user, "is_active", True):
+            raise HTTPException(
+                status_code=HTTPStatus.FORBIDDEN,
+                detail=ErrorMessages.USER_INACTIVE,
+            )
+
+    def _sync_verified_flags_from_token_payload(self, *, user: User, payload: dict) -> None:
+        updated = False
+        if payload.get("email_verified") is True and not user.is_email_verified:
+            user.is_email_verified = True
+            updated = True
+        if payload.get("phone_number_verified") is True and not user.is_phone_verified:
+            user.is_phone_verified = True
+            updated = True
+        if updated:
+            self._repo.commit()
+
+    def _requires_password_set(self, user: User) -> bool:
+        return bool(user.profile is not None and user.profile.password_set_at is None)
+
+    def _resolve_user_for_refresh_access_token(self, *, access_token: str) -> tuple[User, dict]:
+        payload = cognito_service.verify_token(access_token)
+        if not payload:
+            raise HTTPException(
+                status_code=HTTPStatus.UNAUTHORIZED,
+                detail=ErrorMessages.INVALID_TOKEN,
+            )
+
+        cognito_sub = payload.get("sub")
+        if not cognito_sub:
+            raise HTTPException(
+                status_code=HTTPStatus.UNAUTHORIZED,
+                detail=ErrorMessages.INVALID_TOKEN,
+            )
+
+        user = self._repo.get_user_by_cognito_sub_with_profile(cognito_sub)
+        if not user:
+            raise HTTPException(
+                status_code=HTTPStatus.UNAUTHORIZED,
+                detail=ErrorMessages.INVALID_TOKEN,
+            )
+        return user, payload
+
+    def _extract_social_identity(self, *, auth_result: dict) -> tuple[dict, str, str, str]:
+        id_token = auth_result.get("id_token")
+        if not id_token:
+            raise HTTPException(
+                status_code=HTTPStatus.UNAUTHORIZED,
+                detail=ErrorMessages.SOCIAL_AUTH_FAILED,
+            )
+
+        payload = cognito_service.verify_token(id_token)
+        if not payload:
+            raise HTTPException(
+                status_code=HTTPStatus.UNAUTHORIZED,
+                detail=ErrorMessages.SOCIAL_AUTH_FAILED,
+            )
+
+        email = payload.get("email")
+        cognito_sub = payload.get("sub")
+        if not email or not cognito_sub:
+            raise HTTPException(
+                status_code=HTTPStatus.UNAUTHORIZED,
+                detail=ErrorMessages.SOCIAL_AUTH_FAILED,
+            )
+        full_name = payload.get("name", Defaults.SOCIAL_USER_DEFAULT_NAME)
+        return payload, email, cognito_sub, full_name
+
     # Signup flows --------------------------------------------------------
 
     def signup(self, user_in: UserCreate) -> StandardResponse[UserResponse]:
@@ -202,6 +277,7 @@ class AuthService:
                 status_code=HTTPStatus.NOT_FOUND,
                 detail=ErrorMessages.USER_NOT_FOUND,
             )
+        self._ensure_user_login_allowed(user)
         cognito_username = user.email
         try:
             auth_result = cognito_service.login_password(
@@ -212,18 +288,8 @@ class AuthService:
             if access_token:
                 payload = cognito_service.verify_token(access_token)
                 if payload:
-                    updated = False
-                    if payload.get("email_verified") is True and not user.is_email_verified:
-                        user.is_email_verified = True
-                        updated = True
-                    if payload.get("phone_number_verified") is True and not user.is_phone_verified:
-                        user.is_phone_verified = True
-                        updated = True
-                    if updated:
-                        self._repo.commit()
-            requires_password_set = bool(
-                user.profile is not None and user.profile.password_set_at is None
-            )
+                    self._sync_verified_flags_from_token_payload(user=user, payload=payload)
+            requires_password_set = self._requires_password_set(user)
             return create_success_response(
                 data=TokenResponse(
                     access_token=auth_result["AccessToken"],
@@ -263,6 +329,7 @@ class AuthService:
                 status_code=HTTPStatus.NOT_FOUND,
                 detail=ErrorMessages.USER_NOT_FOUND,
             )
+        self._ensure_user_login_allowed(user)
         cognito_username = user.email
         try:
             response = cognito_service.login_otp_request(cognito_username)
@@ -307,6 +374,7 @@ class AuthService:
                 status_code=HTTPStatus.NOT_FOUND,
                 detail=ErrorMessages.USER_NOT_FOUND,
             )
+        self._ensure_user_login_allowed(user)
         cognito_username = user.email
         try:
             auth_result = cognito_service.login_otp_verify(
@@ -317,18 +385,8 @@ class AuthService:
             if access_token:
                 payload = cognito_service.verify_token(access_token)
                 if payload:
-                    updated = False
-                    if payload.get("email_verified") is True and not user.is_email_verified:
-                        user.is_email_verified = True
-                        updated = True
-                    if payload.get("phone_number_verified") is True and not user.is_phone_verified:
-                        user.is_phone_verified = True
-                        updated = True
-                    if updated:
-                        self._repo.commit()
-            requires_password_set = bool(
-                user.profile is not None and user.profile.password_set_at is None
-            )
+                    self._sync_verified_flags_from_token_payload(user=user, payload=payload)
+            requires_password_set = self._requires_password_set(user)
             return create_success_response(
                 data=TokenResponse(
                     access_token=auth_result["AccessToken"],
@@ -359,30 +417,15 @@ class AuthService:
             )
             access_token = auth_result["AccessToken"]
 
-            requires_password_set = False
-            payload = cognito_service.verify_token(access_token)
-            if payload:
-                cognito_sub = payload.get("sub")
-                if cognito_sub:
-                    user = self._repo.get_user_by_cognito_sub_with_profile(cognito_sub)
-                    if user:
-                        # Keep user attributes in sync during explicit auth flows (not in dependencies).
-                        updated = False
-                        if payload.get("email_verified") is True and not user.is_email_verified:
-                            user.is_email_verified = True
-                            updated = True
-                        if payload.get("phone_number_verified") is True and not user.is_phone_verified:
-                            user.is_phone_verified = True
-                            updated = True
-                        if updated:
-                            self._repo.commit()
+            user, payload = self._resolve_user_for_refresh_access_token(access_token=access_token)
+            self._ensure_user_login_allowed(user)
 
-                    if (
-                        user
-                        and user.profile
-                        and user.profile.password_set_at is None
-                    ):
-                        requires_password_set = True
+            # Keep user attributes in sync during explicit auth flows (not in dependencies).
+            self._sync_verified_flags_from_token_payload(user=user, payload=payload)
+
+            requires_password_set = bool(
+                user.profile is not None and user.profile.password_set_at is None
+            )
 
             return create_success_response(
                 data=TokenResponse(
@@ -393,6 +436,9 @@ class AuthService:
                     requires_password_set=requires_password_set,
                 )
             )
+        except HTTPException:
+            # Preserve explicit auth errors (inactive/deleted, invalid token, etc.)
+            raise
         except Exception:  # pragma: no cover - defensive
             raise HTTPException(
                 status_code=HTTPStatus.UNAUTHORIZED,
@@ -546,20 +592,11 @@ class AuthService:
     def social_callback(self, code: str) -> StandardResponse[TokenResponse]:
         try:
             auth_result = cognito_service.exchange_code_for_tokens(code)
-            id_token = auth_result.get("id_token")
+            payload, email, cognito_sub, full_name = self._extract_social_identity(
+                auth_result=auth_result
+            )
 
-            payload = cognito_service.verify_token(id_token)
-            if not payload:
-                raise HTTPException(
-                    status_code=HTTPStatus.UNAUTHORIZED,
-                    detail=ErrorMessages.SOCIAL_AUTH_FAILED,
-                )
-
-            email = payload.get("email")
-            cognito_sub = payload.get("sub")
-            full_name = payload.get("name", Defaults.SOCIAL_USER_DEFAULT_NAME)
-
-            user = self._repo.get_user_by_cognito_or_email(
+            user = self._repo.get_user_by_cognito_or_email_including_deleted(
                 cognito_sub=cognito_sub,
                 email=email,
             )
@@ -582,20 +619,14 @@ class AuthService:
                         LogMessages.Auth.SOCIAL_LOGIN_SUCCESS, email=email
                     )
                 )
-            elif not user.cognito_sub:
-                user.cognito_sub = cognito_sub
-                self._repo.commit()
-                self._repo.refresh(user)
+            else:
+                self._ensure_user_login_allowed(user)
+                if not user.cognito_sub:
+                    user.cognito_sub = cognito_sub
+                    self._repo.commit()
+                    self._repo.refresh(user)
             # Sync verified flags during explicit social auth flow.
-            updated = False
-            if payload.get("email_verified") is True and not user.is_email_verified:
-                user.is_email_verified = True
-                updated = True
-            if payload.get("phone_number_verified") is True and not user.is_phone_verified:
-                user.is_phone_verified = True
-                updated = True
-            if updated:
-                self._repo.commit()
+            self._sync_verified_flags_from_token_payload(user=user, payload=payload)
 
             return create_success_response(
                 data=TokenResponse(
@@ -603,9 +634,13 @@ class AuthService:
                     refresh_token=auth_result.get("refresh_token"),
                     id_token=auth_result.get("id_token"),
                     expires_in=auth_result["expires_in"],
+                    requires_password_set=False,
                 ),
                 message=SuccessMessages.SOCIAL_LOGIN_SUCCESSFUL,
             )
+        except HTTPException:
+            # Preserve explicit auth errors (inactive/deleted, etc.)
+            raise
         except Exception as e:  # pragma: no cover - defensive
             api_logger.error(
                 format_log_message(
