@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, Query
 from app.api.v1.deps.properties import get_property_search_service
 from app.api.v1.deps.recent_views import get_recent_view_service
 from app.api.v1.deps.security import get_current_user_optional
+from app.domains.shared.pagination import calculate_pagination
 from app.models.user import User
 from app.schemas.property import (
     PropertyDetail,
@@ -21,6 +22,7 @@ from app.services.property_search_service import PropertySearchService
 from app.services.recent_view_service import RecentViewService
 from app.utils.constants import ApiDocs, Defaults
 from app.utils.logger import api_logger
+from app.utils.responses import StandardResponse, create_success_response
 
 router = APIRouter()
 
@@ -102,18 +104,22 @@ def get_exclusive_property_search_params(
 def list_properties(
     params: Annotated[PropertySearchParams, Depends(get_property_search_params)],
     service: Annotated[PropertySearchService, Depends(get_property_search_service)],
-) -> PropertySearchResponse:
+) -> StandardResponse[PropertySearchResponse]:
     """Search properties with optional filters and pagination."""
-    return service.search(params)
+    result = service.search(params)
+    meta = calculate_pagination(page=result.page, page_size=result.pageSize, total=result.total)
+    return create_success_response(data=result, message=None, pagination=meta)
 
 
 @router.get("/exclusive")
 def list_exclusive_properties(
     params: Annotated[PropertySearchParams, Depends(get_exclusive_property_search_params)],
     service: Annotated[PropertySearchService, Depends(get_property_search_service)],
-) -> PropertySearchResponse:
+) -> StandardResponse[PropertySearchResponse]:
     """List exclusive properties with optional filters and pagination."""
-    return service.search(params)
+    result = service.search(params)
+    meta = calculate_pagination(page=result.page, page_size=result.pageSize, total=result.total)
+    return create_success_response(data=result, message=None, pagination=meta)
 
 
 @router.get("/{property_id}/similar")
@@ -122,9 +128,11 @@ def get_similar_properties(
     service: Annotated[PropertySearchService, Depends(get_property_search_service)],
     limit: Annotated[int, Query(ge=1, le=50, description=ApiDocs.MAX_SIMILAR_PROPERTIES)] = 20,
     lang: Annotated[Optional[str], Query(description=Defaults.LANG_QUERY_DESCRIPTION)] = None,
-) -> PropertySearchResponse:
+) -> StandardResponse[PropertySearchResponse]:
     """Get similar properties for a given property."""
-    return service.get_similar(property_id, limit=limit, lang=lang)
+    result = service.get_similar(property_id, limit=limit, lang=lang)
+    meta = calculate_pagination(page=result.page, page_size=result.pageSize, total=result.total)
+    return create_success_response(data=result, message=None, pagination=meta)
 
 
 @router.get("/{property_id}")
@@ -134,7 +142,7 @@ def get_property(
     recent_view_service: Annotated[RecentViewService, Depends(get_recent_view_service)],
     current_user: Annotated[Optional[User], Depends(get_current_user_optional)],
     lang: Annotated[Optional[str], Query(description=Defaults.LANG_QUERY_DESCRIPTION)] = None,
-) -> PropertyDetail:
+) -> StandardResponse[PropertyDetail]:
     """Get detailed property data and auto-track recent view for logged-in users."""
     detail, prop = service.get_detail_with_entity(property_id, lang=lang)
 
@@ -148,4 +156,4 @@ def get_property(
         except Exception as exc:  # pragma: no cover - defensive logging path
             api_logger.warning("Failed to track recent view for user %s: %s", current_user.id, exc)
 
-    return detail
+    return create_success_response(data=detail, message=None)

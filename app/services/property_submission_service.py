@@ -12,6 +12,7 @@ from typing import Any
 from fastapi import HTTPException
 from sqlalchemy.exc import IntegrityError
 
+from app.domains.shared.pagination import calculate_pagination
 from app.models.owner import Owner, PropertyOwner
 from app.models.property_listing_submission import PropertyListingSubmission
 from app.models.property_normalized import PropertyFeature, PropertyMedia, PropertyNormalized
@@ -661,13 +662,13 @@ class PropertySubmissionService:
         *,
         status: str | None,
         page: int,
-        limit: int,
+        page_size: int,
         include_deleted: bool = False,
     ) -> AdminSubmissionListResponse:
         allowed_statuses = set(PropertySubmissionRepository.ADMIN_VISIBLE_SUBMISSION_STATUSES)
         if status and status not in allowed_statuses:
             raise HTTPException(status_code=HTTPStatus.BAD_REQUEST, detail="Invalid status filter")
-        rows = self._repo.list_admin_submissions(status=status, page=page, limit=limit, include_deleted=include_deleted)
+        rows = self._repo.list_admin_submissions(status=status, page=page, limit=page_size, include_deleted=include_deleted)
         total = self._repo.count_admin_submissions(status=status, include_deleted=include_deleted)
         items = [
             AdminSubmissionListItem(
@@ -694,14 +695,23 @@ class PropertySubmissionService:
                 agent_user_id,
             ) in rows
         ]
-        return AdminSubmissionListResponse(items=items, page=page, limit=limit, total=total)
+        meta = calculate_pagination(page=page, page_size=page_size, total=total)
+        return AdminSubmissionListResponse(
+            items=items,
+            page=page,
+            total=total,
+            pageSize=meta.page_size,
+            totalPages=meta.total_pages,
+            hasNext=meta.has_next,
+            hasPrevious=meta.has_previous,
+        )
 
     def list_my_draft_submissions(
         self,
         *,
         user: User,
         page: int,
-        limit: int,
+        page_size: int,
     ):
         """List draft / in-progress submissions without a property row yet (current user).
 
@@ -730,9 +740,18 @@ class PropertySubmissionService:
                     "can_delete": True,
                 }
             )
-        offset = max(page - 1, 0) * limit
-        paged = items[offset : offset + limit]
-        return {"items": paged, "total": total, "page": page, "limit": limit}
+        offset = max(page - 1, 0) * page_size
+        paged = items[offset : offset + page_size]
+        meta = calculate_pagination(page=page, page_size=page_size, total=total)
+        return {
+            "items": paged,
+            "total": total,
+            "page": page,
+            "pageSize": meta.page_size,
+            "totalPages": meta.total_pages,
+            "hasNext": meta.has_next,
+            "hasPrevious": meta.has_previous,
+        }
 
     def get_admin_submission(self, *, submission_id: uuid.UUID) -> AdminSubmissionDetailResponse:
         submission = self._repo.get_submission_by_id(submission_id)

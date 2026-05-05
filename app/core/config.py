@@ -20,7 +20,12 @@ from pydantic import BaseModel
 # load_dotenv() automatically searches current directory and parent directories
 load_dotenv()
 
-from app.utils.constants import ConfigDefaults, ConfigErrorMessages, SystemMessages
+from app.utils.constants import (
+    ConfigDefaults,
+    ConfigErrorMessages,
+    DEV_ENVIRONMENTS,
+    SystemMessages,
+)
 
 
 def _get_database_url() -> str:
@@ -113,6 +118,17 @@ class Settings(BaseModel):
     db_pool_pre_ping: bool = os.getenv("DB_POOL_PRE_PING", "true").lower() == "true"
 
     api_v1_prefix: str = SystemMessages.API_V1_PREFIX
+    # Startup-time domain switches (default to legacy routers).
+    use_refactored_taxonomy: bool = os.getenv("USE_REFACTORED_TAXONOMY", "false").lower() == "true"
+    use_refactored_properties: bool = os.getenv("USE_REFACTORED_PROPERTIES", "false").lower() == "true"
+    use_refactored_personalization: bool = os.getenv("USE_REFACTORED_PERSONALIZATION", "false").lower() == "true"
+    use_refactored_uploads: bool = os.getenv("USE_REFACTORED_UPLOADS", "false").lower() == "true"
+    use_refactored_owners: bool = os.getenv("USE_REFACTORED_OWNERS", "false").lower() == "true"
+    use_refactored_agents: bool = os.getenv("USE_REFACTORED_AGENTS", "false").lower() == "true"
+    use_refactored_submissions: bool = os.getenv("USE_REFACTORED_SUBMISSIONS", "false").lower() == "true"
+    use_refactored_admin: bool = os.getenv("USE_REFACTORED_ADMIN", "false").lower() == "true"
+    use_refactored_users: bool = os.getenv("USE_REFACTORED_USERS", "false").lower() == "true"
+    use_refactored_auth: bool = os.getenv("USE_REFACTORED_AUTH", "false").lower() == "true"
 
     # Safer default: explicit local frontend origin(s) rather than "*".
     cors_origins: list[str] = _parse_csv_env("CORS_ORIGINS", ConfigDefaults.CORS_ORIGINS)
@@ -230,6 +246,9 @@ class Settings(BaseModel):
         "00:10",
     )
 
+    # Interactive OpenAPI (Swagger UI / ReDoc). Overridable via OPENAPI_DOCS_ENABLED.
+    openapi_docs_enabled: bool = os.getenv("OPENAPI_DOCS_ENABLED", "").lower() == "true"
+
 
 def _apply_observability_defaults(settings: Settings) -> None:
     """Apply safe observability defaults and dependency-based disables.
@@ -240,6 +259,10 @@ def _apply_observability_defaults(settings: Settings) -> None:
     # Sensible default: enable metrics in local/dev unless explicitly set.
     if "METRICS_ENABLED" not in os.environ:
         settings.metrics_enabled = settings.debug or settings.environment in {"local", "development"}
+
+    # Expose Swagger/ReDoc locally by default (DEBUG alone is often left false).
+    if "OPENAPI_DOCS_ENABLED" not in os.environ:
+        settings.openapi_docs_enabled = settings.debug or settings.environment in DEV_ENVIRONMENTS
 
     # If a dependency isn't installed, the corresponding feature must be disabled.
     if settings.metrics_enabled and importlib.util.find_spec("prometheus_client") is None:

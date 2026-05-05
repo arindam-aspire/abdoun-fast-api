@@ -73,7 +73,7 @@ class PropertySearchService:
             # Owner mapping must not break property listing endpoint.
             owner_map = {}
 
-        data: List[PropertySearchResultExtended] = [
+        items: List[PropertySearchResultExtended] = [
             self._sign_extended(
                 PropertySearchResultExtended.from_orm_obj(
                     p,
@@ -84,7 +84,7 @@ class PropertySearchService:
             for p in properties
         ]
         return PropertySearchResponse(
-            data=data, total=total, page=params.page, pageSize=params.page_size
+            items=items, total=total, page=params.page, pageSize=params.page_size
         )
 
     def _resolve_property_identifier(
@@ -125,15 +125,15 @@ class PropertySearchService:
                 detail=ErrorMessages.PROPERTY_NOT_FOUND,
             )
         results = self._repo.get_similar_properties(source_property=source, limit=limit)
-        data: List[PropertySearchResultExtended] = [
+        items: List[PropertySearchResultExtended] = [
             self._sign_extended(PropertySearchResultExtended.from_orm_obj(p, lang=lang))
             for p in results
         ]
         return PropertySearchResponse(
-            data=data,
-            total=len(data),
+            items=items,
+            total=len(items),
             page=1,
-            pageSize=len(data),
+            pageSize=len(items),
         )
 
     def get_detail(

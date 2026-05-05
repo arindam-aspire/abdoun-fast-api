@@ -11,12 +11,13 @@ from fastapi import APIRouter, Depends, UploadFile, File, Query
 
 from app.api.v1.deps.security import get_current_user, require_permission
 from app.api.v1.deps.search import get_geo_search_service, get_property_import_service
+from app.domains.shared.pagination import calculate_pagination
 from app.models.user import User
 from app.schemas.property import PropertySearchRequest, PropertyListResponse
 from app.services.geo_search_service import GeoSearchService
 from app.services.property_import_service import PropertyImportService
 from app.utils.status_codes import STATUS_CREATED
-from app.utils.responses import ImportResponse
+from app.utils.responses import ImportResponse, StandardResponse, create_success_response
 from app.utils.constants import ApiDocs, UserPermissions
 
 router = APIRouter()
@@ -26,9 +27,11 @@ router = APIRouter()
 def search_properties(
     payload: PropertySearchRequest,
     geo_search_service: Annotated[GeoSearchService, Depends(get_geo_search_service)],
-) -> PropertyListResponse:
+) -> StandardResponse[PropertyListResponse]:
     """Search properties using geo/filters defined by `PropertySearchRequest`."""
-    return geo_search_service.search(payload)
+    result = geo_search_service.search(payload)
+    meta = calculate_pagination(page=1, page_size=payload.limit, total=result.total)
+    return create_success_response(data=result, message=None, pagination=meta)
 
 
 @router.post(
@@ -44,7 +47,7 @@ async def import_csv(
         bool,
         Query(description=ApiDocs.GEOCODE_MISSING_QUERY),
     ] = False,
-) -> ImportResponse:
+) -> StandardResponse[ImportResponse]:
     """
     Import properties from CSV file.
     
@@ -53,7 +56,7 @@ async def import_csv(
       Recommended: Pre-enrich CSV with coordinates using the enrich_csv_with_coordinates script.
     """
     created_count = await import_service.import_from_csv(file, geocode_missing=geocode_missing)
-    return ImportResponse(created=created_count)
+    return create_success_response(data=ImportResponse(created=created_count), message=None)
 
 
 

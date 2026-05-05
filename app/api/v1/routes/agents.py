@@ -4,7 +4,6 @@ All behaviour delegated to AgentService; no DB or business logic in this module.
 """
 
 import json
-import math
 import uuid
 from typing import Annotated, List, Optional
 
@@ -14,6 +13,7 @@ from pydantic import ValidationError
 from app.api.v1.deps.agent_dashboard import get_agent_dashboard_service
 from app.api.v1.deps.agents import get_agent_service
 from app.api.v1.deps.security import get_current_user, require_role
+from app.domains.shared.pagination import calculate_pagination
 from app.models.user import User
 from app.schemas.user import (
     AgentDashboardSummaryResponse,
@@ -132,43 +132,34 @@ def list_agents(
     ] = 20,
     sort_by: Annotated[str, Query(alias="sortBy", description=ApiDocs.SORT_FIELD)] = "invitedAt",
     sort_order: Annotated[str, Query(alias="sortOrder", description=ApiDocs.SORT_ORDER)] = "desc",
-    # Compatibility aliases (older/other clients)
-    limit_compat: Annotated[Optional[int], Query(alias="limit", ge=1, le=100)] = None,
-    sort_by_compat: Annotated[Optional[str], Query(alias="sort_by")] = None,
-    order: Annotated[Optional[str], Query(alias="order")] = None,
     period: Annotated[Optional[str], Query(description="Invite time window: daily/weekly/monthly/all")] = None,
 ) -> StandardResponse[AgentListPaginatedResponse]:
     """Admin: List agents with pagination and filtering."""
-    effective_limit = limit_compat or page_size
-    effective_sort_by = sort_by_compat or sort_by
-    # Normalize common variants (snake_case from clients)
-    if effective_sort_by in {"invited_at", "invitedAt"}:
-        effective_sort_by = "invitedAt"
-    if effective_sort_by in {"full_name", "fullName"}:
-        effective_sort_by = "fullName"
-    effective_sort_order = order or sort_order
     agents_data, total_items = service.list_agents(
         status=status,
         search=search,
         page=page,
-        limit=effective_limit,
-        sort_by=effective_sort_by,
-        sort_order=effective_sort_order,
+        limit=page_size,
+        sort_by=sort_by,
+        sort_order=sort_order,
         period=period,
     )
     agents = [AgentListResponse(**item) for item in agents_data]
-    total_pages = math.ceil(total_items / effective_limit) if total_items > 0 else 0
+    meta = calculate_pagination(page=page, page_size=page_size, total=total_items)
     return create_success_response(
         data=AgentListPaginatedResponse(
             agents=agents,
             pagination=PaginationInfo(
-                page=page,
-                limit=effective_limit,
-                totalItems=total_items,
-                totalPages=total_pages,
+                page=meta.page,
+                pageSize=meta.page_size,
+                total=total_items,
+                totalPages=meta.total_pages,
+                hasNext=meta.has_next,
+                hasPrevious=meta.has_previous,
             ),
         ),
         message=None,
+        pagination=meta,
     )
 
 

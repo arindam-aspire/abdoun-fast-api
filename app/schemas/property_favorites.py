@@ -35,4 +35,9 @@ class FavoriteBulkCreateResponse(BaseModel):
 class FavoriteListResponse(BaseModel):
     items: List[FavoriteResponse]
     total: int
+    page: int
+    pageSize: int
+    totalPages: int
+    hasNext: bool
+    hasPrevious: bool
 

@@ -2,7 +2,7 @@
 import uuid
 from typing import Annotated, List
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 
 from app.api.v1.deps.saved_searches import get_saved_search_service
 from app.api.v1.deps.security import get_current_user
@@ -11,6 +11,7 @@ from app.schemas.saved_search import (
     SavedSearchBulkCreateRequest,
     SavedSearchCreateRequest,
     SavedSearchExecutionResponse,
+    SavedSearchListResponse,
     SavedSearchResponse,
     SavedSearchUpdateRequest,
 )
@@ -42,13 +43,15 @@ def create_saved_searches_bulk(
     return create_success_response(data=result, message=None)
 
 
-@router.get("", response_model=StandardResponse[List[SavedSearchResponse]])
+@router.get("", response_model=StandardResponse[SavedSearchListResponse])
 def list_saved_searches(
     current_user: Annotated[User, Depends(get_current_user)],
     service: Annotated[SavedSearchService, Depends(get_saved_search_service)],
+    page: Annotated[int, Query(ge=1, description="1-based page index.")] = 1,
+    page_size: Annotated[int, Query(ge=1, le=200, alias="pageSize", description="Items per page.")] = 20,
 ):
-    """List all saved searches for the current user."""
-    result = service.list_saved_searches(user=current_user)
+    """List saved searches for the current user with page-based pagination."""
+    result = service.list_saved_searches(user=current_user, page=page, page_size=page_size)
     return create_success_response(data=result, message=None)
 
 
@@ -95,8 +98,15 @@ def execute_saved_search(
     id: uuid.UUID,
     current_user: Annotated[User, Depends(get_current_user)],
     service: Annotated[SavedSearchService, Depends(get_saved_search_service)],
+    page: Annotated[int, Query(ge=1, description="1-based page index.")] = 1,
+    page_size: Annotated[int, Query(ge=1, le=200, alias="pageSize", description="Items per page.")] = 20,
 ):
-    """Execute saved-search criteria and return matching active properties."""
-    result = service.execute_saved_search(user=current_user, saved_search_id=id)
+    """Execute saved-search criteria and return paginated matching active properties."""
+    result = service.execute_saved_search(
+        user=current_user,
+        saved_search_id=id,
+        page=page,
+        page_size=page_size,
+    )
     return create_success_response(data=result, message=None)
 

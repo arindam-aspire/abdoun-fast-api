@@ -1,12 +1,12 @@
 """Agent-only endpoints (singular /agent prefix)."""
 
-import math
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
 
 from app.api.v1.deps.admin_dashboard import get_admin_dashboard_service
 from app.core.permissions import require_role
+from app.domains.shared.pagination import calculate_pagination
 from app.models.user import User
 from app.schemas.admin_dashboard import (
     AdminDashboardPropertyPerformanceResponse,
@@ -25,7 +25,7 @@ router = APIRouter()
 def get_agent_property_performance(
     current_user: Annotated[User, require_role(UserRoles.AGENT)],
     service: Annotated[AdminDashboardService, Depends(get_admin_dashboard_service)],
-    limit: Annotated[
+    period: Annotated[
         PropertyPerformancePeriod,
         Query(
             description=(
@@ -34,6 +34,13 @@ def get_agent_property_performance(
             )
         ),
     ] = PropertyPerformancePeriod.ALL,
+    limit: Annotated[
+        PropertyPerformancePeriod | None,
+        Query(
+            deprecated=True,
+            description="Deprecated alias for `period`.",
+        ),
+    ] = None,
     page: Annotated[int, Query(ge=1, description="1-based page index.")] = 1,
     page_size: Annotated[
         int,
@@ -46,22 +53,25 @@ def get_agent_property_performance(
     ] = 5,
 ) -> StandardResponse[AdminDashboardPropertyPerformanceResponse]:
     """Agent: top properties (owned by the authenticated agent) by view count; paginated."""
+    effective_period = limit or period
     data = service.get_property_performance(
-        period=limit, page=page, limit=page_size, agent_id=current_user.id
+        period=effective_period, page=page, limit=page_size, agent_id=current_user.id
     )
-    lim = int(data["limit"])
     total_items = int(data["totalItems"])
-    total_pages = math.ceil(total_items / lim) if total_items > 0 else 0
+    meta = calculate_pagination(page=int(data["page"]), page_size=page_size, total=total_items)
     return create_success_response(
         data=AdminDashboardPropertyPerformanceResponse(
             items=[PropertyPerformanceItem(**i) for i in data["items"]],
             pagination=PaginationInfo(
-                page=int(data["page"]),
-                limit=lim,
-                totalItems=total_items,
-                totalPages=total_pages,
+                page=meta.page,
+                pageSize=meta.page_size,
+                total=total_items,
+                totalPages=meta.total_pages,
+                hasNext=meta.has_next,
+                hasPrevious=meta.has_previous,
             ),
         ),
         message=None,
+        pagination=meta,
     )
 

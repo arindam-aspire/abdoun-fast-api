@@ -45,12 +45,21 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             SecurityHeadersConstants.PERMISSIONS_POLICY,
             SecurityHeadersConstants.PERMISSIONS_RESTRICTIVE,
         )
-        response.headers.setdefault(
-            SecurityHeadersConstants.CONTENT_SECURITY_POLICY,
-            SecurityHeadersConstants.CSP_API_BASELINE,
-        )
 
         settings = get_settings()
+        path = request.url.path
+        docs_prefix = f"{settings.api_v1_prefix}/docs"
+        redoc_prefix = f"{settings.api_v1_prefix}/redoc"
+        openapi_csp = (
+            SecurityHeadersConstants.CSP_OPENAPI_DOCS
+            if path.startswith(docs_prefix) or path.startswith(redoc_prefix)
+            else SecurityHeadersConstants.CSP_API_BASELINE
+        )
+        response.headers.setdefault(
+            SecurityHeadersConstants.CONTENT_SECURITY_POLICY,
+            openapi_csp,
+        )
+
         if not settings.debug and settings.environment not in DEV_ENVIRONMENTS:
             response.headers.setdefault(
                 SecurityHeadersConstants.STRICT_TRANSPORT_SECURITY,

@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, Query
 
 from app.api.v1.deps.agent_properties import get_agent_property_service
 from app.api.v1.deps.security import get_current_user
+from app.domains.shared.pagination import calculate_pagination
 from app.models.user import User
 from app.schemas.agent_properties import AgentDraftSubmissionListResponse, AgentPropertyListResponse
 from app.services.agent_property_service import AgentPropertyService
@@ -23,7 +24,7 @@ def list_agent_properties(
     current_user: Annotated[User, Depends(get_current_user)],
     service: Annotated[AgentPropertyService, Depends(get_agent_property_service)],
     page: int = Query(default=1, ge=1, description="1-based page"),
-    limit: int = Query(default=20, ge=1, le=200, description="Page size (max 200)"),
+    page_size: int = Query(default=20, ge=1, le=200, alias="pageSize", description="Items per page (max 200)."),
     include_drafts: bool = Query(
         default=False,
         description="When true, include `draft_submissions` in the response. Prefer using `/agent-properties/drafts`.",
@@ -36,8 +37,9 @@ def list_agent_properties(
     ``status_slug`` from ``property_status``). **draft_submissions** lists in-progress wizards
     with no ``property_id`` yet (matches extra rows you see only in that SQL table).
     """
-    data = service.list_my_properties(user=current_user, page=page, limit=limit, include_drafts=include_drafts)
-    return create_success_response(data=data, message=None)
+    data = service.list_my_properties(user=current_user, page=page, page_size=page_size, include_drafts=include_drafts)
+    pm = calculate_pagination(page=data.page, page_size=data.pageSize, total=data.total)
+    return create_success_response(data=data, message=None, pagination=pm)
 
 
 @router.get("/drafts", response_model=StandardResponse[AgentDraftSubmissionListResponse])
@@ -45,8 +47,9 @@ def list_agent_drafts(
     current_user: Annotated[User, Depends(get_current_user)],
     service: Annotated[AgentPropertyService, Depends(get_agent_property_service)],
     page: int = Query(default=1, ge=1, description="1-based page"),
-    limit: int = Query(default=20, ge=1, le=200, description="Page size (max 200)"),
+    page_size: int = Query(default=20, ge=1, le=200, alias="pageSize", description="Items per page (max 200)."),
 ):
     """Draft-only list for the agent dashboard (no normalized property row yet)."""
-    data = service.list_my_draft_submissions(user=current_user, page=page, limit=limit)
-    return create_success_response(data=data, message=None)
+    data = service.list_my_draft_submissions(user=current_user, page=page, page_size=page_size)
+    pm = calculate_pagination(page=data.page, page_size=data.pageSize, total=data.total)
+    return create_success_response(data=data, message=None, pagination=pm)

@@ -65,7 +65,10 @@ class AgentPropertyListResponse(BaseModel):
     items: list[AgentPropertyListItem]
     total: int
     page: int
-    limit: int
+    pageSize: int
+    totalPages: int
+    hasNext: bool
+    hasPrevious: bool
     # Only included when `include_drafts=true` on the endpoint.
     draft_submissions: list[AgentDraftSubmissionItem] | None = Field(
         default=None,
@@ -80,4 +83,7 @@ class AgentDraftSubmissionListResponse(BaseModel):
     items: list[AgentDraftSubmissionItem]
     total: int
     page: int
-    limit: int
+    pageSize: int
+    totalPages: int
+    hasNext: bool
+    hasPrevious: bool

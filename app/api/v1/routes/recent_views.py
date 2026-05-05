@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends
 
 from app.api.v1.deps.recent_views import get_recent_view_service
 from app.api.v1.deps.security import get_current_user
+from app.domains.shared.pagination import calculate_pagination
 from app.models.user import User
 from app.schemas.recent_view import (
     RecentViewsListResponse,
@@ -45,7 +46,8 @@ def list_recent_views(
 ):
     """Return latest 10 recently viewed properties for the current user."""
     recent_views = service.list_recent_views(user_id=current_user.id)
-    return create_success_response(data=recent_views, message=None)
+    pm = calculate_pagination(page=1, page_size=max(recent_views.total, 1), total=recent_views.total)
+    return create_success_response(data=recent_views, message=None, pagination=pm)
 
 
 @router.delete(

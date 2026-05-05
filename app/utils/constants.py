@@ -500,6 +500,16 @@ class SecurityHeadersConstants:
     REFERRER_STRICT_ORIGIN = "strict-origin-when-cross-origin"
     PERMISSIONS_RESTRICTIVE = "geolocation=(), microphone=(), camera=()"
     CSP_API_BASELINE = "default-src 'none'; frame-ancestors 'none';"
+    # Swagger UI (FastAPI default) loads bundle + CSS from jsDelivr, not only 'self'.
+    CSP_OPENAPI_DOCS = (
+        "default-src 'self'; "
+        "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+        "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+        "img-src 'self' data: https:; "
+        "font-src 'self' data: https://cdn.jsdelivr.net; "
+        "connect-src 'self'; "
+        "frame-ancestors 'none';"
+    )
     HSTS_MAX_AGE = "max-age=31536000; includeSubDomains"
 
 

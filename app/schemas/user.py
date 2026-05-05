@@ -136,12 +136,18 @@ class UserTypeQuery(str, Enum):
 
 
 class UsersListPaginatedResponse(BaseModel):
-    """Admin user list with pagination (totals aligned with property search: total, page, pageSize)."""
+    """Admin user list with pagination.
+
+    ``pageSize``, ``totalPages``, ``hasNext``, ``hasPrevious`` are the canonical fields per policy.
+    """
 
     users: List[UserResponse]
     total: int
     page: int
     pageSize: int
+    totalPages: int
+    hasNext: bool
+    hasPrevious: bool
 
     model_config = {"from_attributes": True}
 
@@ -491,11 +497,14 @@ class AgentDeleteResponse(BaseModel):
 
 
 class PaginationInfo(BaseModel):
-    """Pagination metadata"""
+    """Pagination metadata (canonical format)."""
+
     page: int
-    limit: int
-    totalItems: int
+    pageSize: int
+    total: int
     totalPages: int
+    hasNext: bool
+    hasPrevious: bool
 
 
 class AgentListPaginatedResponse(BaseModel):

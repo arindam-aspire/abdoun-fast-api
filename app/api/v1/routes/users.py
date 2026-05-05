@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, Query
 from app.api.v1.deps.media_urls import get_media_url_signer
 from app.api.v1.deps.security import get_current_user, require_permission
 from app.api.v1.deps.users import get_user_service
+from app.domains.shared.pagination import calculate_pagination
 from app.models.user import User
 from app.schemas.user import (
     RoleAssignmentRequest,
@@ -69,13 +70,17 @@ def list_users(
         is_active=is_active,
         period=period,
     )
+    meta = calculate_pagination(page=page, page_size=page_size, total=total)
     body = UsersListPaginatedResponse(
         users=[media_signer.user_response_from_orm(u) for u in users],
         total=total,
         page=page,
         pageSize=page_size,
+        totalPages=meta.total_pages,
+        hasNext=meta.has_next,
+        hasPrevious=meta.has_previous,
     )
-    return create_success_response(data=body, message=None)
+    return create_success_response(data=body, message=None, pagination=meta)
 
 
 @router.get(

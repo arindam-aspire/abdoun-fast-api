@@ -1,10 +1,11 @@
 """Authenticated favorites endpoints for user property favorites."""
 from typing import Annotated
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 
 from app.api.v1.deps.favorites import get_favorite_service
 from app.api.v1.deps.security import get_current_user
+from app.domains.shared.pagination import calculate_pagination
 from app.models.user import User
 from app.schemas.property_favorites import (
     FavoriteBulkCreateRequest,
@@ -54,10 +55,13 @@ def add_favorites_bulk(
 def list_favorites(
     current_user: Annotated[User, Depends(get_current_user)],
     service: Annotated[FavoriteService, Depends(get_favorite_service)],
+    page: Annotated[int, Query(ge=1, description="1-based page index.")] = 1,
+    page_size: Annotated[int, Query(ge=1, le=200, alias="pageSize", description="Items per page.")] = 20,
 ):
-    """List all favorites for the current user."""
-    favorites = service.list_favorites(user=current_user)
-    return create_success_response(data=favorites, message=None)
+    """List favorites for the current user with page-based pagination."""
+    favorites = service.list_favorites(user=current_user, page=page, page_size=page_size)
+    pm = calculate_pagination(page=favorites.page, page_size=favorites.pageSize, total=favorites.total)
+    return create_success_response(data=favorites, message=None, pagination=pm)
 
 
 @router.delete("/{property_hash}", response_model=StandardResponse[bool])

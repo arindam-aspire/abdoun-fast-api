@@ -1,6 +1,5 @@
 """Platform admin routes (global KPIs, not per-admin agent scope)."""
 
-import math
 import uuid
 from typing import Annotated, Optional
 
@@ -8,6 +7,7 @@ from fastapi import APIRouter, Depends, Query
 
 from app.api.v1.deps.admin_dashboard import get_admin_dashboard_service
 from app.core.permissions import require_role
+from app.domains.shared.pagination import calculate_pagination
 from app.models.user import User
 from app.schemas.admin_dashboard import (
     AdminDashboardKpisResponse,
@@ -78,38 +78,31 @@ def get_admin_property_performance(
         ),
     ] = 5,
     # Compatibility alias (older clients used `limit` for the period/window)
-    limit_compat: Annotated[
-        Optional[PropertyPerformancePeriod],
-        Query(
-            alias="limit",
-            deprecated=True,
-            description="Deprecated. Use `period` instead (all/weekly/monthly/yearly).",
-        ),
-    ] = None,
     agentId: Annotated[
         Optional[uuid.UUID],
         Query(description="If set, restrict to this agent’s listings only."),
     ] = None,
 ) -> StandardResponse[AdminDashboardPropertyPerformanceResponse]:
     """Top properties by view count for the bar chart; paginated (see ``pagination`` in the payload)."""
-    effective_period = limit_compat or period
     data = service.get_property_performance(
-        period=effective_period, page=page, limit=page_size, agent_id=agentId
+        period=period, page=page, limit=page_size, agent_id=agentId
     )
-    lim = int(data["limit"])
     total_items = int(data["totalItems"])
-    total_pages = math.ceil(total_items / lim) if total_items > 0 else 0
+    meta = calculate_pagination(page=int(data["page"]), page_size=page_size, total=total_items)
     return create_success_response(
         data=AdminDashboardPropertyPerformanceResponse(
             items=[PropertyPerformanceItem(**i) for i in data["items"]],
             pagination=PaginationInfo(
-                page=int(data["page"]),
-                limit=lim,
-                totalItems=total_items,
-                totalPages=total_pages,
+                page=meta.page,
+                pageSize=meta.page_size,
+                total=total_items,
+                totalPages=meta.total_pages,
+                hasNext=meta.has_next,
+                hasPrevious=meta.has_previous,
             ),
         ),
         message=None,
+        pagination=meta,
     )
 
 

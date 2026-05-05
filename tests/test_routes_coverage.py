@@ -315,8 +315,8 @@ def _fake_user_service():
 
 def _fake_property_search_service():
     s = MagicMock()
-    s.search.return_value = MagicMock(data=[], total=0, page=1, pageSize=20)
-    s.get_similar.return_value = MagicMock(data=[], total=0, page=1, pageSize=0)
+    s.search.return_value = MagicMock(items=[], total=0, page=1, pageSize=20)
+    s.get_similar.return_value = MagicMock(items=[], total=0, page=1, pageSize=0)
     s.get_detail.return_value = MagicMock(id=str(uuid.uuid4()), title="P")
     return s
 

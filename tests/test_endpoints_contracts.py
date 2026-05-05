@@ -11,6 +11,7 @@ from tests.api_contracts.expected_contracts import (
     EXPECTED_STATUS,
     LOCATION_RESPONSE_KEYS,
     PROPERTY_SEARCH_RESPONSE_KEYS,
+    STANDARD_RESPONSE_KEYS,
 )
 
 client = TestClient(app)
@@ -27,38 +28,44 @@ def test_health_returns_ok():
 
 
 def test_list_properties_response_shape(db_available):
-    """GET /api/v1/properties - response has data, total, page, pageSize."""
+    """GET /api/v1/properties - envelope plus inner search payload."""
     if not db_available:
         pytest.skip("PostgreSQL not available")
     r = client.get("/api/v1/properties?pageSize=2")
     assert r.status_code == EXPECTED_STATUS["properties_list_ok"]
     data = r.json()
+    for key in STANDARD_RESPONSE_KEYS:
+        assert key in data, f"Missing envelope key: {key}"
+    inner = data["data"]
     for key in PROPERTY_SEARCH_RESPONSE_KEYS:
-        assert key in data, f"Missing key: {key}"
-    assert isinstance(data["data"], list)
+        assert key in inner, f"Missing key: {key}"
+    assert isinstance(inner["items"], list)
+    assert "pagination" in data["meta"]
 
 
 def test_properties_exclusive_response_shape(db_available):
-    """GET /api/v1/properties/exclusive - same shape as list."""
+    """GET /api/v1/properties/exclusive - same inner shape as list."""
     if not db_available:
         pytest.skip("PostgreSQL not available")
     r = client.get("/api/v1/properties/exclusive?pageSize=2")
     assert r.status_code == EXPECTED_STATUS["properties_exclusive_ok"]
     data = r.json()
+    inner = data["data"]
     for key in PROPERTY_SEARCH_RESPONSE_KEYS:
-        assert key in data
+        assert key in inner
 
 
 def test_location_taxonomy_response_shape(db_available):
-    """GET /api/v1/location-taxonomy - returns data list and total."""
+    """GET /api/v1/location-taxonomy - envelope; inner payload has data list and total."""
     if not db_available:
         pytest.skip("PostgreSQL not available")
     r = client.get("/api/v1/location-taxonomy")
     assert r.status_code == EXPECTED_STATUS["location_taxonomy_ok"]
     data = r.json()
+    inner = data["data"]
     for key in LOCATION_RESPONSE_KEYS:
-        assert key in data
-    assert isinstance(data["data"], list)
+        assert key in inner
+    assert isinstance(inner["data"], list)
 
 
 def test_geo_search_accepts_payload(db_available):
@@ -75,8 +82,9 @@ def test_geo_search_accepts_payload(db_available):
     )
     assert r.status_code == EXPECTED_STATUS["geo_search_ok"]
     data = r.json()
-    assert "items" in data
-    assert "total" in data
+    inner = data["data"]
+    assert "items" in inner
+    assert "total" in inner
 
 
 # ---- Step 2: Typical validation / not found ----

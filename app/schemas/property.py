@@ -1508,15 +1508,15 @@ class PropertySearchParams(BaseModel):
 
 class PropertySearchResponse(BaseModel):
     """
-    Search API response matching the exact frontend contract.
-    
+    Search API inner payload (inside standard envelope ``data``).
+
     Attributes:
-        data: List of property search results
+        items: List of property search results
         total: Total number of properties matching filters
         page: Current page number (1-based)
         pageSize: Number of items per page
     """
-    data: List[PropertySearchResultExtended]
+    items: List[PropertySearchResultExtended]
     total: int
     page: int
     pageSize: int

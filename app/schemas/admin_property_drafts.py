@@ -22,8 +22,13 @@ class AdminDraftSubmissionItem(BaseModel):
 
 
 class AdminDraftSubmissionListResponse(BaseModel):
+    """Admin draft submission list with pagination."""
+
     items: list[AdminDraftSubmissionItem]
     total: int
     page: int
-    limit: int
+    pageSize: int
+    totalPages: int
+    hasNext: bool
+    hasPrevious: bool
 

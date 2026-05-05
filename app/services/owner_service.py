@@ -6,9 +6,11 @@ from fastapi import HTTPException
 from sqlalchemy.exc import IntegrityError
 
 from app.models.owner import Owner, PropertyOwner
+from app.domains.shared.pagination import calculate_pagination
 from app.repositories.owner_repository import OwnerRepository
 from app.schemas.owner import (
     OwnerCreate,
+    OwnerListResponse,
     OwnerResponse,
     OwnerUpdate,
     OwnerWithMappingsResponse,
@@ -25,9 +27,22 @@ class OwnerService:
     def __init__(self, repository: OwnerRepository) -> None:
         self._repo = repository
 
-    def list_owners(self, *, limit: int, offset: int) -> List[OwnerResponse]:
-        owners = self._repo.list_owners(limit=limit, offset=offset)
-        return [OwnerResponse.model_validate(owner) for owner in owners]
+    def list_owners(self, *, page: int, page_size: int) -> OwnerListResponse:
+        safe_page = max(1, int(page))
+        safe_page_size = max(1, int(page_size))
+        offset = (safe_page - 1) * safe_page_size
+        owners = self._repo.list_owners(limit=safe_page_size, offset=offset)
+        total = self._repo.count_owners()
+        meta = calculate_pagination(page=safe_page, page_size=safe_page_size, total=total)
+        return OwnerListResponse(
+            items=[OwnerResponse.model_validate(owner) for owner in owners],
+            total=total,
+            page=meta.page,
+            pageSize=meta.page_size,
+            totalPages=meta.total_pages,
+            hasNext=meta.has_next,
+            hasPrevious=meta.has_previous,
+        )
 
     def get_owner(self, owner_id: uuid.UUID) -> OwnerWithMappingsResponse:
         owner = self._repo.get_owner_by_id(owner_id)

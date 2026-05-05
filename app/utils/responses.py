@@ -1,29 +1,47 @@
 """Standard API response models and helpers: StandardResponse, ErrorResponse, PaginatedResponse, ImportResponse, create_*."""
 
-from typing import Any, List, TypeVar, Generic, Optional
-from pydantic import BaseModel
+from __future__ import annotations
 
-T = TypeVar('T')
+from typing import Any, Generic, List, Optional, TypeVar
+
+from pydantic import BaseModel, Field
+
+from app.domains.shared.pagination import PaginationMeta
+from app.domains.shared.responses import merge_meta, pagination_public
+
+T = TypeVar("T")
+
+
+class ApiErrorBody(BaseModel):
+    """Structured error payload inside the standard envelope."""
+
+    code: str
+    details: dict[str, Any] = Field(default_factory=dict)
 
 
 class StandardResponse(BaseModel, Generic[T]):
-    """Standard API response wrapper"""
+    """Standard API success envelope."""
+
     success: bool = True
-    data: Optional[T] = None
     message: Optional[str] = None
-    error: Optional[str] = None
+    data: Optional[T] = None
+    error: Optional[ApiErrorBody] = None
+    meta: dict[str, Any] = Field(default_factory=dict)
 
 
 class ErrorResponse(BaseModel):
-    """Standard error response format"""
+    """Standard API error envelope (for programmatic JSON errors)."""
+
     success: bool = False
-    error: str
-    detail: Optional[str] = None
-    status_code: Optional[int] = None
+    message: str
+    data: None = None
+    error: ApiErrorBody
+    meta: dict[str, Any] = Field(default_factory=dict)
 
 
 class PaginatedResponse(BaseModel, Generic[T]):
-    """Standard paginated response format"""
+    """Legacy flat paginated payload (items + fields); prefer domain pagination helpers for new code."""
+
     items: List[T]
     total: int
     limit: Optional[int] = None
@@ -31,7 +49,8 @@ class PaginatedResponse(BaseModel, Generic[T]):
 
 
 class ImportResponse(BaseModel):
-    """Response format for CSV import operations"""
+    """Response format for CSV import operations."""
+
     created: int
     updated: Optional[int] = None
     skipped: Optional[int] = None
@@ -40,25 +59,39 @@ class ImportResponse(BaseModel):
 def create_error_response(
     error: str,
     detail: Optional[str] = None,
-    status_code: Optional[int] = None
+    status_code: Optional[int] = None,
 ) -> ErrorResponse:
-    """Helper function to create standardized error responses"""
+    """Build a standardized error envelope."""
+    details: dict[str, Any] = {}
+    if detail is not None:
+        details["detail"] = detail
+    code = f"HTTP_{status_code}" if status_code is not None else "ERROR"
     return ErrorResponse(
-        success=False,
-        error=error,
-        detail=detail,
-        status_code=status_code
+        message=error,
+        error=ApiErrorBody(code=code, details=details),
     )
 
 
 def create_success_response(
     data: Any,
-    message: Optional[str] = None
-) -> StandardResponse:
-    """Build a standardized success StandardResponse. Args: data, optional message. Returns: StandardResponse."""
+    message: Optional[str] = None,
+    meta: Optional[dict[str, Any]] = None,
+    *,
+    pagination: Optional[PaginationMeta] = None,
+) -> StandardResponse[Any]:
+    """Build a standardized success StandardResponse.
+
+    Args:
+        data: Domain payload.
+        message: Optional human-readable message.
+        meta: Optional extra metadata merged into ``meta``.
+        pagination: When set, adds ``meta.pagination`` from shared pagination rules.
+    """
+    merged = merge_meta(meta, {"pagination": pagination_public(pagination)} if pagination else None)
     return StandardResponse(
         success=True,
+        message=message,
         data=data,
-        message=message
+        error=None,
+        meta=merged,
     )
-

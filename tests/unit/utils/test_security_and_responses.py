@@ -4,7 +4,7 @@ from typing import Any, cast
 
 import pytest
 
-from app.utils.responses import create_error_response, create_success_response
+from app.utils.responses import ApiErrorBody, create_error_response, create_success_response
 from app.utils.security import validate_input_length
 from app.utils.status_codes import HTTPStatus
 from app.utils.constants import ErrorMessages
@@ -29,6 +29,8 @@ def test_create_success_response_wraps_data_and_message() -> None:
     assert r.success is True
     assert r.data == {"k": "v"}
     assert r.message == SuccessMessages.LOGIN_SUCCESSFUL
+    assert r.error is None
+    assert r.meta == {}
 
 
 def test_create_error_response_sets_error_fields() -> None:
@@ -38,7 +40,9 @@ def test_create_error_response_sets_error_fields() -> None:
         status_code=HTTPStatus.BAD_REQUEST,
     )
     assert r.success is False
-    assert r.error == ErrorMessages.REQUEST_FAILED
-    assert r.detail == ErrorMessages.VALIDATION_ERROR
-    assert r.status_code == HTTPStatus.BAD_REQUEST
+    assert r.message == ErrorMessages.REQUEST_FAILED
+    assert r.data is None
+    assert r.error.code == "HTTP_400"
+    assert r.error.details.get("detail") == ErrorMessages.VALIDATION_ERROR
+    assert r.meta == {}
 

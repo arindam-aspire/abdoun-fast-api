@@ -1,0 +1,4609 @@
+{
+  "tables": {
+    "activity_logs": {
+      "columns": [
+        {
+          "name": "id",
+          "type": "UUID",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "user_id",
+          "type": "UUID",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "property_id",
+          "type": "UUID",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "activity_type",
+          "type": "VARCHAR(50)",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "message",
+          "type": "TEXT",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "tone",
+          "type": "VARCHAR(20)",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "created_at",
+          "type": "TIMESTAMP",
+          "nullable": false,
+          "default": "now()",
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "updated_at",
+          "type": "TIMESTAMP",
+          "nullable": false,
+          "default": "now()",
+          "autoincrement": false,
+          "comment": null
+        }
+      ],
+      "primary_key": {
+        "constrained_columns": [
+          "id"
+        ],
+        "name": "activity_logs_pkey",
+        "comment": null
+      },
+      "foreign_keys": [
+        {
+          "name": "activity_logs_property_id_fkey",
+          "constrained_columns": [
+            "property_id"
+          ],
+          "referred_schema": null,
+          "referred_table": "properties_normalized",
+          "referred_columns": [
+            "id"
+          ],
+          "options": {
+            "ondelete": "SET NULL"
+          },
+          "comment": null
+        }
+      ],
+      "indexes": [
+        {
+          "name": "ix_activity_logs_created_at",
+          "unique": false,
+          "column_names": [
+            "created_at"
+          ],
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        },
+        {
+          "name": "ix_activity_logs_user_id",
+          "unique": false,
+          "column_names": [
+            "user_id"
+          ],
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        }
+      ],
+      "unique_constraints": []
+    },
+    "admin_agent_assignments": {
+      "columns": [
+        {
+          "name": "id",
+          "type": "UUID",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "admin_id",
+          "type": "UUID",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "agent_id",
+          "type": "UUID",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "is_active",
+          "type": "BOOLEAN",
+          "nullable": false,
+          "default": "true",
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "assigned_at",
+          "type": "TIMESTAMP",
+          "nullable": false,
+          "default": "now()",
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "revoked_at",
+          "type": "TIMESTAMP",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "can_inherit_privileges",
+          "type": "BOOLEAN",
+          "nullable": false,
+          "default": "false",
+          "autoincrement": false,
+          "comment": null
+        }
+      ],
+      "primary_key": {
+        "constrained_columns": [
+          "id"
+        ],
+        "name": "admin_agent_assignments_pkey",
+        "comment": null
+      },
+      "foreign_keys": [
+        {
+          "name": "admin_agent_assignments_admin_id_fkey",
+          "constrained_columns": [
+            "admin_id"
+          ],
+          "referred_schema": null,
+          "referred_table": "users",
+          "referred_columns": [
+            "id"
+          ],
+          "options": {
+            "ondelete": "CASCADE"
+          },
+          "comment": null
+        },
+        {
+          "name": "admin_agent_assignments_agent_id_fkey",
+          "constrained_columns": [
+            "agent_id"
+          ],
+          "referred_schema": null,
+          "referred_table": "users",
+          "referred_columns": [
+            "id"
+          ],
+          "options": {
+            "ondelete": "CASCADE"
+          },
+          "comment": null
+        }
+      ],
+      "indexes": [],
+      "unique_constraints": []
+    },
+    "agent_invites": {
+      "columns": [
+        {
+          "name": "id",
+          "type": "UUID",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "email",
+          "type": "VARCHAR(255)",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "invited_by",
+          "type": "UUID",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "token",
+          "type": "VARCHAR(100)",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "expires_at",
+          "type": "TIMESTAMP",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "is_used",
+          "type": "BOOLEAN",
+          "nullable": false,
+          "default": "false",
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "created_at",
+          "type": "TIMESTAMP",
+          "nullable": false,
+          "default": "now()",
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "invited_at",
+          "type": "TIMESTAMP",
+          "nullable": true,
+          "default": "now()",
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "revoked_at",
+          "type": "TIMESTAMP",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "revoked_by",
+          "type": "UUID",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        }
+      ],
+      "primary_key": {
+        "constrained_columns": [
+          "id"
+        ],
+        "name": "agent_invites_pkey",
+        "comment": null
+      },
+      "foreign_keys": [
+        {
+          "name": "agent_invites_invited_by_fkey",
+          "constrained_columns": [
+            "invited_by"
+          ],
+          "referred_schema": null,
+          "referred_table": "users",
+          "referred_columns": [
+            "id"
+          ],
+          "options": {
+            "ondelete": "CASCADE"
+          },
+          "comment": null
+        },
+        {
+          "name": "fk_agent_invites_revoked_by",
+          "constrained_columns": [
+            "revoked_by"
+          ],
+          "referred_schema": null,
+          "referred_table": "users",
+          "referred_columns": [
+            "id"
+          ],
+          "options": {
+            "ondelete": "SET NULL"
+          },
+          "comment": null
+        }
+      ],
+      "indexes": [
+        {
+          "name": "ix_agent_invites_email",
+          "unique": false,
+          "column_names": [
+            "email"
+          ],
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        },
+        {
+          "name": "ix_agent_invites_token",
+          "unique": true,
+          "column_names": [
+            "token"
+          ],
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        }
+      ],
+      "unique_constraints": []
+    },
+    "agent_profiles": {
+      "columns": [
+        {
+          "name": "user_id",
+          "type": "UUID",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "service_area",
+          "type": "VARCHAR(255)",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "approved_by",
+          "type": "UUID",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "approved_at",
+          "type": "TIMESTAMP",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "status",
+          "type": "VARCHAR(20)",
+          "nullable": false,
+          "default": "'INVITED'::character varying",
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "reviewed_by",
+          "type": "UUID",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "reviewed_at",
+          "type": "TIMESTAMP",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "form_submitted_at",
+          "type": "TIMESTAMP",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "password_set_at",
+          "type": "TIMESTAMP",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "decline_reason",
+          "type": "TEXT",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "deleted_at",
+          "type": "TIMESTAMP",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "deleted_by",
+          "type": "UUID",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "status_reason",
+          "type": "TEXT",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        }
+      ],
+      "primary_key": {
+        "constrained_columns": [
+          "user_id"
+        ],
+        "name": "agent_profiles_pkey",
+        "comment": null
+      },
+      "foreign_keys": [
+        {
+          "name": "agent_profiles_approved_by_fkey",
+          "constrained_columns": [
+            "approved_by"
+          ],
+          "referred_schema": null,
+          "referred_table": "users",
+          "referred_columns": [
+            "id"
+          ],
+          "options": {
+            "ondelete": "SET NULL"
+          },
+          "comment": null
+        },
+        {
+          "name": "agent_profiles_user_id_fkey",
+          "constrained_columns": [
+            "user_id"
+          ],
+          "referred_schema": null,
+          "referred_table": "users",
+          "referred_columns": [
+            "id"
+          ],
+          "options": {
+            "ondelete": "CASCADE"
+          },
+          "comment": null
+        },
+        {
+          "name": "fk_agent_profiles_deleted_by",
+          "constrained_columns": [
+            "deleted_by"
+          ],
+          "referred_schema": null,
+          "referred_table": "users",
+          "referred_columns": [
+            "id"
+          ],
+          "options": {
+            "ondelete": "SET NULL"
+          },
+          "comment": null
+        },
+        {
+          "name": "fk_agent_profiles_reviewed_by",
+          "constrained_columns": [
+            "reviewed_by"
+          ],
+          "referred_schema": null,
+          "referred_table": "users",
+          "referred_columns": [
+            "id"
+          ],
+          "options": {
+            "ondelete": "SET NULL"
+          },
+          "comment": null
+        }
+      ],
+      "indexes": [
+        {
+          "name": "ix_agent_profiles_deleted_at",
+          "unique": false,
+          "column_names": [
+            "deleted_at"
+          ],
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        },
+        {
+          "name": "ix_agent_profiles_status",
+          "unique": false,
+          "column_names": [
+            "status"
+          ],
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        }
+      ],
+      "unique_constraints": []
+    },
+    "alembic_version": {
+      "columns": [
+        {
+          "name": "version_num",
+          "type": "VARCHAR(32)",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        }
+      ],
+      "primary_key": {
+        "constrained_columns": [
+          "version_num"
+        ],
+        "name": "alembic_version_pkc",
+        "comment": null
+      },
+      "foreign_keys": [],
+      "indexes": [],
+      "unique_constraints": []
+    },
+    "areas": {
+      "columns": [
+        {
+          "name": "id",
+          "type": "INTEGER",
+          "nullable": false,
+          "default": "nextval('areas_id_seq'::regclass)",
+          "autoincrement": true,
+          "comment": null
+        },
+        {
+          "name": "city_id",
+          "type": "INTEGER",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "name",
+          "type": "VARCHAR(100)",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "is_active",
+          "type": "BOOLEAN",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "created_at",
+          "type": "TIMESTAMP",
+          "nullable": true,
+          "default": "now()",
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "updated_at",
+          "type": "TIMESTAMP",
+          "nullable": true,
+          "default": "now()",
+          "autoincrement": false,
+          "comment": null
+        }
+      ],
+      "primary_key": {
+        "constrained_columns": [
+          "id"
+        ],
+        "name": "areas_pkey",
+        "comment": null
+      },
+      "foreign_keys": [
+        {
+          "name": "areas_city_id_fkey",
+          "constrained_columns": [
+            "city_id"
+          ],
+          "referred_schema": null,
+          "referred_table": "cities",
+          "referred_columns": [
+            "id"
+          ],
+          "options": {},
+          "comment": null
+        }
+      ],
+      "indexes": [
+        {
+          "name": "ix_areas_id",
+          "unique": false,
+          "column_names": [
+            "id"
+          ],
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        }
+      ],
+      "unique_constraints": []
+    },
+    "category_features": {
+      "columns": [
+        {
+          "name": "id",
+          "type": "INTEGER",
+          "nullable": false,
+          "default": "nextval('category_features_id_seq'::regclass)",
+          "autoincrement": true,
+          "comment": null
+        },
+        {
+          "name": "category_id",
+          "type": "INTEGER",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "feature_id",
+          "type": "INTEGER",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "created_at",
+          "type": "TIMESTAMP",
+          "nullable": true,
+          "default": "now()",
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "updated_at",
+          "type": "TIMESTAMP",
+          "nullable": true,
+          "default": "now()",
+          "autoincrement": false,
+          "comment": null
+        }
+      ],
+      "primary_key": {
+        "constrained_columns": [
+          "id"
+        ],
+        "name": "category_features_pkey",
+        "comment": null
+      },
+      "foreign_keys": [
+        {
+          "name": "category_features_category_id_fkey",
+          "constrained_columns": [
+            "category_id"
+          ],
+          "referred_schema": null,
+          "referred_table": "property_categories",
+          "referred_columns": [
+            "id"
+          ],
+          "options": {},
+          "comment": null
+        },
+        {
+          "name": "category_features_feature_id_fkey",
+          "constrained_columns": [
+            "feature_id"
+          ],
+          "referred_schema": null,
+          "referred_table": "features",
+          "referred_columns": [
+            "id"
+          ],
+          "options": {},
+          "comment": null
+        }
+      ],
+      "indexes": [
+        {
+          "name": "ix_category_features_id",
+          "unique": false,
+          "column_names": [
+            "id"
+          ],
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        }
+      ],
+      "unique_constraints": []
+    },
+    "category_search_fields": {
+      "columns": [
+        {
+          "name": "id",
+          "type": "INTEGER",
+          "nullable": false,
+          "default": "nextval('category_search_fields_id_seq'::regclass)",
+          "autoincrement": true,
+          "comment": null
+        },
+        {
+          "name": "category_id",
+          "type": "INTEGER",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "field_id",
+          "type": "INTEGER",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "is_required",
+          "type": "BOOLEAN",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "created_at",
+          "type": "TIMESTAMP",
+          "nullable": true,
+          "default": "now()",
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "updated_at",
+          "type": "TIMESTAMP",
+          "nullable": true,
+          "default": "now()",
+          "autoincrement": false,
+          "comment": null
+        }
+      ],
+      "primary_key": {
+        "constrained_columns": [
+          "id"
+        ],
+        "name": "category_search_fields_pkey",
+        "comment": null
+      },
+      "foreign_keys": [
+        {
+          "name": "category_search_fields_category_id_fkey",
+          "constrained_columns": [
+            "category_id"
+          ],
+          "referred_schema": null,
+          "referred_table": "property_categories",
+          "referred_columns": [
+            "id"
+          ],
+          "options": {},
+          "comment": null
+        },
+        {
+          "name": "category_search_fields_field_id_fkey",
+          "constrained_columns": [
+            "field_id"
+          ],
+          "referred_schema": null,
+          "referred_table": "search_fields",
+          "referred_columns": [
+            "id"
+          ],
+          "options": {},
+          "comment": null
+        }
+      ],
+      "indexes": [
+        {
+          "name": "ix_category_search_fields_id",
+          "unique": false,
+          "column_names": [
+            "id"
+          ],
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        }
+      ],
+      "unique_constraints": []
+    },
+    "cities": {
+      "columns": [
+        {
+          "name": "id",
+          "type": "INTEGER",
+          "nullable": false,
+          "default": "nextval('cities_id_seq'::regclass)",
+          "autoincrement": true,
+          "comment": null
+        },
+        {
+          "name": "name",
+          "type": "VARCHAR(100)",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "is_active",
+          "type": "BOOLEAN",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "created_at",
+          "type": "TIMESTAMP",
+          "nullable": true,
+          "default": "now()",
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "updated_at",
+          "type": "TIMESTAMP",
+          "nullable": true,
+          "default": "now()",
+          "autoincrement": false,
+          "comment": null
+        }
+      ],
+      "primary_key": {
+        "constrained_columns": [
+          "id"
+        ],
+        "name": "cities_pkey",
+        "comment": null
+      },
+      "foreign_keys": [],
+      "indexes": [
+        {
+          "name": "ix_cities_id",
+          "unique": false,
+          "column_names": [
+            "id"
+          ],
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        }
+      ],
+      "unique_constraints": []
+    },
+    "dashboard_summary": {
+      "columns": [
+        {
+          "name": "id",
+          "type": "UUID",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "user_id",
+          "type": "UUID",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "total_properties",
+          "type": "INTEGER",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "active_properties",
+          "type": "INTEGER",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "draft_properties",
+          "type": "INTEGER",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "total_views",
+          "type": "INTEGER",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "total_inquiries",
+          "type": "INTEGER",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "total_deals",
+          "type": "INTEGER",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "conversion_rate",
+          "type": "NUMERIC",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "last_updated",
+          "type": "TIMESTAMP",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "created_at",
+          "type": "TIMESTAMP",
+          "nullable": false,
+          "default": "now()",
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "updated_at",
+          "type": "TIMESTAMP",
+          "nullable": false,
+          "default": "now()",
+          "autoincrement": false,
+          "comment": null
+        }
+      ],
+      "primary_key": {
+        "constrained_columns": [
+          "id"
+        ],
+        "name": "dashboard_summary_pkey",
+        "comment": null
+      },
+      "foreign_keys": [],
+      "indexes": [
+        {
+          "name": "ix_dashboard_summary_last_updated",
+          "unique": false,
+          "column_names": [
+            "last_updated"
+          ],
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        },
+        {
+          "name": "ix_dashboard_summary_user_id",
+          "unique": false,
+          "column_names": [
+            "user_id"
+          ],
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        }
+      ],
+      "unique_constraints": []
+    },
+    "features": {
+      "columns": [
+        {
+          "name": "id",
+          "type": "INTEGER",
+          "nullable": false,
+          "default": "nextval('features_id_seq'::regclass)",
+          "autoincrement": true,
+          "comment": null
+        },
+        {
+          "name": "name",
+          "type": "VARCHAR(100)",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "slug",
+          "type": "VARCHAR(100)",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "is_active",
+          "type": "BOOLEAN",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "created_at",
+          "type": "TIMESTAMP",
+          "nullable": true,
+          "default": "now()",
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "updated_at",
+          "type": "TIMESTAMP",
+          "nullable": true,
+          "default": "now()",
+          "autoincrement": false,
+          "comment": null
+        }
+      ],
+      "primary_key": {
+        "constrained_columns": [
+          "id"
+        ],
+        "name": "features_pkey",
+        "comment": null
+      },
+      "foreign_keys": [],
+      "indexes": [
+        {
+          "name": "features_slug_key",
+          "unique": true,
+          "column_names": [
+            "slug"
+          ],
+          "duplicates_constraint": "features_slug_key",
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        },
+        {
+          "name": "ix_features_id",
+          "unique": false,
+          "column_names": [
+            "id"
+          ],
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        }
+      ],
+      "unique_constraints": [
+        {
+          "column_names": [
+            "slug"
+          ],
+          "name": "features_slug_key",
+          "comment": null
+        }
+      ]
+    },
+    "leads": {
+      "columns": [
+        {
+          "name": "id",
+          "type": "UUID",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "property_id",
+          "type": "UUID",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "user_id",
+          "type": "UUID",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "inquiry_type",
+          "type": "VARCHAR(50)",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "message",
+          "type": "TEXT",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "created_at",
+          "type": "TIMESTAMP",
+          "nullable": false,
+          "default": "now()",
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "updated_at",
+          "type": "TIMESTAMP",
+          "nullable": false,
+          "default": "now()",
+          "autoincrement": false,
+          "comment": null
+        }
+      ],
+      "primary_key": {
+        "constrained_columns": [
+          "id"
+        ],
+        "name": "leads_pkey",
+        "comment": null
+      },
+      "foreign_keys": [
+        {
+          "name": "leads_property_id_fkey",
+          "constrained_columns": [
+            "property_id"
+          ],
+          "referred_schema": null,
+          "referred_table": "properties_normalized",
+          "referred_columns": [
+            "id"
+          ],
+          "options": {
+            "ondelete": "SET NULL"
+          },
+          "comment": null
+        }
+      ],
+      "indexes": [
+        {
+          "name": "ix_leads_created_at",
+          "unique": false,
+          "column_names": [
+            "created_at"
+          ],
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        },
+        {
+          "name": "ix_leads_property_id",
+          "unique": false,
+          "column_names": [
+            "property_id"
+          ],
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        }
+      ],
+      "unique_constraints": []
+    },
+    "owner": {
+      "columns": [
+        {
+          "name": "owner_id",
+          "type": "UUID",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "full_name",
+          "type": "VARCHAR(100)",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "email",
+          "type": "VARCHAR(150)",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "phone",
+          "type": "VARCHAR(20)",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "nationality",
+          "type": "VARCHAR(100)",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "ssi",
+          "type": "VARCHAR(50)",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "address",
+          "type": "TEXT",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "documents",
+          "type": "JSONB",
+          "nullable": false,
+          "default": "'[]'::jsonb",
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "created_at",
+          "type": "TIMESTAMP",
+          "nullable": false,
+          "default": "now()",
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "updated_at",
+          "type": "TIMESTAMP",
+          "nullable": false,
+          "default": "now()",
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "user_id",
+          "type": "UUID",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        }
+      ],
+      "primary_key": {
+        "constrained_columns": [
+          "owner_id"
+        ],
+        "name": "owner_pkey",
+        "comment": null
+      },
+      "foreign_keys": [
+        {
+          "name": "fk_owner_user_id_users",
+          "constrained_columns": [
+            "user_id"
+          ],
+          "referred_schema": null,
+          "referred_table": "users",
+          "referred_columns": [
+            "id"
+          ],
+          "options": {
+            "ondelete": "SET NULL"
+          },
+          "comment": null
+        }
+      ],
+      "indexes": [
+        {
+          "name": "ix_owner_email",
+          "unique": false,
+          "column_names": [
+            "email"
+          ],
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        },
+        {
+          "name": "ix_owner_phone",
+          "unique": false,
+          "column_names": [
+            "phone"
+          ],
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        },
+        {
+          "name": "ix_owner_user_id",
+          "unique": false,
+          "column_names": [
+            "user_id"
+          ],
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        }
+      ],
+      "unique_constraints": []
+    },
+    "permissions": {
+      "columns": [
+        {
+          "name": "id",
+          "type": "UUID",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "code",
+          "type": "VARCHAR(100)",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "description",
+          "type": "TEXT",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "created_at",
+          "type": "TIMESTAMP",
+          "nullable": false,
+          "default": "now()",
+          "autoincrement": false,
+          "comment": null
+        }
+      ],
+      "primary_key": {
+        "constrained_columns": [
+          "id"
+        ],
+        "name": "permissions_pkey",
+        "comment": null
+      },
+      "foreign_keys": [],
+      "indexes": [
+        {
+          "name": "ix_permissions_code",
+          "unique": true,
+          "column_names": [
+            "code"
+          ],
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        }
+      ],
+      "unique_constraints": []
+    },
+    "properties_normalized": {
+      "columns": [
+        {
+          "name": "id",
+          "type": "UUID",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "category_id",
+          "type": "INTEGER",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "type_id",
+          "type": "INTEGER",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "property_status_id",
+          "type": "INTEGER",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "city_id",
+          "type": "INTEGER",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "location_id",
+          "type": "INTEGER",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "url",
+          "type": "VARCHAR",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "title",
+          "type": "VARCHAR",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "description",
+          "type": "VARCHAR",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "is_exclusive",
+          "type": "BOOLEAN",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "is_featured",
+          "type": "BOOLEAN",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "is_verified",
+          "type": "BOOLEAN",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "latitude",
+          "type": "NUMERIC(10, 8)",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "longitude",
+          "type": "NUMERIC(11, 8)",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "location",
+          "type": "geometry(POINT,4326)",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "location_name",
+          "type": "VARCHAR",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "price",
+          "type": "NUMERIC(15, 2)",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "selling_price_amount",
+          "type": "NUMERIC(15, 2)",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "selling_price_currency",
+          "type": "VARCHAR(3)",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "rent_price_amount",
+          "type": "NUMERIC(15, 2)",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "rent_price_currency",
+          "type": "VARCHAR(3)",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "area",
+          "type": "NUMERIC(10, 2)",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "plot_area",
+          "type": "NUMERIC(10, 2)",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "bedrooms",
+          "type": "INTEGER",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "bathrooms",
+          "type": "INTEGER",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "rooms",
+          "type": "INTEGER",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "furniture_status",
+          "type": "VARCHAR(50)",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "parking",
+          "type": "BOOLEAN",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "property_age",
+          "type": "INTEGER",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "images",
+          "type": "VARCHAR",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "created_at",
+          "type": "TIMESTAMP",
+          "nullable": true,
+          "default": "now()",
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "updated_at",
+          "type": "TIMESTAMP",
+          "nullable": true,
+          "default": "now()",
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "more_features",
+          "type": "JSON",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "reference_number",
+          "type": "VARCHAR(50)",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "currency",
+          "type": "VARCHAR(3)",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "rent_commission_percent",
+          "type": "NUMERIC(5, 2)",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "contract_duration",
+          "type": "VARCHAR(50)",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "payment_method",
+          "type": "VARCHAR(50)",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "property_hash",
+          "type": "INTEGER",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "virtual_tour_url",
+          "type": "TEXT",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "updated_by_user_id",
+          "type": "UUID",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "agent_user_id",
+          "type": "UUID",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "approved_by_user_id",
+          "type": "UUID",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "deal_closed",
+          "type": "BOOLEAN",
+          "nullable": false,
+          "default": "false",
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "listing_purpose",
+          "type": "VARCHAR(20)",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "address",
+          "type": "TEXT",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "parking_spaces",
+          "type": "INTEGER",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "total_floors",
+          "type": "INTEGER",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "completion_status",
+          "type": "VARCHAR(50)",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "occupancy",
+          "type": "VARCHAR(50)",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "ownership_type",
+          "type": "VARCHAR(50)",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "permit_number",
+          "type": "VARCHAR(100)",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "orientation",
+          "type": "VARCHAR(50)",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "service_charge",
+          "type": "NUMERIC(15, 2)",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "maintenance_fee",
+          "type": "NUMERIC(15, 2)",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "youtube_url",
+          "type": "TEXT",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "created_by",
+          "type": "UUID",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "deleted_at",
+          "type": "TIMESTAMP",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "deleted_by",
+          "type": "UUID",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "delete_reason",
+          "type": "TEXT",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        }
+      ],
+      "primary_key": {
+        "constrained_columns": [
+          "id"
+        ],
+        "name": "properties_normalized_pkey",
+        "comment": null
+      },
+      "foreign_keys": [
+        {
+          "name": "fk_properties_agent_user",
+          "constrained_columns": [
+            "agent_user_id"
+          ],
+          "referred_schema": null,
+          "referred_table": "users",
+          "referred_columns": [
+            "id"
+          ],
+          "options": {
+            "ondelete": "SET NULL"
+          },
+          "comment": null
+        },
+        {
+          "name": "fk_properties_approved_by_user",
+          "constrained_columns": [
+            "approved_by_user_id"
+          ],
+          "referred_schema": null,
+          "referred_table": "users",
+          "referred_columns": [
+            "id"
+          ],
+          "options": {
+            "ondelete": "SET NULL"
+          },
+          "comment": null
+        },
+        {
+          "name": "fk_properties_normalized_created_by_users",
+          "constrained_columns": [
+            "created_by"
+          ],
+          "referred_schema": null,
+          "referred_table": "users",
+          "referred_columns": [
+            "id"
+          ],
+          "options": {
+            "ondelete": "SET NULL"
+          },
+          "comment": null
+        },
+        {
+          "name": "fk_properties_normalized_deleted_by_users",
+          "constrained_columns": [
+            "deleted_by"
+          ],
+          "referred_schema": null,
+          "referred_table": "users",
+          "referred_columns": [
+            "id"
+          ],
+          "options": {
+            "ondelete": "SET NULL"
+          },
+          "comment": null
+        },
+        {
+          "name": "fk_properties_updated_by_user",
+          "constrained_columns": [
+            "updated_by_user_id"
+          ],
+          "referred_schema": null,
+          "referred_table": "users",
+          "referred_columns": [
+            "id"
+          ],
+          "options": {
+            "ondelete": "SET NULL"
+          },
+          "comment": null
+        },
+        {
+          "name": "properties_normalized_category_id_fkey",
+          "constrained_columns": [
+            "category_id"
+          ],
+          "referred_schema": null,
+          "referred_table": "property_categories",
+          "referred_columns": [
+            "id"
+          ],
+          "options": {},
+          "comment": null
+        },
+        {
+          "name": "properties_normalized_city_id_fkey",
+          "constrained_columns": [
+            "city_id"
+          ],
+          "referred_schema": null,
+          "referred_table": "cities",
+          "referred_columns": [
+            "id"
+          ],
+          "options": {},
+          "comment": null
+        },
+        {
+          "name": "properties_normalized_location_id_fkey",
+          "constrained_columns": [
+            "location_id"
+          ],
+          "referred_schema": null,
+          "referred_table": "areas",
+          "referred_columns": [
+            "id"
+          ],
+          "options": {},
+          "comment": null
+        },
+        {
+          "name": "properties_normalized_property_status_id_fkey",
+          "constrained_columns": [
+            "property_status_id"
+          ],
+          "referred_schema": null,
+          "referred_table": "property_status",
+          "referred_columns": [
+            "id"
+          ],
+          "options": {},
+          "comment": null
+        },
+        {
+          "name": "properties_normalized_type_id_fkey",
+          "constrained_columns": [
+            "type_id"
+          ],
+          "referred_schema": null,
+          "referred_table": "property_types",
+          "referred_columns": [
+            "id"
+          ],
+          "options": {},
+          "comment": null
+        }
+      ],
+      "indexes": [
+        {
+          "name": "idx_properties_normalized_location",
+          "unique": false,
+          "column_names": [
+            "location"
+          ],
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_using": "gist",
+            "postgresql_include": []
+          }
+        },
+        {
+          "name": "idx_properties_normalized_reference_number",
+          "unique": false,
+          "column_names": [
+            "reference_number"
+          ],
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        },
+        {
+          "name": "ix_properties_agent_user_id",
+          "unique": false,
+          "column_names": [
+            "agent_user_id"
+          ],
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        },
+        {
+          "name": "ix_properties_approved_by_user_id",
+          "unique": false,
+          "column_names": [
+            "approved_by_user_id"
+          ],
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        },
+        {
+          "name": "ix_properties_normalized_created_by",
+          "unique": false,
+          "column_names": [
+            "created_by"
+          ],
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        },
+        {
+          "name": "ix_properties_normalized_deleted_at",
+          "unique": false,
+          "column_names": [
+            "deleted_at"
+          ],
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        },
+        {
+          "name": "ix_properties_normalized_deleted_by",
+          "unique": false,
+          "column_names": [
+            "deleted_by"
+          ],
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        },
+        {
+          "name": "ix_properties_normalized_location_name",
+          "unique": false,
+          "column_names": [
+            "location_name"
+          ],
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        },
+        {
+          "name": "ix_properties_normalized_property_hash",
+          "unique": false,
+          "column_names": [
+            "property_hash"
+          ],
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        },
+        {
+          "name": "ix_properties_normalized_url",
+          "unique": true,
+          "column_names": [
+            "url"
+          ],
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        },
+        {
+          "name": "ix_properties_updated_by_user_id",
+          "unique": false,
+          "column_names": [
+            "updated_by_user_id"
+          ],
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        }
+      ],
+      "unique_constraints": []
+    },
+    "property_categories": {
+      "columns": [
+        {
+          "name": "id",
+          "type": "INTEGER",
+          "nullable": false,
+          "default": "nextval('property_categories_id_seq'::regclass)",
+          "autoincrement": true,
+          "comment": null
+        },
+        {
+          "name": "name",
+          "type": "VARCHAR(100)",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "slug",
+          "type": "VARCHAR(100)",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "is_active",
+          "type": "BOOLEAN",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "created_at",
+          "type": "TIMESTAMP",
+          "nullable": true,
+          "default": "now()",
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "updated_at",
+          "type": "TIMESTAMP",
+          "nullable": true,
+          "default": "now()",
+          "autoincrement": false,
+          "comment": null
+        }
+      ],
+      "primary_key": {
+        "constrained_columns": [
+          "id"
+        ],
+        "name": "property_categories_pkey",
+        "comment": null
+      },
+      "foreign_keys": [],
+      "indexes": [
+        {
+          "name": "ix_property_categories_id",
+          "unique": false,
+          "column_names": [
+            "id"
+          ],
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        },
+        {
+          "name": "property_categories_slug_key",
+          "unique": true,
+          "column_names": [
+            "slug"
+          ],
+          "duplicates_constraint": "property_categories_slug_key",
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        }
+      ],
+      "unique_constraints": [
+        {
+          "column_names": [
+            "slug"
+          ],
+          "name": "property_categories_slug_key",
+          "comment": null
+        }
+      ]
+    },
+    "property_features": {
+      "columns": [
+        {
+          "name": "property_id",
+          "type": "UUID",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "feature_id",
+          "type": "INTEGER",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "created_at",
+          "type": "TIMESTAMP",
+          "nullable": true,
+          "default": "now()",
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "updated_at",
+          "type": "TIMESTAMP",
+          "nullable": true,
+          "default": "now()",
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "value",
+          "type": "VARCHAR(255)",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        }
+      ],
+      "primary_key": {
+        "constrained_columns": [
+          "property_id",
+          "feature_id"
+        ],
+        "name": "property_features_pkey",
+        "comment": null
+      },
+      "foreign_keys": [
+        {
+          "name": "property_features_feature_id_fkey",
+          "constrained_columns": [
+            "feature_id"
+          ],
+          "referred_schema": null,
+          "referred_table": "features",
+          "referred_columns": [
+            "id"
+          ],
+          "options": {},
+          "comment": null
+        },
+        {
+          "name": "property_features_property_id_fkey",
+          "constrained_columns": [
+            "property_id"
+          ],
+          "referred_schema": null,
+          "referred_table": "properties_normalized",
+          "referred_columns": [
+            "id"
+          ],
+          "options": {},
+          "comment": null
+        }
+      ],
+      "indexes": [],
+      "unique_constraints": []
+    },
+    "property_listing_submissions": {
+      "columns": [
+        {
+          "name": "id",
+          "type": "UUID",
+          "nullable": false,
+          "default": "gen_random_uuid()",
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "submitted_by",
+          "type": "UUID",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "property_id",
+          "type": "UUID",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "status",
+          "type": "VARCHAR(30)",
+          "nullable": false,
+          "default": "'draft'::character varying",
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "current_step",
+          "type": "INTEGER",
+          "nullable": false,
+          "default": "1",
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "last_completed_step",
+          "type": "INTEGER",
+          "nullable": false,
+          "default": "0",
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "payload",
+          "type": "JSONB",
+          "nullable": false,
+          "default": "'{}'::jsonb",
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "step_completion",
+          "type": "JSONB",
+          "nullable": false,
+          "default": "'{}'::jsonb",
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "terms_accepted",
+          "type": "BOOLEAN",
+          "nullable": false,
+          "default": "false",
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "privacy_accepted",
+          "type": "BOOLEAN",
+          "nullable": false,
+          "default": "false",
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "public_display_authorized",
+          "type": "BOOLEAN",
+          "nullable": false,
+          "default": "false",
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "fees_acknowledged",
+          "type": "BOOLEAN",
+          "nullable": false,
+          "default": "false",
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "submitted_at",
+          "type": "TIMESTAMP",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "created_at",
+          "type": "TIMESTAMP",
+          "nullable": false,
+          "default": "now()",
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "updated_at",
+          "type": "TIMESTAMP",
+          "nullable": false,
+          "default": "now()",
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "reviewed_by",
+          "type": "UUID",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "reviewed_at",
+          "type": "TIMESTAMP",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "review_reason",
+          "type": "TEXT",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "deleted_at",
+          "type": "TIMESTAMP",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "deleted_by",
+          "type": "UUID",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "delete_reason",
+          "type": "TEXT",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        }
+      ],
+      "primary_key": {
+        "constrained_columns": [
+          "id"
+        ],
+        "name": "property_listing_submissions_pkey",
+        "comment": null
+      },
+      "foreign_keys": [
+        {
+          "name": "fk_property_listing_submissions_deleted_by_users",
+          "constrained_columns": [
+            "deleted_by"
+          ],
+          "referred_schema": null,
+          "referred_table": "users",
+          "referred_columns": [
+            "id"
+          ],
+          "options": {
+            "ondelete": "SET NULL"
+          },
+          "comment": null
+        },
+        {
+          "name": "fk_property_listing_submissions_reviewed_by_users",
+          "constrained_columns": [
+            "reviewed_by"
+          ],
+          "referred_schema": null,
+          "referred_table": "users",
+          "referred_columns": [
+            "id"
+          ],
+          "options": {
+            "ondelete": "SET NULL"
+          },
+          "comment": null
+        },
+        {
+          "name": "property_listing_submissions_property_id_fkey",
+          "constrained_columns": [
+            "property_id"
+          ],
+          "referred_schema": null,
+          "referred_table": "properties_normalized",
+          "referred_columns": [
+            "id"
+          ],
+          "options": {
+            "ondelete": "SET NULL"
+          },
+          "comment": null
+        },
+        {
+          "name": "property_listing_submissions_submitted_by_fkey",
+          "constrained_columns": [
+            "submitted_by"
+          ],
+          "referred_schema": null,
+          "referred_table": "users",
+          "referred_columns": [
+            "id"
+          ],
+          "options": {
+            "ondelete": "CASCADE"
+          },
+          "comment": null
+        }
+      ],
+      "indexes": [
+        {
+          "name": "ix_property_listing_submissions_deleted_at",
+          "unique": false,
+          "column_names": [
+            "deleted_at"
+          ],
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        },
+        {
+          "name": "ix_property_listing_submissions_deleted_by",
+          "unique": false,
+          "column_names": [
+            "deleted_by"
+          ],
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        },
+        {
+          "name": "ix_property_listing_submissions_property_id",
+          "unique": false,
+          "column_names": [
+            "property_id"
+          ],
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        },
+        {
+          "name": "ix_property_listing_submissions_reviewed_by",
+          "unique": false,
+          "column_names": [
+            "reviewed_by"
+          ],
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        },
+        {
+          "name": "ix_property_listing_submissions_status",
+          "unique": false,
+          "column_names": [
+            "status"
+          ],
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        },
+        {
+          "name": "ix_property_listing_submissions_submitted_by",
+          "unique": false,
+          "column_names": [
+            "submitted_by"
+          ],
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        }
+      ],
+      "unique_constraints": []
+    },
+    "property_media": {
+      "columns": [
+        {
+          "name": "id",
+          "type": "INTEGER",
+          "nullable": false,
+          "default": "nextval('property_media_id_seq'::regclass)",
+          "autoincrement": true,
+          "comment": null
+        },
+        {
+          "name": "property_id",
+          "type": "UUID",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "media_type",
+          "type": "VARCHAR(20)",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "url",
+          "type": "TEXT",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "thumb_url",
+          "type": "TEXT",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "is_primary",
+          "type": "BOOLEAN",
+          "nullable": true,
+          "default": "false",
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "display_order",
+          "type": "INTEGER",
+          "nullable": true,
+          "default": "0",
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "caption",
+          "type": "TEXT",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "created_at",
+          "type": "TIMESTAMP",
+          "nullable": true,
+          "default": "now()",
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "updated_at",
+          "type": "TIMESTAMP",
+          "nullable": true,
+          "default": "now()",
+          "autoincrement": false,
+          "comment": null
+        }
+      ],
+      "primary_key": {
+        "constrained_columns": [
+          "id"
+        ],
+        "name": "property_media_pkey",
+        "comment": null
+      },
+      "foreign_keys": [
+        {
+          "name": "property_media_property_id_fkey",
+          "constrained_columns": [
+            "property_id"
+          ],
+          "referred_schema": null,
+          "referred_table": "properties_normalized",
+          "referred_columns": [
+            "id"
+          ],
+          "options": {
+            "ondelete": "CASCADE"
+          },
+          "comment": null
+        }
+      ],
+      "indexes": [
+        {
+          "name": "idx_property_media_property_id",
+          "unique": false,
+          "column_names": [
+            "property_id"
+          ],
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        },
+        {
+          "name": "idx_property_media_property_type_order",
+          "unique": false,
+          "column_names": [
+            "property_id",
+            "media_type",
+            "display_order"
+          ],
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        }
+      ],
+      "unique_constraints": []
+    },
+    "property_owner": {
+      "columns": [
+        {
+          "name": "id",
+          "type": "UUID",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "property_id",
+          "type": "UUID",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "owner_id",
+          "type": "UUID",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "is_active",
+          "type": "BOOLEAN",
+          "nullable": false,
+          "default": "false",
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "created_at",
+          "type": "TIMESTAMP",
+          "nullable": false,
+          "default": "now()",
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "updated_at",
+          "type": "TIMESTAMP",
+          "nullable": false,
+          "default": "now()",
+          "autoincrement": false,
+          "comment": null
+        }
+      ],
+      "primary_key": {
+        "constrained_columns": [
+          "id"
+        ],
+        "name": "property_owner_pkey",
+        "comment": null
+      },
+      "foreign_keys": [
+        {
+          "name": "property_owner_owner_id_fkey",
+          "constrained_columns": [
+            "owner_id"
+          ],
+          "referred_schema": null,
+          "referred_table": "owner",
+          "referred_columns": [
+            "owner_id"
+          ],
+          "options": {
+            "ondelete": "CASCADE"
+          },
+          "comment": null
+        },
+        {
+          "name": "property_owner_property_id_fkey",
+          "constrained_columns": [
+            "property_id"
+          ],
+          "referred_schema": null,
+          "referred_table": "properties_normalized",
+          "referred_columns": [
+            "id"
+          ],
+          "options": {
+            "ondelete": "CASCADE"
+          },
+          "comment": null
+        }
+      ],
+      "indexes": [
+        {
+          "name": "ix_property_owner_owner_id",
+          "unique": false,
+          "column_names": [
+            "owner_id"
+          ],
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        },
+        {
+          "name": "ix_property_owner_property_id",
+          "unique": false,
+          "column_names": [
+            "property_id"
+          ],
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        },
+        {
+          "name": "uq_property_owner_property_owner",
+          "unique": true,
+          "column_names": [
+            "property_id",
+            "owner_id"
+          ],
+          "duplicates_constraint": "uq_property_owner_property_owner",
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        }
+      ],
+      "unique_constraints": [
+        {
+          "column_names": [
+            "property_id",
+            "owner_id"
+          ],
+          "name": "uq_property_owner_property_owner",
+          "comment": null
+        }
+      ]
+    },
+    "property_status": {
+      "columns": [
+        {
+          "name": "id",
+          "type": "INTEGER",
+          "nullable": false,
+          "default": "nextval('property_status_id_seq'::regclass)",
+          "autoincrement": true,
+          "comment": null
+        },
+        {
+          "name": "name",
+          "type": "VARCHAR(50)",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "slug",
+          "type": "VARCHAR(50)",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "is_active",
+          "type": "BOOLEAN",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "created_at",
+          "type": "TIMESTAMP",
+          "nullable": true,
+          "default": "now()",
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "updated_at",
+          "type": "TIMESTAMP",
+          "nullable": true,
+          "default": "now()",
+          "autoincrement": false,
+          "comment": null
+        }
+      ],
+      "primary_key": {
+        "constrained_columns": [
+          "id"
+        ],
+        "name": "property_status_pkey",
+        "comment": null
+      },
+      "foreign_keys": [],
+      "indexes": [
+        {
+          "name": "ix_property_status_id",
+          "unique": false,
+          "column_names": [
+            "id"
+          ],
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        },
+        {
+          "name": "property_status_slug_key",
+          "unique": true,
+          "column_names": [
+            "slug"
+          ],
+          "duplicates_constraint": "property_status_slug_key",
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        }
+      ],
+      "unique_constraints": [
+        {
+          "column_names": [
+            "slug"
+          ],
+          "name": "property_status_slug_key",
+          "comment": null
+        }
+      ]
+    },
+    "property_translations": {
+      "columns": [
+        {
+          "name": "id",
+          "type": "INTEGER",
+          "nullable": false,
+          "default": "nextval('property_translations_id_seq'::regclass)",
+          "autoincrement": true,
+          "comment": null
+        },
+        {
+          "name": "property_id",
+          "type": "UUID",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "language_code",
+          "type": "VARCHAR(5)",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "title",
+          "type": "TEXT",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "description",
+          "type": "TEXT",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "created_at",
+          "type": "TIMESTAMP",
+          "nullable": true,
+          "default": "now()",
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "updated_at",
+          "type": "TIMESTAMP",
+          "nullable": true,
+          "default": "now()",
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "address",
+          "type": "TEXT",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        }
+      ],
+      "primary_key": {
+        "constrained_columns": [
+          "id"
+        ],
+        "name": "property_translations_pkey",
+        "comment": null
+      },
+      "foreign_keys": [
+        {
+          "name": "property_translations_property_id_fkey",
+          "constrained_columns": [
+            "property_id"
+          ],
+          "referred_schema": null,
+          "referred_table": "properties_normalized",
+          "referred_columns": [
+            "id"
+          ],
+          "options": {
+            "ondelete": "CASCADE"
+          },
+          "comment": null
+        }
+      ],
+      "indexes": [
+        {
+          "name": "idx_property_translations_property_lang",
+          "unique": false,
+          "column_names": [
+            "property_id",
+            "language_code"
+          ],
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        },
+        {
+          "name": "uq_property_translations_property_lang",
+          "unique": true,
+          "column_names": [
+            "property_id",
+            "language_code"
+          ],
+          "duplicates_constraint": "uq_property_translations_property_lang",
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        }
+      ],
+      "unique_constraints": [
+        {
+          "column_names": [
+            "property_id",
+            "language_code"
+          ],
+          "name": "uq_property_translations_property_lang",
+          "comment": null
+        }
+      ]
+    },
+    "property_types": {
+      "columns": [
+        {
+          "name": "id",
+          "type": "INTEGER",
+          "nullable": false,
+          "default": "nextval('property_types_id_seq'::regclass)",
+          "autoincrement": true,
+          "comment": null
+        },
+        {
+          "name": "category_id",
+          "type": "INTEGER",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "name",
+          "type": "VARCHAR(100)",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "slug",
+          "type": "VARCHAR(100)",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "is_active",
+          "type": "BOOLEAN",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "created_at",
+          "type": "TIMESTAMP",
+          "nullable": true,
+          "default": "now()",
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "updated_at",
+          "type": "TIMESTAMP",
+          "nullable": true,
+          "default": "now()",
+          "autoincrement": false,
+          "comment": null
+        }
+      ],
+      "primary_key": {
+        "constrained_columns": [
+          "id"
+        ],
+        "name": "property_types_pkey",
+        "comment": null
+      },
+      "foreign_keys": [
+        {
+          "name": "property_types_category_id_fkey",
+          "constrained_columns": [
+            "category_id"
+          ],
+          "referred_schema": null,
+          "referred_table": "property_categories",
+          "referred_columns": [
+            "id"
+          ],
+          "options": {},
+          "comment": null
+        }
+      ],
+      "indexes": [
+        {
+          "name": "ix_property_types_id",
+          "unique": false,
+          "column_names": [
+            "id"
+          ],
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        }
+      ],
+      "unique_constraints": []
+    },
+    "property_views": {
+      "columns": [
+        {
+          "name": "id",
+          "type": "UUID",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "property_id",
+          "type": "UUID",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "user_type",
+          "type": "VARCHAR(10)",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "user_id",
+          "type": "UUID",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "viewed_at",
+          "type": "TIMESTAMP",
+          "nullable": false,
+          "default": "now()",
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "created_at",
+          "type": "TIMESTAMP",
+          "nullable": false,
+          "default": "now()",
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "updated_at",
+          "type": "TIMESTAMP",
+          "nullable": false,
+          "default": "now()",
+          "autoincrement": false,
+          "comment": null
+        }
+      ],
+      "primary_key": {
+        "constrained_columns": [
+          "id"
+        ],
+        "name": "property_views_pkey",
+        "comment": null
+      },
+      "foreign_keys": [
+        {
+          "name": "property_views_property_id_fkey",
+          "constrained_columns": [
+            "property_id"
+          ],
+          "referred_schema": null,
+          "referred_table": "properties_normalized",
+          "referred_columns": [
+            "id"
+          ],
+          "options": {
+            "ondelete": "SET NULL"
+          },
+          "comment": null
+        }
+      ],
+      "indexes": [
+        {
+          "name": "ix_property_views_property_id",
+          "unique": false,
+          "column_names": [
+            "property_id"
+          ],
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        },
+        {
+          "name": "ix_property_views_viewed_at",
+          "unique": false,
+          "column_names": [
+            "viewed_at"
+          ],
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        }
+      ],
+      "unique_constraints": []
+    },
+    "recently_viewed_properties": {
+      "columns": [
+        {
+          "name": "id",
+          "type": "UUID",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "user_id",
+          "type": "UUID",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "property_id",
+          "type": "UUID",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "viewed_at",
+          "type": "TIMESTAMP",
+          "nullable": false,
+          "default": "now()",
+          "autoincrement": false,
+          "comment": null
+        }
+      ],
+      "primary_key": {
+        "constrained_columns": [
+          "id"
+        ],
+        "name": "recently_viewed_properties_pkey",
+        "comment": null
+      },
+      "foreign_keys": [
+        {
+          "name": "recently_viewed_properties_property_id_fkey",
+          "constrained_columns": [
+            "property_id"
+          ],
+          "referred_schema": null,
+          "referred_table": "properties_normalized",
+          "referred_columns": [
+            "id"
+          ],
+          "options": {
+            "ondelete": "CASCADE"
+          },
+          "comment": null
+        },
+        {
+          "name": "recently_viewed_properties_user_id_fkey",
+          "constrained_columns": [
+            "user_id"
+          ],
+          "referred_schema": null,
+          "referred_table": "users",
+          "referred_columns": [
+            "id"
+          ],
+          "options": {
+            "ondelete": "CASCADE"
+          },
+          "comment": null
+        }
+      ],
+      "indexes": [
+        {
+          "name": "ix_recent_views_user_viewed_at_desc",
+          "unique": false,
+          "column_names": [
+            "user_id",
+            "viewed_at"
+          ],
+          "column_sorting": {
+            "viewed_at": [
+              "desc"
+            ]
+          },
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        },
+        {
+          "name": "uq_recent_views_user_property",
+          "unique": true,
+          "column_names": [
+            "user_id",
+            "property_id"
+          ],
+          "duplicates_constraint": "uq_recent_views_user_property",
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        }
+      ],
+      "unique_constraints": [
+        {
+          "column_names": [
+            "user_id",
+            "property_id"
+          ],
+          "name": "uq_recent_views_user_property",
+          "comment": null
+        }
+      ]
+    },
+    "role_permissions": {
+      "columns": [
+        {
+          "name": "role_id",
+          "type": "UUID",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "permission_id",
+          "type": "UUID",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "created_at",
+          "type": "TIMESTAMP",
+          "nullable": true,
+          "default": "now()",
+          "autoincrement": false,
+          "comment": null
+        }
+      ],
+      "primary_key": {
+        "constrained_columns": [
+          "role_id",
+          "permission_id"
+        ],
+        "name": "role_permissions_pkey",
+        "comment": null
+      },
+      "foreign_keys": [
+        {
+          "name": "role_permissions_permission_id_fkey",
+          "constrained_columns": [
+            "permission_id"
+          ],
+          "referred_schema": null,
+          "referred_table": "permissions",
+          "referred_columns": [
+            "id"
+          ],
+          "options": {
+            "ondelete": "CASCADE"
+          },
+          "comment": null
+        },
+        {
+          "name": "role_permissions_role_id_fkey",
+          "constrained_columns": [
+            "role_id"
+          ],
+          "referred_schema": null,
+          "referred_table": "roles",
+          "referred_columns": [
+            "id"
+          ],
+          "options": {
+            "ondelete": "CASCADE"
+          },
+          "comment": null
+        }
+      ],
+      "indexes": [],
+      "unique_constraints": []
+    },
+    "roles": {
+      "columns": [
+        {
+          "name": "id",
+          "type": "UUID",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "name",
+          "type": "VARCHAR(50)",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "description",
+          "type": "TEXT",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "created_at",
+          "type": "TIMESTAMP",
+          "nullable": false,
+          "default": "now()",
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "updated_at",
+          "type": "TIMESTAMP",
+          "nullable": false,
+          "default": "now()",
+          "autoincrement": false,
+          "comment": null
+        }
+      ],
+      "primary_key": {
+        "constrained_columns": [
+          "id"
+        ],
+        "name": "roles_pkey",
+        "comment": null
+      },
+      "foreign_keys": [],
+      "indexes": [
+        {
+          "name": "ix_roles_name",
+          "unique": true,
+          "column_names": [
+            "name"
+          ],
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        }
+      ],
+      "unique_constraints": []
+    },
+    "search_fields": {
+      "columns": [
+        {
+          "name": "id",
+          "type": "INTEGER",
+          "nullable": false,
+          "default": "nextval('search_fields_id_seq'::regclass)",
+          "autoincrement": true,
+          "comment": null
+        },
+        {
+          "name": "name",
+          "type": "VARCHAR(100)",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "field_key",
+          "type": "VARCHAR(100)",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "field_type",
+          "type": "VARCHAR(50)",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "is_range",
+          "type": "BOOLEAN",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "created_at",
+          "type": "TIMESTAMP",
+          "nullable": true,
+          "default": "now()",
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "updated_at",
+          "type": "TIMESTAMP",
+          "nullable": true,
+          "default": "now()",
+          "autoincrement": false,
+          "comment": null
+        }
+      ],
+      "primary_key": {
+        "constrained_columns": [
+          "id"
+        ],
+        "name": "search_fields_pkey",
+        "comment": null
+      },
+      "foreign_keys": [],
+      "indexes": [
+        {
+          "name": "ix_search_fields_id",
+          "unique": false,
+          "column_names": [
+            "id"
+          ],
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        },
+        {
+          "name": "search_fields_field_key_key",
+          "unique": true,
+          "column_names": [
+            "field_key"
+          ],
+          "duplicates_constraint": "search_fields_field_key_key",
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        }
+      ],
+      "unique_constraints": [
+        {
+          "column_names": [
+            "field_key"
+          ],
+          "name": "search_fields_field_key_key",
+          "comment": null
+        }
+      ]
+    },
+    "spatial_ref_sys": {
+      "columns": [
+        {
+          "name": "srid",
+          "type": "INTEGER",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "auth_name",
+          "type": "VARCHAR(256)",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "auth_srid",
+          "type": "INTEGER",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "srtext",
+          "type": "VARCHAR(2048)",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "proj4text",
+          "type": "VARCHAR(2048)",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        }
+      ],
+      "primary_key": {
+        "constrained_columns": [
+          "srid"
+        ],
+        "name": "spatial_ref_sys_pkey",
+        "comment": null
+      },
+      "foreign_keys": [],
+      "indexes": [],
+      "unique_constraints": []
+    },
+    "type_features": {
+      "columns": [
+        {
+          "name": "id",
+          "type": "INTEGER",
+          "nullable": false,
+          "default": "nextval('type_features_id_seq'::regclass)",
+          "autoincrement": true,
+          "comment": null
+        },
+        {
+          "name": "property_type_id",
+          "type": "INTEGER",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "feature_id",
+          "type": "INTEGER",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "created_at",
+          "type": "TIMESTAMP",
+          "nullable": true,
+          "default": "now()",
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "updated_at",
+          "type": "TIMESTAMP",
+          "nullable": true,
+          "default": "now()",
+          "autoincrement": false,
+          "comment": null
+        }
+      ],
+      "primary_key": {
+        "constrained_columns": [
+          "id"
+        ],
+        "name": "type_features_pkey",
+        "comment": null
+      },
+      "foreign_keys": [
+        {
+          "name": "type_features_feature_id_fkey",
+          "constrained_columns": [
+            "feature_id"
+          ],
+          "referred_schema": null,
+          "referred_table": "features",
+          "referred_columns": [
+            "id"
+          ],
+          "options": {},
+          "comment": null
+        },
+        {
+          "name": "type_features_property_type_id_fkey",
+          "constrained_columns": [
+            "property_type_id"
+          ],
+          "referred_schema": null,
+          "referred_table": "property_types",
+          "referred_columns": [
+            "id"
+          ],
+          "options": {},
+          "comment": null
+        }
+      ],
+      "indexes": [
+        {
+          "name": "ix_type_features_id",
+          "unique": false,
+          "column_names": [
+            "id"
+          ],
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        }
+      ],
+      "unique_constraints": []
+    },
+    "user_profile_change_challenges": {
+      "columns": [
+        {
+          "name": "id",
+          "type": "UUID",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "user_id",
+          "type": "UUID",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "purpose",
+          "type": "VARCHAR(16)",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "new_value",
+          "type": "VARCHAR(255)",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "otp_hash",
+          "type": "VARCHAR(128)",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "expires_at",
+          "type": "TIMESTAMP",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "created_at",
+          "type": "TIMESTAMP",
+          "nullable": false,
+          "default": "now()",
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "cognito_custom_auth_session",
+          "type": "TEXT",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        }
+      ],
+      "primary_key": {
+        "constrained_columns": [
+          "id"
+        ],
+        "name": "user_profile_change_challenges_pkey",
+        "comment": null
+      },
+      "foreign_keys": [
+        {
+          "name": "user_profile_change_challenges_user_id_fkey",
+          "constrained_columns": [
+            "user_id"
+          ],
+          "referred_schema": null,
+          "referred_table": "users",
+          "referred_columns": [
+            "id"
+          ],
+          "options": {
+            "ondelete": "CASCADE"
+          },
+          "comment": null
+        }
+      ],
+      "indexes": [
+        {
+          "name": "ix_user_profile_change_challenges_user_id",
+          "unique": false,
+          "column_names": [
+            "user_id"
+          ],
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        }
+      ],
+      "unique_constraints": []
+    },
+    "user_property_favorites": {
+      "columns": [
+        {
+          "name": "id",
+          "type": "UUID",
+          "nullable": false,
+          "default": "gen_random_uuid()",
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "user_id",
+          "type": "UUID",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "property_id",
+          "type": "UUID",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "created_at",
+          "type": "TIMESTAMP",
+          "nullable": false,
+          "default": "now()",
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "updated_at",
+          "type": "TIMESTAMP",
+          "nullable": false,
+          "default": "now()",
+          "autoincrement": false,
+          "comment": null
+        }
+      ],
+      "primary_key": {
+        "constrained_columns": [
+          "id"
+        ],
+        "name": "user_property_favorites_pkey",
+        "comment": null
+      },
+      "foreign_keys": [
+        {
+          "name": "user_property_favorites_property_id_fkey",
+          "constrained_columns": [
+            "property_id"
+          ],
+          "referred_schema": null,
+          "referred_table": "properties_normalized",
+          "referred_columns": [
+            "id"
+          ],
+          "options": {
+            "onupdate": "CASCADE",
+            "ondelete": "CASCADE"
+          },
+          "comment": null
+        },
+        {
+          "name": "user_property_favorites_user_id_fkey",
+          "constrained_columns": [
+            "user_id"
+          ],
+          "referred_schema": null,
+          "referred_table": "users",
+          "referred_columns": [
+            "id"
+          ],
+          "options": {
+            "onupdate": "CASCADE",
+            "ondelete": "CASCADE"
+          },
+          "comment": null
+        }
+      ],
+      "indexes": [
+        {
+          "name": "idx_user_favorites_property_id",
+          "unique": false,
+          "column_names": [
+            "property_id"
+          ],
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        },
+        {
+          "name": "idx_user_favorites_user_id",
+          "unique": false,
+          "column_names": [
+            "user_id"
+          ],
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        },
+        {
+          "name": "idx_user_favorites_user_property",
+          "unique": false,
+          "column_names": [
+            "user_id",
+            "property_id"
+          ],
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        },
+        {
+          "name": "user_property_favorites_unique",
+          "unique": true,
+          "column_names": [
+            "user_id",
+            "property_id"
+          ],
+          "duplicates_constraint": "user_property_favorites_unique",
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        }
+      ],
+      "unique_constraints": [
+        {
+          "column_names": [
+            "user_id",
+            "property_id"
+          ],
+          "name": "user_property_favorites_unique",
+          "comment": null
+        }
+      ]
+    },
+    "user_roles": {
+      "columns": [
+        {
+          "name": "user_id",
+          "type": "UUID",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "role_id",
+          "type": "UUID",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "assigned_by",
+          "type": "UUID",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "assigned_at",
+          "type": "TIMESTAMP",
+          "nullable": true,
+          "default": "now()",
+          "autoincrement": false,
+          "comment": null
+        }
+      ],
+      "primary_key": {
+        "constrained_columns": [
+          "user_id",
+          "role_id"
+        ],
+        "name": "user_roles_pkey",
+        "comment": null
+      },
+      "foreign_keys": [
+        {
+          "name": "user_roles_assigned_by_fkey",
+          "constrained_columns": [
+            "assigned_by"
+          ],
+          "referred_schema": null,
+          "referred_table": "users",
+          "referred_columns": [
+            "id"
+          ],
+          "options": {
+            "ondelete": "SET NULL"
+          },
+          "comment": null
+        },
+        {
+          "name": "user_roles_role_id_fkey",
+          "constrained_columns": [
+            "role_id"
+          ],
+          "referred_schema": null,
+          "referred_table": "roles",
+          "referred_columns": [
+            "id"
+          ],
+          "options": {
+            "ondelete": "CASCADE"
+          },
+          "comment": null
+        },
+        {
+          "name": "user_roles_user_id_fkey",
+          "constrained_columns": [
+            "user_id"
+          ],
+          "referred_schema": null,
+          "referred_table": "users",
+          "referred_columns": [
+            "id"
+          ],
+          "options": {
+            "ondelete": "CASCADE"
+          },
+          "comment": null
+        }
+      ],
+      "indexes": [],
+      "unique_constraints": []
+    },
+    "user_saved_searches": {
+      "columns": [
+        {
+          "name": "id",
+          "type": "UUID",
+          "nullable": false,
+          "default": "gen_random_uuid()",
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "user_id",
+          "type": "UUID",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "name",
+          "type": "VARCHAR(255)",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "search_criteria",
+          "type": "JSONB",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "notification_enabled",
+          "type": "BOOLEAN",
+          "nullable": false,
+          "default": "false",
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "last_run_at",
+          "type": "TIMESTAMP",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "created_at",
+          "type": "TIMESTAMP",
+          "nullable": false,
+          "default": "now()",
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "updated_at",
+          "type": "TIMESTAMP",
+          "nullable": false,
+          "default": "now()",
+          "autoincrement": false,
+          "comment": null
+        }
+      ],
+      "primary_key": {
+        "constrained_columns": [
+          "id"
+        ],
+        "name": "user_saved_searches_pkey",
+        "comment": null
+      },
+      "foreign_keys": [
+        {
+          "name": "user_saved_searches_user_id_fkey",
+          "constrained_columns": [
+            "user_id"
+          ],
+          "referred_schema": null,
+          "referred_table": "users",
+          "referred_columns": [
+            "id"
+          ],
+          "options": {
+            "ondelete": "CASCADE"
+          },
+          "comment": null
+        }
+      ],
+      "indexes": [
+        {
+          "name": "idx_user_saved_searches_search_criteria_gin",
+          "unique": false,
+          "column_names": [
+            "search_criteria"
+          ],
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_using": "gin",
+            "postgresql_include": []
+          }
+        },
+        {
+          "name": "idx_user_saved_searches_user_id",
+          "unique": false,
+          "column_names": [
+            "user_id"
+          ],
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        },
+        {
+          "name": "uq_user_saved_searches_user_name",
+          "unique": true,
+          "column_names": [
+            "user_id",
+            "name"
+          ],
+          "duplicates_constraint": "uq_user_saved_searches_user_name",
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        }
+      ],
+      "unique_constraints": [
+        {
+          "column_names": [
+            "user_id",
+            "name"
+          ],
+          "name": "uq_user_saved_searches_user_name",
+          "comment": null
+        }
+      ]
+    },
+    "users": {
+      "columns": [
+        {
+          "name": "id",
+          "type": "UUID",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "cognito_sub",
+          "type": "VARCHAR(100)",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "full_name",
+          "type": "VARCHAR(255)",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "email",
+          "type": "VARCHAR(255)",
+          "nullable": false,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "phone_number",
+          "type": "VARCHAR(20)",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "is_active",
+          "type": "BOOLEAN",
+          "nullable": false,
+          "default": "true",
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "is_email_verified",
+          "type": "BOOLEAN",
+          "nullable": false,
+          "default": "false",
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "is_phone_verified",
+          "type": "BOOLEAN",
+          "nullable": false,
+          "default": "false",
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "created_at",
+          "type": "TIMESTAMP",
+          "nullable": false,
+          "default": "now()",
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "updated_at",
+          "type": "TIMESTAMP",
+          "nullable": false,
+          "default": "now()",
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "profile_picture_url",
+          "type": "TEXT",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "deleted_at",
+          "type": "TIMESTAMP",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        },
+        {
+          "name": "deleted_by",
+          "type": "UUID",
+          "nullable": true,
+          "default": null,
+          "autoincrement": false,
+          "comment": null
+        }
+      ],
+      "primary_key": {
+        "constrained_columns": [
+          "id"
+        ],
+        "name": "users_pkey",
+        "comment": null
+      },
+      "foreign_keys": [
+        {
+          "name": "fk_users_deleted_by_users",
+          "constrained_columns": [
+            "deleted_by"
+          ],
+          "referred_schema": null,
+          "referred_table": "users",
+          "referred_columns": [
+            "id"
+          ],
+          "options": {
+            "ondelete": "SET NULL"
+          },
+          "comment": null
+        }
+      ],
+      "indexes": [
+        {
+          "name": "ix_users_cognito_sub",
+          "unique": true,
+          "column_names": [
+            "cognito_sub"
+          ],
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        },
+        {
+          "name": "ix_users_deleted_at",
+          "unique": false,
+          "column_names": [
+            "deleted_at"
+          ],
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        },
+        {
+          "name": "ix_users_deleted_by",
+          "unique": false,
+          "column_names": [
+            "deleted_by"
+          ],
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        },
+        {
+          "name": "ix_users_email",
+          "unique": true,
+          "column_names": [
+            "email"
+          ],
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        },
+        {
+          "name": "ix_users_phone_number",
+          "unique": true,
+          "column_names": [
+            "phone_number"
+          ],
+          "include_columns": [],
+          "dialect_options": {
+            "postgresql_include": []
+          }
+        }
+      ],
+      "unique_constraints": []
+    }
+  },
+  "source": "database_inspect"
+}

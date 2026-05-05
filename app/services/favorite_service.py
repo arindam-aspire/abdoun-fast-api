@@ -5,6 +5,7 @@ from fastapi import HTTPException
 from sqlalchemy.exc import IntegrityError
 
 from app.models.user import User
+from app.domains.shared.pagination import calculate_pagination
 from app.models.user_property_favorite import UserPropertyFavorite
 from app.repositories.favorite_repository import FavoriteRepository
 from app.schemas.property_favorites import (
@@ -182,7 +183,7 @@ class FavoriteService:
                 detail=ErrorMessages.REQUEST_FAILED,
             )
 
-    def list_favorites(self, *, user: User) -> FavoriteListResponse:
+    def list_favorites(self, *, user: User, page: int, page_size: int) -> FavoriteListResponse:
         items = self._repo.list_user_favorites(user_id=user.id)
         response_items = [
             FavoriteResponse(
@@ -194,8 +195,17 @@ class FavoriteService:
             for item in items
             if item.property is not None
         ]
+        total = len(response_items)
+        meta = calculate_pagination(page=page, page_size=page_size, total=total)
+        paged_items = response_items[meta.offset : meta.offset + meta.page_size]
         return FavoriteListResponse(
-            items=response_items, total=len(response_items)
+            items=paged_items,
+            total=total,
+            page=meta.page,
+            pageSize=meta.page_size,
+            totalPages=meta.total_pages,
+            hasNext=meta.has_next,
+            hasPrevious=meta.has_previous,
         )
 
     def remove_favorite(self, *, user: User, property_hash: int) -> bool:

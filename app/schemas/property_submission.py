@@ -210,10 +210,15 @@ class AdminSubmissionListItem(BaseModel):
 
 
 class AdminSubmissionListResponse(BaseModel):
+    """Admin submission list with pagination."""
+
     items: list[AdminSubmissionListItem]
     page: int
-    limit: int
     total: int
+    pageSize: int
+    totalPages: int
+    hasNext: bool
+    hasPrevious: bool
 
 
 class AdminSubmissionDetailResponse(BaseModel):

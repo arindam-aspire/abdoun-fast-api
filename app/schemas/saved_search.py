@@ -33,7 +33,22 @@ class SavedSearchResponse(BaseModel):
     last_run_at: datetime | None = None
 
 
+class SavedSearchListResponse(BaseModel):
+    items: List[SavedSearchResponse]
+    total: int
+    page: int
+    pageSize: int
+    totalPages: int
+    hasNext: bool
+    hasPrevious: bool
+
+
 class SavedSearchExecutionResponse(BaseModel):
     items: List[PropertySearchResultExtended]
     total: int
+    page: int
+    pageSize: int
+    totalPages: int
+    hasNext: bool
+    hasPrevious: bool
 

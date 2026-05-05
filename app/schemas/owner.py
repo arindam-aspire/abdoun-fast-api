@@ -71,4 +71,14 @@ class OwnerWithMappingsResponse(BaseModel):
     mappings: list[PropertyOwnerResponse]
 
 
+class OwnerListResponse(BaseModel):
+    items: list[OwnerResponse]
+    total: int
+    page: int
+    pageSize: int
+    totalPages: int
+    hasNext: bool
+    hasPrevious: bool
+
+
 OwnerDocumentPayload = dict[str, Any]

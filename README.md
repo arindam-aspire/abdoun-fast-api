@@ -332,7 +332,7 @@ abdoun_fast_api/
     - `budgetMax` / `maxPrice` (float, optional) - Maximum price filter
     - `exclusive` (bool, optional) - Filter by exclusive status (`true` for exclusive only, `false` for non-exclusive only)
     - `lang` (string, optional) - Language code for display (`en`, `ar`, `esp`, `fr`); list/detail return **multi-language objects** for `title`/`description` (see [Multi-Language Support](#multi-language-i18n-support))
-  - **Response:** Returns `PropertySearchResponse` with `data`, `page`, `pageSize`, and `total`. Each property has `title` and (on detail) `description` as objects: `{"en": "...", "ar": "...", "esp": "...", "fr": "..."}`
+  - **Response:** Standard envelope; inner `PropertySearchResponse` has `items`, `page`, `pageSize`, and `total`. Each property has `title` and (on detail) `description` as objects: `{"en": "...", "ar": "...", "esp": "...", "fr": "..."}`
 
 - **GET** `/api/v1/properties/{id}` - Get property details
   - Returns complete property information. `title` and `description` are multi-language objects: `{"en": "...", "ar": "...", "esp": "...", "fr": "..."}`. Optional query: `lang` (for future use; response always includes all languages)

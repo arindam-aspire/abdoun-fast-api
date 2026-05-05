@@ -2,7 +2,7 @@
 import uuid
 from typing import List, Optional
 
-from sqlalchemy import Select, and_, select
+from sqlalchemy import Select, and_, func, select
 from sqlalchemy.orm import Session
 
 from app.models.owner import Owner, PropertyOwner
@@ -17,6 +17,10 @@ class OwnerRepository:
     def list_owners(self, *, limit: int, offset: int) -> List[Owner]:
         stmt: Select = select(Owner).order_by(Owner.created_at.desc()).offset(offset).limit(limit)
         return list(self._db.execute(stmt).scalars().all())
+
+    def count_owners(self) -> int:
+        stmt: Select = select(func.count(Owner.owner_id))
+        return int(self._db.execute(stmt).scalar() or 0)
 
     def get_owner_by_id(self, owner_id: uuid.UUID) -> Optional[Owner]:
         stmt = select(Owner).where(Owner.owner_id == owner_id)

@@ -36,6 +36,6 @@ EXPECTED_STATUS = {
 
 # Required top-level keys in success responses (Step 13 – schema stability)
 SUCCESS_RESPONSE_KEYS = ["data"]
-STANDARD_RESPONSE_KEYS = ["success", "data", "message"]  # when StandardResponse is used
-PROPERTY_SEARCH_RESPONSE_KEYS = ["data", "total", "page", "pageSize"]
+STANDARD_RESPONSE_KEYS = ["success", "message", "data", "error", "meta"]
+PROPERTY_SEARCH_RESPONSE_KEYS = ["items", "total", "page", "pageSize"]
 LOCATION_RESPONSE_KEYS = ["data", "total"]

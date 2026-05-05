@@ -7,6 +7,7 @@ from fastapi import HTTPException
 from sqlalchemy.exc import IntegrityError
 
 from app.models.user import User
+from app.domains.shared.pagination import calculate_pagination
 from app.models.user_saved_search import UserSavedSearch
 from app.repositories.saved_search_repository import SavedSearchRepository
 from app.schemas.property import PropertySearchResultExtended
@@ -14,6 +15,7 @@ from app.services.media_url_signer import MediaUrlSigner
 from app.schemas.saved_search import (
     SavedSearchCreateRequest,
     SavedSearchExecutionResponse,
+    SavedSearchListResponse,
     SavedSearchResponse,
     SavedSearchUpdateRequest,
 )
@@ -158,9 +160,21 @@ class SavedSearchService:
                 detail=ErrorMessages.REQUEST_FAILED,
             )
 
-    def list_saved_searches(self, *, user: User) -> List[SavedSearchResponse]:
+    def list_saved_searches(self, *, user: User, page: int, page_size: int) -> SavedSearchListResponse:
         items = self._repo.list_saved_searches_for_user(user_id=user.id)
-        return [self._to_response(item) for item in items]
+        response_items = [self._to_response(item) for item in items]
+        total = len(response_items)
+        meta = calculate_pagination(page=page, page_size=page_size, total=total)
+        paged_items = response_items[meta.offset : meta.offset + meta.page_size]
+        return SavedSearchListResponse(
+            items=paged_items,
+            total=total,
+            page=meta.page,
+            pageSize=meta.page_size,
+            totalPages=meta.total_pages,
+            hasNext=meta.has_next,
+            hasPrevious=meta.has_previous,
+        )
 
     def get_saved_search(self, *, user: User, saved_search_id: uuid.UUID) -> SavedSearchResponse:
         saved_search = self._repo.get_saved_search_by_id_for_user(
@@ -266,7 +280,7 @@ class SavedSearchService:
             )
 
     def execute_saved_search(
-        self, *, user: User, saved_search_id: uuid.UUID
+        self, *, user: User, saved_search_id: uuid.UUID, page: int, page_size: int
     ) -> SavedSearchExecutionResponse:
         saved_search = self._repo.get_saved_search_by_id_for_user(
             saved_search_id=saved_search_id,
@@ -289,5 +303,16 @@ class SavedSearchService:
         if self._media_url_signer is not None:
             for row in items:
                 self._media_url_signer.sign_search_result_extended(row)
-        return SavedSearchExecutionResponse(items=items, total=len(items))
+        total = len(items)
+        meta = calculate_pagination(page=page, page_size=page_size, total=total)
+        paged_items = items[meta.offset : meta.offset + meta.page_size]
+        return SavedSearchExecutionResponse(
+            items=paged_items,
+            total=total,
+            page=meta.page,
+            pageSize=meta.page_size,
+            totalPages=meta.total_pages,
+            hasNext=meta.has_next,
+            hasPrevious=meta.has_previous,
+        )
 

@@ -1,0 +1,1559 @@
+[
+  {
+    "name": "get_admin_dashboard_kpis",
+    "path": "/api/v1/admin/dashboard/kpis",
+    "methods": [
+      "GET"
+    ],
+    "response_model": "app.utils.responses.StandardResponse[AdminDashboardKpisResponse]",
+    "auth_dependencies": [
+      "app.api.v1.deps.admin_dashboard.get_admin_dashboard_service",
+      "app.core.permissions.RoleChecker"
+    ],
+    "tags": [
+      "admin"
+    ]
+  },
+  {
+    "name": "get_admin_dashboard_recent_activity",
+    "path": "/api/v1/admin/dashboard/recent-activity",
+    "methods": [
+      "GET"
+    ],
+    "response_model": "app.utils.responses.StandardResponse[list[AdminDashboardRecentActivityItem]]",
+    "auth_dependencies": [
+      "app.api.v1.deps.admin_dashboard.get_admin_dashboard_service",
+      "app.core.permissions.RoleChecker"
+    ],
+    "tags": [
+      "admin"
+    ]
+  },
+  {
+    "name": "get_admin_dashboard_summary",
+    "path": "/api/v1/admin/dashboard/summary",
+    "methods": [
+      "GET"
+    ],
+    "response_model": "app.utils.responses.StandardResponse[AdminDashboardSummaryResponse]",
+    "auth_dependencies": [
+      "app.api.v1.deps.admin_dashboard.get_admin_dashboard_service",
+      "app.core.permissions.RoleChecker"
+    ],
+    "tags": [
+      "admin"
+    ]
+  },
+  {
+    "name": "get_admin_dashboard_trends",
+    "path": "/api/v1/admin/dashboard/trends",
+    "methods": [
+      "GET"
+    ],
+    "response_model": "app.utils.responses.StandardResponse[AdminDashboardTrendsResponse]",
+    "auth_dependencies": [
+      "app.api.v1.deps.admin_dashboard.get_admin_dashboard_service",
+      "app.core.permissions.RoleChecker"
+    ],
+    "tags": [
+      "admin"
+    ]
+  },
+  {
+    "name": "assign_agent_to_property",
+    "path": "/api/v1/admin/properties/{property_id}/assign-agent",
+    "methods": [
+      "PATCH"
+    ],
+    "response_model": "app.utils.responses.StandardResponse[AdminAssignAgentToPropertyResponse]",
+    "auth_dependencies": [
+      "app.api.v1.deps.admin_properties.get_property_admin_service",
+      "app.core.permissions.RoleChecker"
+    ],
+    "tags": [
+      "admin"
+    ]
+  },
+  {
+    "name": "get_admin_property_performance",
+    "path": "/api/v1/admin/property-performance",
+    "methods": [
+      "GET"
+    ],
+    "response_model": "app.utils.responses.StandardResponse[AdminDashboardPropertyPerformanceResponse]",
+    "auth_dependencies": [
+      "app.api.v1.deps.admin_dashboard.get_admin_dashboard_service",
+      "app.core.permissions.RoleChecker"
+    ],
+    "tags": [
+      "admin"
+    ]
+  },
+  {
+    "name": "list_submissions_for_admin",
+    "path": "/api/v1/admin/property-submissions",
+    "methods": [
+      "GET"
+    ],
+    "response_model": "app.utils.responses.StandardResponse[AdminSubmissionListResponse]",
+    "auth_dependencies": [
+      "app.api.v1.deps.property_submissions.get_property_submission_service",
+      "app.core.permissions.RoleChecker"
+    ],
+    "tags": [
+      "admin-property-submissions"
+    ]
+  },
+  {
+    "name": "list_admin_draft_submissions",
+    "path": "/api/v1/admin/property-submissions/drafts",
+    "methods": [
+      "GET"
+    ],
+    "response_model": "app.utils.responses.StandardResponse[AdminDraftSubmissionListResponse]",
+    "auth_dependencies": [
+      "app.api.v1.deps.property_submissions.get_property_submission_service",
+      "app.core.permissions.RoleChecker"
+    ],
+    "tags": [
+      "admin-property-submissions"
+    ]
+  },
+  {
+    "name": "admin_create_and_submit_approved",
+    "path": "/api/v1/admin/property-submissions/submit",
+    "methods": [
+      "POST"
+    ],
+    "response_model": "app.utils.responses.StandardResponse[PropertySubmissionSubmitResponse]",
+    "auth_dependencies": [
+      "app.api.v1.deps.property_submissions.get_property_submission_service",
+      "app.core.permissions.RoleChecker"
+    ],
+    "tags": [
+      "admin-property-submissions"
+    ]
+  },
+  {
+    "name": "admin_soft_delete_submission",
+    "path": "/api/v1/admin/property-submissions/{submission_id}",
+    "methods": [
+      "DELETE"
+    ],
+    "response_model": "app.utils.responses.StandardResponse[PropertySubmissionDeleteResponse]",
+    "auth_dependencies": [
+      "app.api.v1.deps.property_submissions.get_property_submission_service",
+      "app.core.permissions.RoleChecker"
+    ],
+    "tags": [
+      "admin-property-submissions"
+    ]
+  },
+  {
+    "name": "get_submission_for_admin",
+    "path": "/api/v1/admin/property-submissions/{submission_id}",
+    "methods": [
+      "GET"
+    ],
+    "response_model": "app.utils.responses.StandardResponse[AdminSubmissionDetailResponse]",
+    "auth_dependencies": [
+      "app.api.v1.deps.property_submissions.get_property_submission_service",
+      "app.core.permissions.RoleChecker"
+    ],
+    "tags": [
+      "admin-property-submissions"
+    ]
+  },
+  {
+    "name": "review_submission_for_admin",
+    "path": "/api/v1/admin/property-submissions/{submission_id}/review",
+    "methods": [
+      "POST"
+    ],
+    "response_model": "app.utils.responses.StandardResponse[AdminSubmissionReviewResponse]",
+    "auth_dependencies": [
+      "app.api.v1.deps.property_submissions.get_property_submission_service",
+      "app.core.permissions.RoleChecker"
+    ],
+    "tags": [
+      "admin-property-submissions"
+    ]
+  },
+  {
+    "name": "admin_submit_existing_draft",
+    "path": "/api/v1/admin/property-submissions/{submission_id}/submit",
+    "methods": [
+      "POST"
+    ],
+    "response_model": "app.utils.responses.StandardResponse[PropertySubmissionSubmitResponse]",
+    "auth_dependencies": [
+      "app.api.v1.deps.property_submissions.get_property_submission_service",
+      "app.core.permissions.RoleChecker"
+    ],
+    "tags": [
+      "admin-property-submissions"
+    ]
+  },
+  {
+    "name": "get_admin_recent_activity",
+    "path": "/api/v1/admin/recent-activity",
+    "methods": [
+      "GET"
+    ],
+    "response_model": "app.utils.responses.StandardResponse[list[AdminDashboardRecentActivityItem]]",
+    "auth_dependencies": [
+      "app.api.v1.deps.admin_dashboard.get_admin_dashboard_service",
+      "app.core.permissions.RoleChecker"
+    ],
+    "tags": [
+      "admin"
+    ]
+  },
+  {
+    "name": "list_agent_properties",
+    "path": "/api/v1/agent-properties",
+    "methods": [
+      "GET"
+    ],
+    "response_model": "app.utils.responses.StandardResponse[AgentPropertyListResponse]",
+    "auth_dependencies": [
+      "app.api.v1.deps.agent_properties.get_agent_property_service",
+      "app.core.auth.get_current_user"
+    ],
+    "tags": [
+      "agent-properties"
+    ]
+  },
+  {
+    "name": "list_agent_drafts",
+    "path": "/api/v1/agent-properties/drafts",
+    "methods": [
+      "GET"
+    ],
+    "response_model": "app.utils.responses.StandardResponse[AgentDraftSubmissionListResponse]",
+    "auth_dependencies": [
+      "app.api.v1.deps.agent_properties.get_agent_property_service",
+      "app.core.auth.get_current_user"
+    ],
+    "tags": [
+      "agent-properties"
+    ]
+  },
+  {
+    "name": "get_agent_property_performance",
+    "path": "/api/v1/agent/property-performance",
+    "methods": [
+      "GET"
+    ],
+    "response_model": "app.utils.responses.StandardResponse[AdminDashboardPropertyPerformanceResponse]",
+    "auth_dependencies": [
+      "app.api.v1.deps.admin_dashboard.get_admin_dashboard_service",
+      "app.core.permissions.RoleChecker"
+    ],
+    "tags": [
+      "agent"
+    ]
+  },
+  {
+    "name": "list_agents",
+    "path": "/api/v1/agents",
+    "methods": [
+      "GET"
+    ],
+    "response_model": "app.utils.responses.StandardResponse[AgentListPaginatedResponse]",
+    "auth_dependencies": [
+      "app.api.v1.deps.agents.get_agent_service",
+      "app.core.permissions.RoleChecker"
+    ],
+    "tags": [
+      "agents"
+    ]
+  },
+  {
+    "name": "assign_agent",
+    "path": "/api/v1/agents/assign-agent",
+    "methods": [
+      "POST"
+    ],
+    "response_model": "app.utils.responses.StandardResponse[bool]",
+    "auth_dependencies": [
+      "app.api.v1.deps.agents.get_agent_service",
+      "app.core.permissions.RoleChecker"
+    ],
+    "tags": [
+      "agents"
+    ]
+  },
+  {
+    "name": "get_assignments",
+    "path": "/api/v1/agents/assignments",
+    "methods": [
+      "GET"
+    ],
+    "response_model": "app.utils.responses.StandardResponse[List[AdminAgentAssignmentResponse]]",
+    "auth_dependencies": [
+      "app.api.v1.deps.agents.get_agent_service",
+      "app.core.permissions.RoleChecker"
+    ],
+    "tags": [
+      "agents"
+    ]
+  },
+  {
+    "name": "get_dashboard_summary",
+    "path": "/api/v1/agents/dashboard/summary",
+    "methods": [
+      "GET"
+    ],
+    "response_model": "app.utils.responses.StandardResponse[AgentDashboardSummaryResponse]",
+    "auth_dependencies": [
+      "app.api.v1.deps.agent_dashboard.get_agent_dashboard_service",
+      "app.core.permissions.RoleChecker"
+    ],
+    "tags": [
+      "agents"
+    ]
+  },
+  {
+    "name": "invite_agent",
+    "path": "/api/v1/agents/invite",
+    "methods": [
+      "POST"
+    ],
+    "response_model": "app.utils.responses.StandardResponse[AgentInviteResponse]",
+    "auth_dependencies": [
+      "app.api.v1.deps.agents.get_agent_service",
+      "app.core.permissions.RoleChecker"
+    ],
+    "tags": [
+      "agents"
+    ]
+  },
+  {
+    "name": "validate_invite_token_query",
+    "path": "/api/v1/agents/invite/validate",
+    "methods": [
+      "GET"
+    ],
+    "response_model": "app.utils.responses.StandardResponse[AgentValidateInviteResponse]",
+    "auth_dependencies": [
+      "app.api.v1.deps.agents.get_agent_service"
+    ],
+    "tags": [
+      "agents"
+    ]
+  },
+  {
+    "name": "list_invites",
+    "path": "/api/v1/agents/invites",
+    "methods": [
+      "GET"
+    ],
+    "response_model": "app.utils.responses.StandardResponse[List[dict]]",
+    "auth_dependencies": [
+      "app.api.v1.deps.agents.get_agent_service",
+      "app.core.permissions.RoleChecker"
+    ],
+    "tags": [
+      "agents"
+    ]
+  },
+  {
+    "name": "get_agents_leaderboard",
+    "path": "/api/v1/agents/leaderboard",
+    "methods": [
+      "GET"
+    ],
+    "response_model": "app.utils.responses.StandardResponse[TopAgentsLeaderboardResponse]",
+    "auth_dependencies": [
+      "app.api.v1.deps.agents.get_agent_service",
+      "app.core.permissions.RoleChecker"
+    ],
+    "tags": [
+      "agents"
+    ]
+  },
+  {
+    "name": "create_agent_direct",
+    "path": "/api/v1/agents/manual-onboard",
+    "methods": [
+      "POST"
+    ],
+    "response_model": "app.utils.responses.StandardResponse[AdminCreateAgentResponse]",
+    "auth_dependencies": [
+      "app.api.v1.deps.agents.get_agent_service",
+      "app.core.permissions.RoleChecker"
+    ],
+    "tags": [
+      "agents"
+    ]
+  },
+  {
+    "name": "submit_onboarding_compat",
+    "path": "/api/v1/agents/onboarding",
+    "methods": [
+      "POST"
+    ],
+    "response_model": "app.utils.responses.StandardResponse[AgentOnboardingFormResponse]",
+    "auth_dependencies": [
+      "app.api.v1.deps.agents.get_agent_service"
+    ],
+    "tags": [
+      "agents"
+    ]
+  },
+  {
+    "name": "get_agents_summary",
+    "path": "/api/v1/agents/summary",
+    "methods": [
+      "GET"
+    ],
+    "response_model": "app.utils.responses.StandardResponse[AgentSummaryResponse]",
+    "auth_dependencies": [
+      "app.api.v1.deps.agents.get_agent_service",
+      "app.core.permissions.RoleChecker"
+    ],
+    "tags": [
+      "agents"
+    ]
+  },
+  {
+    "name": "unassign_agent",
+    "path": "/api/v1/agents/unassign-agent",
+    "methods": [
+      "POST"
+    ],
+    "response_model": "app.utils.responses.StandardResponse[bool]",
+    "auth_dependencies": [
+      "app.api.v1.deps.agents.get_agent_service",
+      "app.core.permissions.RoleChecker"
+    ],
+    "tags": [
+      "agents"
+    ]
+  },
+  {
+    "name": "delete_agent",
+    "path": "/api/v1/agents/{agent_id}",
+    "methods": [
+      "DELETE"
+    ],
+    "response_model": "app.utils.responses.StandardResponse[AgentDeleteResponse]",
+    "auth_dependencies": [
+      "app.api.v1.deps.agents.get_agent_service",
+      "app.core.permissions.RoleChecker"
+    ],
+    "tags": [
+      "agents"
+    ]
+  },
+  {
+    "name": "get_agent_details",
+    "path": "/api/v1/agents/{agent_id}",
+    "methods": [
+      "GET"
+    ],
+    "response_model": "app.utils.responses.StandardResponse[AgentDetailResponse]",
+    "auth_dependencies": [
+      "app.api.v1.deps.agents.get_agent_service",
+      "app.core.permissions.RoleChecker"
+    ],
+    "tags": [
+      "agents"
+    ]
+  },
+  {
+    "name": "accept_agent",
+    "path": "/api/v1/agents/{agent_id}/accept",
+    "methods": [
+      "PATCH"
+    ],
+    "response_model": "app.utils.responses.StandardResponse[AgentAcceptResponse]",
+    "auth_dependencies": [
+      "app.api.v1.deps.agents.get_agent_service",
+      "app.core.permissions.RoleChecker"
+    ],
+    "tags": [
+      "agents"
+    ]
+  },
+  {
+    "name": "decline_agent",
+    "path": "/api/v1/agents/{agent_id}/decline",
+    "methods": [
+      "PATCH"
+    ],
+    "response_model": "app.utils.responses.StandardResponse[AgentDeclineResponse]",
+    "auth_dependencies": [
+      "app.api.v1.deps.agents.get_agent_service",
+      "app.core.permissions.RoleChecker"
+    ],
+    "tags": [
+      "agents"
+    ]
+  },
+  {
+    "name": "resend_invitation",
+    "path": "/api/v1/agents/{agent_id}/resend-invitation",
+    "methods": [
+      "POST"
+    ],
+    "response_model": "app.utils.responses.StandardResponse[AgentInviteResponse]",
+    "auth_dependencies": [
+      "app.api.v1.deps.agents.get_agent_service",
+      "app.core.permissions.RoleChecker"
+    ],
+    "tags": [
+      "agents"
+    ]
+  },
+  {
+    "name": "resend_invite",
+    "path": "/api/v1/agents/{agent_id}/resend-invite",
+    "methods": [
+      "POST"
+    ],
+    "response_model": "app.utils.responses.StandardResponse[AgentInviteResponse]",
+    "auth_dependencies": [
+      "app.api.v1.deps.agents.get_agent_service",
+      "app.core.permissions.RoleChecker"
+    ],
+    "tags": [
+      "agents"
+    ]
+  },
+  {
+    "name": "revoke_invite",
+    "path": "/api/v1/agents/{agent_id}/revoke-invite",
+    "methods": [
+      "PATCH"
+    ],
+    "response_model": "app.utils.responses.StandardResponse[dict]",
+    "auth_dependencies": [
+      "app.api.v1.deps.agents.get_agent_service",
+      "app.core.permissions.RoleChecker"
+    ],
+    "tags": [
+      "agents"
+    ]
+  },
+  {
+    "name": "update_agent_status",
+    "path": "/api/v1/agents/{agent_id}/status",
+    "methods": [
+      "PATCH"
+    ],
+    "response_model": "app.utils.responses.StandardResponse[AgentStatusUpdateResponse]",
+    "auth_dependencies": [
+      "app.api.v1.deps.agents.get_agent_service",
+      "app.core.permissions.RoleChecker"
+    ],
+    "tags": [
+      "agents"
+    ]
+  },
+  {
+    "name": "social_callback",
+    "path": "/api/v1/auth/callback",
+    "methods": [
+      "GET"
+    ],
+    "response_model": "app.utils.responses.StandardResponse[TokenResponse]",
+    "auth_dependencies": [
+      "app.api.v1.deps.auth.get_auth_service"
+    ],
+    "tags": [
+      "auth"
+    ]
+  },
+  {
+    "name": "change_password",
+    "path": "/api/v1/auth/change-password",
+    "methods": [
+      "POST"
+    ],
+    "response_model": "app.utils.responses.StandardResponse[bool]",
+    "auth_dependencies": [
+      "app.api.v1.deps.auth.get_auth_service",
+      "app.core.auth.get_current_user",
+      "fastapi.security.http.HTTPBearer"
+    ],
+    "tags": [
+      "auth"
+    ]
+  },
+  {
+    "name": "confirm_signup",
+    "path": "/api/v1/auth/confirm-signup",
+    "methods": [
+      "POST"
+    ],
+    "response_model": "app.utils.responses.StandardResponse[bool]",
+    "auth_dependencies": [
+      "app.api.v1.deps.auth.get_auth_service"
+    ],
+    "tags": [
+      "auth"
+    ]
+  },
+  {
+    "name": "forgot_password_confirm",
+    "path": "/api/v1/auth/forgot-password/confirm",
+    "methods": [
+      "POST"
+    ],
+    "response_model": "app.utils.responses.StandardResponse[bool]",
+    "auth_dependencies": [
+      "app.api.v1.deps.auth.get_auth_service"
+    ],
+    "tags": [
+      "auth"
+    ]
+  },
+  {
+    "name": "forgot_password_request",
+    "path": "/api/v1/auth/forgot-password/request",
+    "methods": [
+      "POST"
+    ],
+    "response_model": "app.utils.responses.StandardResponse[bool]",
+    "auth_dependencies": [
+      "app.api.v1.deps.auth.get_auth_service"
+    ],
+    "tags": [
+      "auth"
+    ]
+  },
+  {
+    "name": "login_otp_request",
+    "path": "/api/v1/auth/login/otp/request",
+    "methods": [
+      "POST"
+    ],
+    "response_model": "app.utils.responses.StandardResponse[dict]",
+    "auth_dependencies": [
+      "app.api.v1.deps.auth.get_auth_service"
+    ],
+    "tags": [
+      "auth"
+    ]
+  },
+  {
+    "name": "login_otp_verify",
+    "path": "/api/v1/auth/login/otp/verify",
+    "methods": [
+      "POST"
+    ],
+    "response_model": "app.utils.responses.StandardResponse[TokenResponse]",
+    "auth_dependencies": [
+      "app.api.v1.deps.auth.get_auth_service"
+    ],
+    "tags": [
+      "auth"
+    ]
+  },
+  {
+    "name": "login_password",
+    "path": "/api/v1/auth/login/password",
+    "methods": [
+      "POST"
+    ],
+    "response_model": "app.utils.responses.StandardResponse[TokenResponse]",
+    "auth_dependencies": [
+      "app.api.v1.deps.auth.get_auth_service"
+    ],
+    "tags": [
+      "auth"
+    ]
+  },
+  {
+    "name": "logout",
+    "path": "/api/v1/auth/logout",
+    "methods": [
+      "POST"
+    ],
+    "response_model": "app.utils.responses.StandardResponse[bool]",
+    "auth_dependencies": [
+      "app.api.v1.deps.auth.get_auth_service",
+      "app.core.auth.get_current_user",
+      "fastapi.security.http.HTTPBearer"
+    ],
+    "tags": [
+      "auth"
+    ]
+  },
+  {
+    "name": "get_current_user_profile",
+    "path": "/api/v1/auth/me",
+    "methods": [
+      "GET"
+    ],
+    "response_model": "app.utils.responses.StandardResponse[UserResponse]",
+    "auth_dependencies": [
+      "app.api.v1.deps.auth.get_auth_service",
+      "app.core.auth.get_current_user"
+    ],
+    "tags": [
+      "auth"
+    ]
+  },
+  {
+    "name": "get_current_user_permissions",
+    "path": "/api/v1/auth/me/permissions",
+    "methods": [
+      "GET"
+    ],
+    "response_model": "app.utils.responses.StandardResponse[PermissionsResponse]",
+    "auth_dependencies": [
+      "app.api.v1.deps.auth.get_auth_service",
+      "app.core.auth.get_current_user"
+    ],
+    "tags": [
+      "auth"
+    ]
+  },
+  {
+    "name": "upload_profile_picture",
+    "path": "/api/v1/auth/me/profile-picture",
+    "methods": [
+      "POST"
+    ],
+    "response_model": "app.utils.responses.StandardResponse[ProfilePictureUploadData]",
+    "auth_dependencies": [
+      "app.api.v1.deps.media_urls.get_media_url_signer",
+      "app.api.v1.deps.profile_picture_upload.get_profile_picture_upload_service",
+      "app.core.auth.get_current_user"
+    ],
+    "tags": [
+      "auth"
+    ]
+  },
+  {
+    "name": "request_profile_update",
+    "path": "/api/v1/auth/me/profile/request",
+    "methods": [
+      "PATCH"
+    ],
+    "response_model": "app.utils.responses.StandardResponse[ProfileUpdateRequestResponse]",
+    "auth_dependencies": [
+      "app.api.v1.deps.auth.get_profile_update_service",
+      "app.core.auth.get_current_user"
+    ],
+    "tags": [
+      "auth"
+    ]
+  },
+  {
+    "name": "verify_profile_update",
+    "path": "/api/v1/auth/me/profile/verify",
+    "methods": [
+      "POST"
+    ],
+    "response_model": "app.utils.responses.StandardResponse[ProfileUpdateVerifyResponse]",
+    "auth_dependencies": [
+      "app.api.v1.deps.auth.get_profile_update_service",
+      "app.core.auth.get_current_user"
+    ],
+    "tags": [
+      "auth"
+    ]
+  },
+  {
+    "name": "refresh_token",
+    "path": "/api/v1/auth/refresh",
+    "methods": [
+      "POST"
+    ],
+    "response_model": "app.utils.responses.StandardResponse[TokenResponse]",
+    "auth_dependencies": [
+      "app.api.v1.deps.auth.get_auth_service"
+    ],
+    "tags": [
+      "auth"
+    ]
+  },
+  {
+    "name": "resend_confirmation",
+    "path": "/api/v1/auth/resend-confirmation",
+    "methods": [
+      "POST"
+    ],
+    "response_model": "app.utils.responses.StandardResponse[bool]",
+    "auth_dependencies": [
+      "app.api.v1.deps.auth.get_auth_service"
+    ],
+    "tags": [
+      "auth"
+    ]
+  },
+  {
+    "name": "set_password",
+    "path": "/api/v1/auth/set-password",
+    "methods": [
+      "POST"
+    ],
+    "response_model": "app.utils.responses.StandardResponse[bool]",
+    "auth_dependencies": [
+      "app.api.v1.deps.auth.get_auth_service",
+      "app.core.auth.get_current_user",
+      "fastapi.security.http.HTTPBearer"
+    ],
+    "tags": [
+      "auth"
+    ]
+  },
+  {
+    "name": "signup",
+    "path": "/api/v1/auth/signup",
+    "methods": [
+      "POST"
+    ],
+    "response_model": "app.utils.responses.StandardResponse[UserResponse]",
+    "auth_dependencies": [
+      "app.api.v1.deps.auth.get_auth_service"
+    ],
+    "tags": [
+      "auth"
+    ]
+  },
+  {
+    "name": "signup_admin",
+    "path": "/api/v1/auth/signup/admin",
+    "methods": [
+      "POST"
+    ],
+    "response_model": "app.utils.responses.StandardResponse[UserResponse]",
+    "auth_dependencies": [
+      "app.api.v1.deps.auth.get_auth_service",
+      "app.core.permissions.RoleChecker"
+    ],
+    "tags": [
+      "auth"
+    ]
+  },
+  {
+    "name": "social_login",
+    "path": "/api/v1/auth/social-login",
+    "methods": [
+      "GET"
+    ],
+    "response_model": "app.utils.responses.StandardResponse[dict]",
+    "auth_dependencies": [
+      "app.api.v1.deps.auth.get_auth_service"
+    ],
+    "tags": [
+      "auth"
+    ]
+  },
+  {
+    "name": "list_favorites",
+    "path": "/api/v1/favorites",
+    "methods": [
+      "GET"
+    ],
+    "response_model": "app.utils.responses.StandardResponse[FavoriteListResponse]",
+    "auth_dependencies": [
+      "app.api.v1.deps.favorites.get_favorite_service",
+      "app.core.auth.get_current_user"
+    ],
+    "tags": [
+      "favorites"
+    ]
+  },
+  {
+    "name": "add_favorite",
+    "path": "/api/v1/favorites",
+    "methods": [
+      "POST"
+    ],
+    "response_model": "app.utils.responses.StandardResponse[FavoriteResponse]",
+    "auth_dependencies": [
+      "app.api.v1.deps.favorites.get_favorite_service",
+      "app.core.auth.get_current_user"
+    ],
+    "tags": [
+      "favorites"
+    ]
+  },
+  {
+    "name": "add_favorites_bulk",
+    "path": "/api/v1/favorites/bulk",
+    "methods": [
+      "POST"
+    ],
+    "response_model": "app.utils.responses.StandardResponse[FavoriteBulkCreateResponse]",
+    "auth_dependencies": [
+      "app.api.v1.deps.favorites.get_favorite_service",
+      "app.core.auth.get_current_user"
+    ],
+    "tags": [
+      "favorites"
+    ]
+  },
+  {
+    "name": "remove_favorite",
+    "path": "/api/v1/favorites/{property_hash}",
+    "methods": [
+      "DELETE"
+    ],
+    "response_model": "app.utils.responses.StandardResponse[bool]",
+    "auth_dependencies": [
+      "app.api.v1.deps.favorites.get_favorite_service",
+      "app.core.auth.get_current_user"
+    ],
+    "tags": [
+      "favorites"
+    ]
+  },
+  {
+    "name": "get_location_taxonomy",
+    "path": "/api/v1/location-taxonomy",
+    "methods": [
+      "GET"
+    ],
+    "response_model": "builtins.dict",
+    "auth_dependencies": [
+      "app.api.v1.deps.locations.get_location_service"
+    ],
+    "tags": [
+      "locations"
+    ]
+  },
+  {
+    "name": "list_owners",
+    "path": "/api/v1/owners",
+    "methods": [
+      "GET"
+    ],
+    "response_model": "app.utils.responses.StandardResponse[List[OwnerResponse]]",
+    "auth_dependencies": [
+      "app.api.v1.deps.owners.get_owner_service"
+    ],
+    "tags": [
+      "owners"
+    ]
+  },
+  {
+    "name": "create_owner",
+    "path": "/api/v1/owners",
+    "methods": [
+      "POST"
+    ],
+    "response_model": "app.utils.responses.StandardResponse[OwnerResponse]",
+    "auth_dependencies": [
+      "app.api.v1.deps.owners.get_owner_service"
+    ],
+    "tags": [
+      "owners"
+    ]
+  },
+  {
+    "name": "create_property_owner_mapping",
+    "path": "/api/v1/owners/property-mappings",
+    "methods": [
+      "POST"
+    ],
+    "response_model": "app.utils.responses.StandardResponse[PropertyOwnerResponse]",
+    "auth_dependencies": [
+      "app.api.v1.deps.owners.get_owner_service"
+    ],
+    "tags": [
+      "owners"
+    ]
+  },
+  {
+    "name": "delete_property_owner_mapping",
+    "path": "/api/v1/owners/property-mappings/{mapping_id}",
+    "methods": [
+      "DELETE"
+    ],
+    "response_model": "app.utils.responses.StandardResponse[bool]",
+    "auth_dependencies": [
+      "app.api.v1.deps.owners.get_owner_service"
+    ],
+    "tags": [
+      "owners"
+    ]
+  },
+  {
+    "name": "update_property_owner_mapping",
+    "path": "/api/v1/owners/property-mappings/{mapping_id}",
+    "methods": [
+      "PATCH"
+    ],
+    "response_model": "app.utils.responses.StandardResponse[PropertyOwnerResponse]",
+    "auth_dependencies": [
+      "app.api.v1.deps.owners.get_owner_service"
+    ],
+    "tags": [
+      "owners"
+    ]
+  },
+  {
+    "name": "delete_owner",
+    "path": "/api/v1/owners/{owner_id}",
+    "methods": [
+      "DELETE"
+    ],
+    "response_model": "app.utils.responses.StandardResponse[bool]",
+    "auth_dependencies": [
+      "app.api.v1.deps.owners.get_owner_service"
+    ],
+    "tags": [
+      "owners"
+    ]
+  },
+  {
+    "name": "get_owner",
+    "path": "/api/v1/owners/{owner_id}",
+    "methods": [
+      "GET"
+    ],
+    "response_model": "app.utils.responses.StandardResponse[OwnerWithMappingsResponse]",
+    "auth_dependencies": [
+      "app.api.v1.deps.owners.get_owner_service"
+    ],
+    "tags": [
+      "owners"
+    ]
+  },
+  {
+    "name": "update_owner",
+    "path": "/api/v1/owners/{owner_id}",
+    "methods": [
+      "PATCH"
+    ],
+    "response_model": "app.utils.responses.StandardResponse[OwnerResponse]",
+    "auth_dependencies": [
+      "app.api.v1.deps.owners.get_owner_service"
+    ],
+    "tags": [
+      "owners"
+    ]
+  },
+  {
+    "name": "list_properties",
+    "path": "/api/v1/properties",
+    "methods": [
+      "GET"
+    ],
+    "response_model": "app.schemas.property.PropertySearchResponse",
+    "auth_dependencies": [
+      "app.api.v1.deps.properties.get_property_search_service",
+      "app.api.v1.routes.properties.get_property_search_params"
+    ],
+    "tags": [
+      "properties"
+    ]
+  },
+  {
+    "name": "list_exclusive_properties",
+    "path": "/api/v1/properties/exclusive",
+    "methods": [
+      "GET"
+    ],
+    "response_model": "app.schemas.property.PropertySearchResponse",
+    "auth_dependencies": [
+      "app.api.v1.deps.properties.get_property_search_service",
+      "app.api.v1.routes.properties.get_exclusive_property_search_params"
+    ],
+    "tags": [
+      "properties"
+    ]
+  },
+  {
+    "name": "search_properties",
+    "path": "/api/v1/properties/geo-search",
+    "methods": [
+      "POST"
+    ],
+    "response_model": "app.schemas.property.PropertyListResponse",
+    "auth_dependencies": [
+      "app.api.v1.deps.search.get_geo_search_service"
+    ],
+    "tags": [
+      "search"
+    ]
+  },
+  {
+    "name": "import_csv",
+    "path": "/api/v1/properties/import-csv",
+    "methods": [
+      "POST"
+    ],
+    "response_model": "app.utils.responses.ImportResponse",
+    "auth_dependencies": [
+      "app.api.v1.deps.search.get_property_import_service",
+      "app.core.auth.get_current_user",
+      "app.core.permissions.PermissionChecker"
+    ],
+    "tags": [
+      "search"
+    ]
+  },
+  {
+    "name": "get_property",
+    "path": "/api/v1/properties/{property_id}",
+    "methods": [
+      "GET"
+    ],
+    "response_model": "app.schemas.property.PropertyDetail",
+    "auth_dependencies": [
+      "app.api.v1.deps.properties.get_property_search_service",
+      "app.api.v1.deps.recent_views.get_recent_view_service",
+      "app.core.auth.get_current_user_optional"
+    ],
+    "tags": [
+      "properties"
+    ]
+  },
+  {
+    "name": "get_similar_properties",
+    "path": "/api/v1/properties/{property_id}/similar",
+    "methods": [
+      "GET"
+    ],
+    "response_model": "app.schemas.property.PropertySearchResponse",
+    "auth_dependencies": [
+      "app.api.v1.deps.properties.get_property_search_service"
+    ],
+    "tags": [
+      "properties"
+    ]
+  },
+  {
+    "name": "create_submission",
+    "path": "/api/v1/property-submissions",
+    "methods": [
+      "POST"
+    ],
+    "response_model": "app.utils.responses.StandardResponse[PropertySubmissionCreateResponse]",
+    "auth_dependencies": [
+      "app.api.v1.deps.property_submissions.get_property_submission_service",
+      "app.core.auth.get_current_user"
+    ],
+    "tags": [
+      "property-submissions"
+    ]
+  },
+  {
+    "name": "create_and_submit",
+    "path": "/api/v1/property-submissions/submit",
+    "methods": [
+      "POST"
+    ],
+    "response_model": "app.utils.responses.StandardResponse[PropertySubmissionSubmitResponse]",
+    "auth_dependencies": [
+      "app.api.v1.deps.property_submissions.get_property_submission_service",
+      "app.core.auth.get_current_user"
+    ],
+    "tags": [
+      "property-submissions"
+    ]
+  },
+  {
+    "name": "delete_submission",
+    "path": "/api/v1/property-submissions/{submission_id}",
+    "methods": [
+      "DELETE"
+    ],
+    "response_model": "app.utils.responses.StandardResponse[PropertySubmissionDeleteResponse]",
+    "auth_dependencies": [
+      "app.api.v1.deps.property_submissions.get_property_submission_service",
+      "app.core.auth.get_current_user"
+    ],
+    "tags": [
+      "property-submissions"
+    ]
+  },
+  {
+    "name": "get_submission",
+    "path": "/api/v1/property-submissions/{submission_id}",
+    "methods": [
+      "GET"
+    ],
+    "response_model": "app.utils.responses.StandardResponse[PropertySubmissionDetailResponse]",
+    "auth_dependencies": [
+      "app.api.v1.deps.property_submissions.get_property_submission_service",
+      "app.core.auth.get_current_user"
+    ],
+    "tags": [
+      "property-submissions"
+    ]
+  },
+  {
+    "name": "patch_submission",
+    "path": "/api/v1/property-submissions/{submission_id}",
+    "methods": [
+      "PATCH"
+    ],
+    "response_model": "app.utils.responses.StandardResponse[PropertySubmissionPatchResponse]",
+    "auth_dependencies": [
+      "app.api.v1.deps.property_submissions.get_property_submission_service",
+      "app.core.auth.get_current_user"
+    ],
+    "tags": [
+      "property-submissions"
+    ]
+  },
+  {
+    "name": "submit_submission",
+    "path": "/api/v1/property-submissions/{submission_id}/submit",
+    "methods": [
+      "POST"
+    ],
+    "response_model": "app.utils.responses.StandardResponse[PropertySubmissionSubmitResponse]",
+    "auth_dependencies": [
+      "app.api.v1.deps.property_submissions.get_property_submission_service",
+      "app.core.auth.get_current_user"
+    ],
+    "tags": [
+      "property-submissions"
+    ]
+  },
+  {
+    "name": "get_property_taxonomy",
+    "path": "/api/v1/property-taxonomy",
+    "methods": [
+      "GET"
+    ],
+    "response_model": "builtins.dict",
+    "auth_dependencies": [
+      "app.api.v1.deps.property_taxonomy.get_property_taxonomy_service"
+    ],
+    "tags": [
+      "taxonomy"
+    ]
+  },
+  {
+    "name": "list_saved_searches",
+    "path": "/api/v1/saved-searches",
+    "methods": [
+      "GET"
+    ],
+    "response_model": "app.utils.responses.StandardResponse[List[SavedSearchResponse]]",
+    "auth_dependencies": [
+      "app.api.v1.deps.saved_searches.get_saved_search_service",
+      "app.core.auth.get_current_user"
+    ],
+    "tags": [
+      "saved-searches"
+    ]
+  },
+  {
+    "name": "create_saved_search",
+    "path": "/api/v1/saved-searches",
+    "methods": [
+      "POST"
+    ],
+    "response_model": "app.utils.responses.StandardResponse[SavedSearchResponse]",
+    "auth_dependencies": [
+      "app.api.v1.deps.saved_searches.get_saved_search_service",
+      "app.core.auth.get_current_user"
+    ],
+    "tags": [
+      "saved-searches"
+    ]
+  },
+  {
+    "name": "create_saved_searches_bulk",
+    "path": "/api/v1/saved-searches/bulk",
+    "methods": [
+      "POST"
+    ],
+    "response_model": "app.utils.responses.StandardResponse[List[SavedSearchResponse]]",
+    "auth_dependencies": [
+      "app.api.v1.deps.saved_searches.get_saved_search_service",
+      "app.core.auth.get_current_user"
+    ],
+    "tags": [
+      "saved-searches"
+    ]
+  },
+  {
+    "name": "delete_saved_search",
+    "path": "/api/v1/saved-searches/{id}",
+    "methods": [
+      "DELETE"
+    ],
+    "response_model": "app.utils.responses.StandardResponse[bool]",
+    "auth_dependencies": [
+      "app.api.v1.deps.saved_searches.get_saved_search_service",
+      "app.core.auth.get_current_user"
+    ],
+    "tags": [
+      "saved-searches"
+    ]
+  },
+  {
+    "name": "get_saved_search",
+    "path": "/api/v1/saved-searches/{id}",
+    "methods": [
+      "GET"
+    ],
+    "response_model": "app.utils.responses.StandardResponse[SavedSearchResponse]",
+    "auth_dependencies": [
+      "app.api.v1.deps.saved_searches.get_saved_search_service",
+      "app.core.auth.get_current_user"
+    ],
+    "tags": [
+      "saved-searches"
+    ]
+  },
+  {
+    "name": "update_saved_search",
+    "path": "/api/v1/saved-searches/{id}",
+    "methods": [
+      "PATCH"
+    ],
+    "response_model": "app.utils.responses.StandardResponse[SavedSearchResponse]",
+    "auth_dependencies": [
+      "app.api.v1.deps.saved_searches.get_saved_search_service",
+      "app.core.auth.get_current_user"
+    ],
+    "tags": [
+      "saved-searches"
+    ]
+  },
+  {
+    "name": "execute_saved_search",
+    "path": "/api/v1/saved-searches/{id}/results",
+    "methods": [
+      "GET"
+    ],
+    "response_model": "app.utils.responses.StandardResponse[SavedSearchExecutionResponse]",
+    "auth_dependencies": [
+      "app.api.v1.deps.saved_searches.get_saved_search_service",
+      "app.core.auth.get_current_user"
+    ],
+    "tags": [
+      "saved-searches"
+    ]
+  },
+  {
+    "name": "get_presigned_upload_url",
+    "path": "/api/v1/uploads/presigned-url",
+    "methods": [
+      "POST"
+    ],
+    "response_model": "app.utils.responses.StandardResponse[PresignedUploadData]",
+    "auth_dependencies": [
+      "app.api.v1.deps.uploads.get_upload_service",
+      "app.core.auth.get_current_user"
+    ],
+    "tags": [
+      "uploads"
+    ]
+  },
+  {
+    "name": "list_users",
+    "path": "/api/v1/users",
+    "methods": [
+      "GET"
+    ],
+    "response_model": "app.utils.responses.StandardResponse[UsersListPaginatedResponse]",
+    "auth_dependencies": [
+      "app.api.v1.deps.media_urls.get_media_url_signer",
+      "app.api.v1.deps.users.get_user_service",
+      "app.core.auth.get_current_user",
+      "app.core.permissions.PermissionChecker"
+    ],
+    "tags": [
+      "users"
+    ]
+  },
+  {
+    "name": "list_permissions",
+    "path": "/api/v1/users/permissions/list",
+    "methods": [
+      "GET"
+    ],
+    "response_model": "app.utils.responses.StandardResponse[List[dict]]",
+    "auth_dependencies": [
+      "app.api.v1.deps.users.get_user_service",
+      "app.core.auth.get_current_user",
+      "app.core.permissions.PermissionChecker"
+    ],
+    "tags": [
+      "users"
+    ]
+  },
+  {
+    "name": "clear_recent_views",
+    "path": "/api/v1/users/recent-views",
+    "methods": [
+      "DELETE"
+    ],
+    "response_model": "app.utils.responses.StandardResponse[bool]",
+    "auth_dependencies": [
+      "app.api.v1.deps.recent_views.get_recent_view_service",
+      "app.core.auth.get_current_user"
+    ],
+    "tags": [
+      "users"
+    ]
+  },
+  {
+    "name": "list_recent_views",
+    "path": "/api/v1/users/recent-views",
+    "methods": [
+      "GET"
+    ],
+    "response_model": "app.utils.responses.StandardResponse[RecentViewsListResponse]",
+    "auth_dependencies": [
+      "app.api.v1.deps.recent_views.get_recent_view_service",
+      "app.core.auth.get_current_user"
+    ],
+    "tags": [
+      "users"
+    ]
+  },
+  {
+    "name": "add_recent_view",
+    "path": "/api/v1/users/recent-views",
+    "methods": [
+      "POST"
+    ],
+    "response_model": "app.utils.responses.StandardResponse[bool]",
+    "auth_dependencies": [
+      "app.api.v1.deps.recent_views.get_recent_view_service",
+      "app.core.auth.get_current_user"
+    ],
+    "tags": [
+      "users"
+    ]
+  },
+  {
+    "name": "remove_recent_view",
+    "path": "/api/v1/users/recent-views/{property_hash}",
+    "methods": [
+      "DELETE"
+    ],
+    "response_model": "app.utils.responses.StandardResponse[bool]",
+    "auth_dependencies": [
+      "app.api.v1.deps.recent_views.get_recent_view_service",
+      "app.core.auth.get_current_user"
+    ],
+    "tags": [
+      "users"
+    ]
+  },
+  {
+    "name": "list_roles",
+    "path": "/api/v1/users/roles/list",
+    "methods": [
+      "GET"
+    ],
+    "response_model": "app.utils.responses.StandardResponse[List[RoleResponse]]",
+    "auth_dependencies": [
+      "app.api.v1.deps.users.get_user_service",
+      "app.core.auth.get_current_user",
+      "app.core.permissions.PermissionChecker"
+    ],
+    "tags": [
+      "users"
+    ]
+  },
+  {
+    "name": "delete_user",
+    "path": "/api/v1/users/{id}",
+    "methods": [
+      "DELETE"
+    ],
+    "response_model": "app.utils.responses.StandardResponse[bool]",
+    "auth_dependencies": [
+      "app.api.v1.deps.users.get_user_service",
+      "app.core.auth.get_current_user",
+      "app.core.permissions.PermissionChecker"
+    ],
+    "tags": [
+      "users"
+    ]
+  },
+  {
+    "name": "get_user",
+    "path": "/api/v1/users/{id}",
+    "methods": [
+      "GET"
+    ],
+    "response_model": "app.utils.responses.StandardResponse[UserResponse]",
+    "auth_dependencies": [
+      "app.api.v1.deps.media_urls.get_media_url_signer",
+      "app.api.v1.deps.users.get_user_service",
+      "app.core.auth.get_current_user",
+      "app.core.permissions.PermissionChecker"
+    ],
+    "tags": [
+      "users"
+    ]
+  },
+  {
+    "name": "update_user",
+    "path": "/api/v1/users/{id}",
+    "methods": [
+      "PATCH"
+    ],
+    "response_model": "app.utils.responses.StandardResponse[UserResponse]",
+    "auth_dependencies": [
+      "app.api.v1.deps.media_urls.get_media_url_signer",
+      "app.api.v1.deps.users.get_user_service",
+      "app.core.auth.get_current_user",
+      "app.core.permissions.PermissionChecker"
+    ],
+    "tags": [
+      "users"
+    ]
+  },
+  {
+    "name": "assign_role",
+    "path": "/api/v1/users/{id}/roles",
+    "methods": [
+      "POST"
+    ],
+    "response_model": "app.utils.responses.StandardResponse[bool]",
+    "auth_dependencies": [
+      "app.api.v1.deps.users.get_user_service",
+      "app.core.auth.get_current_user",
+      "app.core.permissions.PermissionChecker"
+    ],
+    "tags": [
+      "users"
+    ]
+  },
+  {
+    "name": "remove_role",
+    "path": "/api/v1/users/{id}/roles/{role_id}",
+    "methods": [
+      "DELETE"
+    ],
+    "response_model": "app.utils.responses.StandardResponse[bool]",
+    "auth_dependencies": [
+      "app.api.v1.deps.users.get_user_service",
+      "app.core.auth.get_current_user",
+      "app.core.permissions.PermissionChecker"
+    ],
+    "tags": [
+      "users"
+    ]
+  },
+  {
+    "name": "health_check",
+    "path": "/health",
+    "methods": [
+      "GET"
+    ],
+    "response_model": null,
+    "auth_dependencies": [],
+    "tags": []
+  },
+  {
+    "name": "metrics",
+    "path": "/metrics",
+    "methods": [
+      "GET"
+    ],
+    "response_model": null,
+    "auth_dependencies": [],
+    "tags": []
+  }
+]

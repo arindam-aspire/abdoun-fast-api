@@ -5,6 +5,7 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import Any
 
+from app.domains.shared.pagination import calculate_pagination
 from app.models.property_listing_submission import PropertyListingSubmission
 from app.models.user import User
 from app.repositories.property_repository import PropertyRepository
@@ -66,9 +67,9 @@ class AgentPropertyService:
         self._submissions = submission_repository
 
     def list_my_properties(
-        self, *, user: User, page: int, limit: int, include_drafts: bool = False
+        self, *, user: User, page: int, page_size: int, include_drafts: bool = False
     ) -> AgentPropertyListResponse:
-        rows, total = self._properties.list_properties_for_agent(agent_user_id=user.id, page=page, page_size=limit)
+        rows, total = self._properties.list_properties_for_agent(agent_user_id=user.id, page=page, page_size=page_size)
         property_ids = [p.id for p in rows]
         submission_by_property = self._submissions.list_submissions_linked_to_properties(
             user_id=user.id,
@@ -130,9 +131,19 @@ class AgentPropertyService:
             ]
             extra["draft_submissions_total"] = draft_total
 
-        return AgentPropertyListResponse(items=items, total=total, page=page, limit=limit, **extra)
+        meta = calculate_pagination(page=page, page_size=page_size, total=total)
+        return AgentPropertyListResponse(
+            items=items,
+            total=total,
+            page=page,
+            pageSize=meta.page_size,
+            totalPages=meta.total_pages,
+            hasNext=meta.has_next,
+            hasPrevious=meta.has_previous,
+            **extra,
+        )
 
-    def list_my_draft_submissions(self, *, user: User, page: int, limit: int) -> AgentDraftSubmissionListResponse:
+    def list_my_draft_submissions(self, *, user: User, page: int, page_size: int) -> AgentDraftSubmissionListResponse:
         # Repo returns newest-first; no DB-level paging for drafts yet, so page in memory.
         rows, total = self._submissions.list_draft_submissions_without_property(user_id=user.id, limit=200)
         items = [
@@ -146,6 +157,15 @@ class AgentPropertyService:
             )
             for d in rows
         ]
-        offset = max(page - 1, 0) * limit
-        paged = items[offset : offset + limit]
-        return AgentDraftSubmissionListResponse(items=paged, total=total, page=page, limit=limit)
+        offset = max(page - 1, 0) * page_size
+        paged = items[offset : offset + page_size]
+        meta = calculate_pagination(page=page, page_size=page_size, total=total)
+        return AgentDraftSubmissionListResponse(
+            items=paged,
+            total=total,
+            page=page,
+            pageSize=meta.page_size,
+            totalPages=meta.total_pages,
+            hasNext=meta.has_next,
+            hasPrevious=meta.has_previous,
+        )

@@ -5,8 +5,10 @@ from typing import Annotated, List
 from fastapi import APIRouter, Depends, Query
 
 from app.api.v1.deps.owners import get_owner_service
+from app.domains.shared.pagination import calculate_pagination
 from app.schemas.owner import (
     OwnerCreate,
+    OwnerListResponse,
     OwnerResponse,
     OwnerUpdate,
     OwnerWithMappingsResponse,
@@ -30,15 +32,16 @@ def create_owner(
     return create_success_response(data=owner, message="Owner created successfully")
 
 
-@router.get("", response_model=StandardResponse[List[OwnerResponse]])
+@router.get("", response_model=StandardResponse[OwnerListResponse])
 def list_owners(
     service: Annotated[OwnerService, Depends(get_owner_service)],
-    limit: Annotated[int, Query(ge=1, le=200)] = 50,
-    offset: Annotated[int, Query(ge=0)] = 0,
+    page: Annotated[int, Query(ge=1, description="1-based page index.")] = 1,
+    page_size: Annotated[int, Query(ge=1, le=200, alias="pageSize", description="Items per page.")] = 50,
 ):
-    """List owners with pagination."""
-    owners = service.list_owners(limit=limit, offset=offset)
-    return create_success_response(data=owners, message=None)
+    """List owners with canonical page-based pagination."""
+    owners = service.list_owners(page=page, page_size=page_size)
+    pm = calculate_pagination(page=owners.page, page_size=owners.pageSize, total=owners.total)
+    return create_success_response(data=owners, message=None, pagination=pm)
 
 
 @router.get("/{owner_id}", response_model=StandardResponse[OwnerWithMappingsResponse])
