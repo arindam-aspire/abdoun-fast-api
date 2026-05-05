@@ -67,9 +67,26 @@ class AgentPropertyService:
         self._submissions = submission_repository
 
     def list_my_properties(
-        self, *, user: User, page: int, page_size: int, include_drafts: bool = False
+        self,
+        *,
+        user: User,
+        page: int,
+        page_size: int,
+        include_drafts: bool = False,
+        search: str | None = None,
+        status: str | None = None,
+        sort_by: str | None = None,
+        sort_order: str = "desc",
     ) -> AgentPropertyListResponse:
-        rows, total = self._properties.list_properties_for_agent(agent_user_id=user.id, page=page, page_size=page_size)
+        rows, total = self._properties.list_properties_for_agent(
+            agent_user_id=user.id,
+            page=page,
+            page_size=page_size,
+            search=search,
+            status=status,
+            sort_by=sort_by,
+            sort_order=sort_order,
+        )
         property_ids = [p.id for p in rows]
         submission_by_property = self._submissions.list_submissions_linked_to_properties(
             user_id=user.id,
@@ -84,6 +101,14 @@ class AgentPropertyService:
             price_val = p.price if p.price is not None else Decimal("0")
             sub: PropertyListingSubmission | None = submission_by_property.get(p.id)
             wf = sub.status if sub else None
+            # Backward-compatible fallback:
+            # Legacy catalog properties may be assigned to an agent without ever going through the
+            # submission workflow (no PropertyListingSubmission row). In that case, the agent UI
+            # should still treat verified/active listings as "approved/verified" for filtering.
+            if wf is None:
+                status_slug = getattr(status_obj, "slug", None)
+                if status_slug in {"verified", "active"}:
+                    wf = "approved"
             items.append(
                 AgentPropertyListItem(
                     property_id=p.id,

@@ -58,11 +58,11 @@ def test_list_my_properties_maps_rows() -> None:
     sub_repo.list_draft_submissions_without_property.return_value = ([], 0)
     service = AgentPropertyService(property_repository=prop_repo, submission_repository=sub_repo)
 
-    out = service.list_my_properties(user=user, page=1, limit=200)
+    out = service.list_my_properties(user=user, page=1, page_size=200)
 
     assert out.total == 1
     assert out.page == 1
-    assert out.limit == 200
+    assert out.pageSize == 200
     assert len(out.items) == 1
     row = out.items[0]
     assert row.property_id == pid
@@ -85,7 +85,7 @@ def test_list_my_properties_includes_submission_moderation() -> None:
     sub_repo.list_draft_submissions_without_property.return_value = ([], 0)
     service = AgentPropertyService(property_repository=prop_repo, submission_repository=sub_repo)
 
-    out = service.list_my_properties(user=user, page=1, limit=10)
+    out = service.list_my_properties(user=user, page=1, page_size=10)
     row = out.items[0]
     assert row.submission_id == sub.id
     assert row.submission_status == "submitted"
@@ -112,13 +112,13 @@ def test_list_my_properties_includes_draft_submissions() -> None:
     sub_repo.list_draft_submissions_without_property.return_value = ([draft], 4)
 
     service = AgentPropertyService(property_repository=prop_repo, submission_repository=sub_repo)
-    out = service.list_my_properties(user=user, page=1, limit=10)
+    out = service.list_my_properties(user=user, page=1, page_size=10)
 
     assert out.items == []
     assert out.draft_submissions_total is None
     assert out.draft_submissions is None
 
-    out_with_drafts = service.list_my_properties(user=user, page=1, limit=10, include_drafts=True)
+    out_with_drafts = service.list_my_properties(user=user, page=1, page_size=10, include_drafts=True)
     assert out_with_drafts.draft_submissions_total == 4
     assert len(out_with_drafts.draft_submissions) == 1
     assert out_with_drafts.draft_submissions[0].submission_id == draft.id
@@ -152,7 +152,7 @@ def test_list_my_draft_submissions_separate_api_shape() -> None:
     sub_repo.list_draft_submissions_without_property.return_value = ([draft2, draft1], 2)
     service = AgentPropertyService(property_repository=prop_repo, submission_repository=sub_repo)
 
-    out = service.list_my_draft_submissions(user=user, page=1, limit=10)
+    out = service.list_my_draft_submissions(user=user, page=1, page_size=10)
     assert out.total == 2
     assert len(out.items) == 2
     assert out.items[0].title == "Draft 2"
@@ -170,7 +170,7 @@ def test_list_my_properties_rejected_allows_edit_delete() -> None:
     sub_repo.list_draft_submissions_without_property.return_value = ([], 0)
     service = AgentPropertyService(property_repository=prop_repo, submission_repository=sub_repo)
 
-    row = service.list_my_properties(user=user, page=1, limit=10).items[0]
+    row = service.list_my_properties(user=user, page=1, page_size=10).items[0]
     assert row.submission_workflow_label == "rejected"
     assert row.can_edit_submission is True
     assert row.can_delete_submission is True
@@ -186,7 +186,7 @@ def test_list_my_properties_approved_maps_workflow_to_verified() -> None:
     sub_repo.list_submissions_linked_to_properties.return_value = {pid: sub}
     sub_repo.list_draft_submissions_without_property.return_value = ([], 0)
     service = AgentPropertyService(property_repository=prop_repo, submission_repository=sub_repo)
-    row = service.list_my_properties(user=user, page=1, limit=10).items[0]
+    row = service.list_my_properties(user=user, page=1, page_size=10).items[0]
     assert row.submission_workflow_label == "verified"
     assert row.can_edit_submission is False
     assert row.can_delete_submission is False
@@ -199,7 +199,7 @@ def test_list_my_properties_empty() -> None:
     sub_repo.list_submissions_linked_to_properties.return_value = {}
     sub_repo.list_draft_submissions_without_property.return_value = ([], 0)
     service = AgentPropertyService(property_repository=prop_repo, submission_repository=sub_repo)
-    out = service.list_my_properties(user=_user(), page=3, limit=10)
+    out = service.list_my_properties(user=_user(), page=3, page_size=10)
     assert out.items == []
     assert out.total == 0
     assert out.page == 3

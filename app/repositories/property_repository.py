@@ -4,7 +4,7 @@ from __future__ import annotations
 import uuid
 from typing import Any, List, Optional, Tuple
 
-from sqlalchemy import Select, and_, func, or_, select
+from sqlalchemy import Select, String, and_, cast, false, func, or_, select
 from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.models.property_normalized import (
@@ -13,8 +13,10 @@ from app.models.property_normalized import (
     PropertyCategory,
     PropertyFeature,
     PropertyNormalized as Property,
+    PropertyStatus,
     PropertyType,
 )
+from app.models.property_listing_submission import PropertyListingSubmission
 from app.models.user import User
 from app.models.owner import Owner, PropertyOwner
 from app.utils.constants import ListingStatus, PropertyExclusiveFilter
@@ -502,6 +504,10 @@ class PropertyRepository:
         agent_user_id: uuid.UUID,
         page: int,
         page_size: int,
+        search: str | None = None,
+        status: str | None = None,
+        sort_by: str | None = None,
+        sort_order: str = "desc",
     ) -> Tuple[List[Property], int]:
         """List properties that should appear on the agent dashboard.
 
@@ -509,12 +515,34 @@ class PropertyRepository:
         - properties created by the agent (``created_by``)
         - properties assigned to the agent (``agent_user_id``)
         """
-        filters = and_(
-            or_(Property.created_by == agent_user_id, Property.agent_user_id == agent_user_id),
-            Property.deleted_at.is_(None),
+        status_norm = (status or "").strip().lower()
+        search_norm = (search or "").strip()
+        sort_by_norm = (sort_by or "").strip().lower()
+        sort_order_norm = (sort_order or "desc").strip().lower()
+        if sort_order_norm not in {"asc", "desc"}:
+            sort_order_norm = "desc"
+
+        # Latest submission per property for this user (for workflow-based filtering/sorting).
+        ranked_submissions = (
+            select(
+                PropertyListingSubmission.property_id.label("property_id"),
+                PropertyListingSubmission.status.label("submission_status"),
+                PropertyListingSubmission.submitted_at.label("submitted_at"),
+                PropertyListingSubmission.reviewed_at.label("reviewed_at"),
+                func.row_number()
+                .over(
+                    partition_by=PropertyListingSubmission.property_id,
+                    order_by=PropertyListingSubmission.updated_at.desc(),
+                )
+                .label("rn"),
+            )
+            .where(
+                PropertyListingSubmission.submitted_by == agent_user_id,
+                PropertyListingSubmission.property_id.is_not(None),
+                PropertyListingSubmission.deleted_at.is_(None),
+            )
+            .subquery("ranked_submissions")
         )
-        count_stmt = select(func.count(Property.id)).where(filters)
-        total = int(self._db.execute(count_stmt).scalar() or 0)
 
         stmt = (
             select(Property)
@@ -523,11 +551,93 @@ class PropertyRepository:
                 joinedload(Property.type),
                 joinedload(Property.property_status),
             )
-            .where(filters)
-            .order_by(func.coalesce(Property.updated_at, Property.created_at).desc())
+            .outerjoin(PropertyCategory, Property.category_id == PropertyCategory.id)
+            .outerjoin(PropertyType, Property.type_id == PropertyType.id)
+            .outerjoin(PropertyStatus, Property.property_status_id == PropertyStatus.id)
+            .outerjoin(
+                ranked_submissions,
+                and_(
+                    ranked_submissions.c.property_id == Property.id,
+                    ranked_submissions.c.rn == 1,
+                ),
+            )
         )
+
+        base_filters = [
+            or_(Property.created_by == agent_user_id, Property.agent_user_id == agent_user_id),
+            Property.deleted_at.is_(None),
+        ]
+
+        # SQL-level search (case-insensitive).
+        if search_norm:
+            term = search_norm.lower()
+            like_filters = [
+                func.lower(Property.title).contains(term),
+                func.lower(func.coalesce(Property.reference_number, "")).contains(term),
+                func.lower(func.coalesce(Property.listing_purpose, "")).contains(term),
+                func.lower(func.coalesce(Property.currency, "")).contains(term),
+                func.lower(cast(Property.price, String)).contains(term),
+                func.lower(func.coalesce(PropertyCategory.name, "")).contains(term),
+                func.lower(func.coalesce(PropertyCategory.slug, "")).contains(term),
+                func.lower(func.coalesce(PropertyType.name, "")).contains(term),
+                func.lower(func.coalesce(PropertyType.slug, "")).contains(term),
+                func.lower(func.coalesce(PropertyStatus.name, "")).contains(term),
+                func.lower(func.coalesce(PropertyStatus.slug, "")).contains(term),
+            ]
+            base_filters.append(or_(*like_filters))
+
+        # Status filtering (catalog + workflow) applied before count and pagination.
+        latest_wf = ranked_submissions.c.submission_status
+        catalog_slug = PropertyStatus.slug
+        verified_slugs = ("verified", "active")
+
+        if status_norm in {"", "all"}:
+            pass
+        elif status_norm == "active":
+            base_filters.append(catalog_slug.in_(verified_slugs))
+        elif status_norm == "approved":
+            base_filters.append(
+                or_(
+                    latest_wf == "approved",
+                    and_(latest_wf.is_(None), catalog_slug.in_(verified_slugs)),
+                )
+            )
+        elif status_norm == "verified":
+            base_filters.append(or_(catalog_slug.in_(verified_slugs), latest_wf == "approved"))
+        elif status_norm in {"pending_admin_approval", "submitted"}:
+            base_filters.append(latest_wf == "submitted")
+        elif status_norm == "rejected":
+            base_filters.append(latest_wf == "rejected")
+        elif status_norm == "changes_requested":
+            base_filters.append(latest_wf == "changes_requested")
+        elif status_norm == "draft":
+            base_filters.append(latest_wf.in_(("draft", "in_progress")))
+        elif status_norm == "in_progress":
+            base_filters.append(latest_wf == "in_progress")
+        else:
+            # Unknown status: safe empty result (no 400, avoids accidental unfiltered dataset).
+            base_filters.append(false())
+
+        stmt = stmt.where(and_(*base_filters))
+
+        # Sorting (allow-list only). Default remains coalesce(updated_at, created_at).desc().
+        default_sort_col = func.coalesce(Property.updated_at, Property.created_at)
+        sort_allow = {
+            "created_at": Property.created_at,
+            "updated_at": default_sort_col,
+            "title": Property.title,
+            "price": Property.price,
+            "status": catalog_slug,
+            "submitted_at": ranked_submissions.c.submitted_at,
+            "reviewed_at": ranked_submissions.c.reviewed_at,
+        }
+        sort_col = sort_allow.get(sort_by_norm, default_sort_col)
+        stmt = stmt.order_by(sort_col.asc() if sort_order_norm == "asc" else sort_col.desc())
+
+        count_stmt = stmt.with_only_columns(func.count(Property.id)).order_by(None)
+        total = int(self._db.execute(count_stmt).scalar() or 0)
+
         offset = max(page - 1, 0) * page_size
-        stmt = stmt.offset(offset).limit(page_size)
-        rows = self._db.execute(stmt).unique().scalars().all()
+        rows = self._db.execute(stmt.offset(offset).limit(page_size)).unique().scalars().all()
         return list(rows), total
 

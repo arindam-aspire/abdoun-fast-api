@@ -1024,7 +1024,7 @@ def test_list_my_drafts_returns_paged_items(service: PropertySubmissionService, 
     d2.property_id = None
     d2.payload["basic_information"]["title"] = "Draft B"
     repo.list_draft_submissions_without_property.return_value = ([d2, d1], 2)
-    out = service.list_my_draft_submissions(user=user, page=1, limit=1)
+    out = service.list_my_draft_submissions(user=user, page=1, page_size=1)
     assert out["total"] == 2
     assert len(out["items"]) == 1
     assert out["items"][0]["title"] in {"Draft A", "Draft B"}
@@ -1546,7 +1546,7 @@ def test_list_admin_submissions_rejects_draft_status_query_param(
     service: PropertySubmissionService,
 ) -> None:
     with pytest.raises(HTTPException) as exc_info:
-        service.list_admin_submissions(status="draft", page=1, limit=10)
+        service.list_admin_submissions(status="draft", page=1, page_size=10)
     assert exc_info.value.status_code == 400
 
 
@@ -1560,7 +1560,7 @@ def test_list_admin_submissions_includes_property_hash_when_available(
         (submission, "Agent Name", 117296771, "Postman Villa", "REF-1", None)
     ]
     repo.count_admin_submissions.return_value = 1
-    out = service.list_admin_submissions(status="submitted", page=1, limit=10)
+    out = service.list_admin_submissions(status="submitted", page=1, page_size=10)
     assert out.total == 1
     assert out.items[0].property_hash == 117296771
     assert out.items[0].agent_user_id is None

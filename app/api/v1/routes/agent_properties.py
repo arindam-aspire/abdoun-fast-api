@@ -25,6 +25,10 @@ def list_agent_properties(
     service: Annotated[AgentPropertyService, Depends(get_agent_property_service)],
     page: int = Query(default=1, ge=1, description="1-based page"),
     page_size: int = Query(default=20, ge=1, le=200, alias="pageSize", description="Items per page (max 200)."),
+    search: str | None = Query(default=None, description="Optional search across listing fields."),
+    status: str | None = Query(default=None, description="Optional status/workflow filter for agent dashboard."),
+    sort_by: str | None = Query(default=None, alias="sortBy", description="Optional sort field (allow-list)."),
+    sort_order: str = Query(default="desc", alias="sortOrder", description="Sort direction: asc or desc."),
     include_drafts: bool = Query(
         default=False,
         description="When true, include `draft_submissions` in the response. Prefer using `/agent-properties/drafts`.",
@@ -37,7 +41,16 @@ def list_agent_properties(
     ``status_slug`` from ``property_status``). **draft_submissions** lists in-progress wizards
     with no ``property_id`` yet (matches extra rows you see only in that SQL table).
     """
-    data = service.list_my_properties(user=current_user, page=page, page_size=page_size, include_drafts=include_drafts)
+    data = service.list_my_properties(
+        user=current_user,
+        page=page,
+        page_size=page_size,
+        include_drafts=include_drafts,
+        search=search,
+        status=status,
+        sort_by=sort_by,
+        sort_order=sort_order,
+    )
     pm = calculate_pagination(page=data.page, page_size=data.pageSize, total=data.total)
     return create_success_response(data=data, message=None, pagination=pm)
 
