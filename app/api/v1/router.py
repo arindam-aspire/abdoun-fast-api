@@ -18,6 +18,7 @@ from app.api.v1.routes import (
     agents,
     auth,
     favorites,
+    leads,
     locations,
     owners,
     properties,
@@ -143,6 +144,23 @@ api_router.include_router(
     agent_properties.router,
     prefix=ApiRoutes.AGENT_PROPERTIES_PREFIX,
     tags=[ApiRoutes.AGENT_PROPERTIES_TAG],
+)
+
+api_router.include_router(
+    leads.public_router,
+    tags=[ApiRoutes.LEADS_TAG],
+)
+
+api_router.include_router(
+    leads.agent_router,
+    prefix=ApiRoutes.AGENT_PREFIX,
+    tags=[ApiRoutes.LEADS_TAG],
+)
+
+api_router.include_router(
+    leads.admin_router,
+    prefix=ApiRoutes.ADMIN_PREFIX,
+    tags=[ApiRoutes.LEADS_TAG],
 )
 
 if settings.use_refactored_properties:

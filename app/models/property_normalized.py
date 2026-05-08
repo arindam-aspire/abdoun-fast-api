@@ -411,9 +411,91 @@ class Lead(Base):
     property_id = Column(UUID(as_uuid=True), ForeignKey(FK_PROPERTIES_NORMALIZED_ID, ondelete=ONDELETE_SET_NULL), nullable=True)
     user_id = Column(UUID(as_uuid=True), ForeignKey(FK_USERS_ID, ondelete=ONDELETE_SET_NULL), nullable=True)
     inquiry_type = Column(String(50), nullable=True)
+    status = Column(
+        Enum("NEW", "IN_PROGRESS", "REQUEST_FOR_CLOSE", "CLOSED", name="lead_status_enum"),
+        nullable=False,
+        server_default="NEW",
+        index=True,
+    )
+    source = Column(
+        Enum("EMAIL_FORM", "PHONE", "WHATSAPP", "MANUAL_ADMIN", "AGENT_MANUAL", name="lead_source_enum"),
+        nullable=False,
+        server_default="EMAIL_FORM",
+        index=True,
+    )
+    assigned_agent_id = Column(UUID(as_uuid=True), ForeignKey(FK_USERS_ID, ondelete=ONDELETE_SET_NULL), nullable=True, index=True)
+    assigned_by_admin_id = Column(
+        UUID(as_uuid=True), ForeignKey(FK_USERS_ID, ondelete=ONDELETE_SET_NULL), nullable=True
+    )
+    last_activity_at = Column(DateTime(timezone=True), nullable=True)
+    request_close_at = Column(DateTime(timezone=True), nullable=True)
+    closed_at = Column(DateTime(timezone=True), nullable=True)
+    closed_by_admin_id = Column(UUID(as_uuid=True), ForeignKey(FK_USERS_ID, ondelete=ONDELETE_SET_NULL), nullable=True)
     message = Column(Text, nullable=True)
+    lead_number = Column(String(32), nullable=False, unique=True, index=True)
+    external_owner_name = Column(String(255), nullable=True)
+    external_owner_phone = Column(String(50), nullable=True)
+    external_owner_email = Column(String(255), nullable=True)
+    external_property_name = Column(String(255), nullable=True)
+    communication_mode = Column(String(32), nullable=False, server_default="IN_APP")
+    created_by_agent_id = Column(
+        UUID(as_uuid=True), ForeignKey(FK_USERS_ID, ondelete=ONDELETE_SET_NULL), nullable=True, index=True
+    )
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+
+class LeadStatusHistory(Base):
+    """Audit trail for lead status transitions."""
+
+    __tablename__ = "lead_status_history"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    lead_id = Column(UUID(as_uuid=True), ForeignKey("leads.id", ondelete="CASCADE"), nullable=False, index=True)
+    from_status = Column(
+        Enum("NEW", "IN_PROGRESS", "REQUEST_FOR_CLOSE", "CLOSED", name="lead_status_enum"),
+        nullable=True,
+    )
+    to_status = Column(
+        Enum("NEW", "IN_PROGRESS", "REQUEST_FOR_CLOSE", "CLOSED", name="lead_status_enum"),
+        nullable=False,
+    )
+    actor_user_id = Column(UUID(as_uuid=True), ForeignKey(FK_USERS_ID, ondelete=ONDELETE_SET_NULL), nullable=True)
+    actor_role = Column(String(32), nullable=True)
+    reason = Column(Text, nullable=True)
+    changed_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
+
+
+class LeadNote(Base):
+    """Internal lead notes visible to scoped agents/admins only."""
+
+    __tablename__ = "lead_notes"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    lead_id = Column(UUID(as_uuid=True), ForeignKey("leads.id", ondelete="CASCADE"), nullable=False, index=True)
+    author_user_id = Column(UUID(as_uuid=True), ForeignKey(FK_USERS_ID, ondelete=ONDELETE_SET_NULL), nullable=True)
+    note = Column(Text, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+
+class LeadMessage(Base):
+    """Lead reply message records and delivery-channel metadata."""
+
+    __tablename__ = "lead_messages"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    lead_id = Column(UUID(as_uuid=True), ForeignKey("leads.id", ondelete="CASCADE"), nullable=False, index=True)
+    sender_user_id = Column(UUID(as_uuid=True), ForeignKey(FK_USERS_ID, ondelete=ONDELETE_SET_NULL), nullable=True)
+    recipient_user_id = Column(UUID(as_uuid=True), ForeignKey(FK_USERS_ID, ondelete=ONDELETE_SET_NULL), nullable=True)
+    message = Column(Text, nullable=False)
+    channel = Column(
+        Enum("IN_APP", "EMAIL", name="lead_message_channel_enum"),
+        nullable=False,
+        server_default="IN_APP",
+    )
+    delivery_state = Column(String(32), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
 
 
 class PropertyView(Base):

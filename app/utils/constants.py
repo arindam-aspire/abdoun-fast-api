@@ -404,6 +404,7 @@ class ApiRoutes:
     ADMIN_PROPERTY_SUBMISSIONS_PREFIX = "/admin/property-submissions"
     UPLOADS_PREFIX = "/uploads"
     AGENT_PROPERTIES_PREFIX = "/agent-properties"
+    LEADS_PREFIX = "/leads"
 
     AUTH_TAG = "auth"
     AGENT_TAG = "agent"
@@ -418,6 +419,7 @@ class ApiRoutes:
     ADMIN_PROPERTY_SUBMISSIONS_TAG = "admin-property-submissions"
     UPLOADS_TAG = "uploads"
     AGENT_PROPERTIES_TAG = "agent-properties"
+    LEADS_TAG = "leads"
     SEARCH_TAG = "search"
     LOCATIONS_TAG = "locations"
     TAXONOMY_TAG = "taxonomy"
