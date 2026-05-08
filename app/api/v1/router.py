@@ -25,6 +25,8 @@ from app.api.v1.routes import (
     property_submissions,
     property_taxonomy,
     recent_views,
+    notifications,
+    notification_settings,
     saved_searches,
     search,
     uploads,
@@ -103,6 +105,18 @@ api_router.include_router(
     _saved_searches_router,
     prefix=ApiRoutes.SAVED_SEARCHES_PREFIX,
     tags=[ApiRoutes.SAVED_SEARCHES_TAG],
+)
+
+# Phase 1: In-app Notifications (polling-based)
+api_router.include_router(
+    notifications.router,
+    prefix=ApiRoutes.NOTIFICATIONS_PREFIX,
+    tags=[ApiRoutes.NOTIFICATIONS_TAG],
+)
+api_router.include_router(
+    notification_settings.router,
+    prefix=ApiRoutes.NOTIFICATION_SETTINGS_PREFIX,
+    tags=[ApiRoutes.NOTIFICATION_SETTINGS_TAG],
 )
 
 if settings.use_refactored_submissions:

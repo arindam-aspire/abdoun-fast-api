@@ -23,6 +23,8 @@ from app.schemas.user import (
 )
 from app.services import cognito as cognito_module
 from app.services import notification as notification_module
+from app.services.notification_service import NotificationCreateInput, NotificationService
+from app.constants.notification_types import NotificationType
 from app.utils.constants import (
     AgentAssignmentStatus,
     AgentStatus,
@@ -138,13 +140,14 @@ def _try_create_cognito_user_for_agent(
 class AgentService:
     """Service for agent invites, onboarding, admin CRUD, and admin-agent assignments."""
 
-    def __init__(self, repo: AgentRepository) -> None:
+    def __init__(self, repo: AgentRepository, notification_service: NotificationService | None = None) -> None:
         """Store the agent repository for all operations.
 
         Args:
             repo: AgentRepository instance (request-scoped).
         """
         self._repo = repo
+        self._notifications = notification_service
 
     def _agent_summary_payload(
         self,
@@ -721,6 +724,30 @@ class AgentService:
                         error=str(n),
                     )
                 )
+            # Phase 1: create in-app notification for the agent.
+            if self._notifications is not None:
+                try:
+                    self._notifications.create_notification(
+                        input=NotificationCreateInput(
+                            recipient_user_id=user.id,
+                            actor_user_id=current_user.id,
+                            type_key=NotificationType.AGENT_APPROVED.value,
+                            data={
+                                "entity_type": "agent",
+                                "entity_id": str(user.id),
+                                "action_url": f"/agents/{user.id}",
+                                "metadata": {"agent_email": user.email},
+                            },
+                        )
+                    )
+                except Exception as n:
+                    api_logger.warning(
+                        format_log_message(
+                            LogMessages.RBAC.NOTIFICATION_FAILED,
+                            context="agent approved (in-app)",
+                            error=str(n),
+                        )
+                    )
             return {
                 "id": user.id,
                 "status": profile.status,
@@ -788,6 +815,30 @@ class AgentService:
                         error=str(n),
                     )
                 )
+            # Phase 1: create in-app notification for the agent.
+            if self._notifications is not None:
+                try:
+                    self._notifications.create_notification(
+                        input=NotificationCreateInput(
+                            recipient_user_id=user.id,
+                            actor_user_id=current_user.id,
+                            type_key=NotificationType.AGENT_REJECTED.value,
+                            data={
+                                "entity_type": "agent",
+                                "entity_id": str(user.id),
+                                "action_url": f"/agents/{user.id}",
+                                "metadata": {"reason": profile.decline_reason or ""},
+                            },
+                        )
+                    )
+                except Exception as n:
+                    api_logger.warning(
+                        format_log_message(
+                            LogMessages.RBAC.NOTIFICATION_FAILED,
+                            context="agent rejected (in-app)",
+                            error=str(n),
+                        )
+                    )
             return {
                 "id": user.id,
                 "status": profile.status,

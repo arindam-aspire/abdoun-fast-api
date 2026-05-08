@@ -26,29 +26,23 @@ security = HTTPBearer()
 optional_security = HTTPBearer(auto_error=False)
 
 
-async def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
-    db: Session = Depends(get_db)
-) -> User:
-    """FastAPI dependency that validates Cognito JWT and returns the current user.
+async def get_current_user_from_token(*, token: str, db: Session) -> User:
+    """Resolve current user from a raw JWT access token.
 
-    Flow: extract Bearer token → verify with Cognito → validate token_use "access"
-    → resolve user by cognito_sub (or email fallback) → exclude soft-deleted → ensure user is active.
-
-    Args:
-        credentials: Injected by HTTPBearer; holds the Bearer token.
-        db: Injected database session for user lookup.
-
-    Returns:
-        The authenticated, active User model instance.
-
-    Raises:
-        HTTPException: 401 if token invalid/missing or user not found; 403 if user inactive.
+    Used by websocket authentication (query token / Authorization header) and
+    any other non-HTTPBearer flows.
     """
-    # Keep as async FastAPI dependency; allows awaiting if future IO is added.
     await anyio.lowlevel.checkpoint()
-    token = credentials.credentials
+    token = (token or "").strip()
+    if not token:
+        raise HTTPException(
+            status_code=HTTPStatus.UNAUTHORIZED,
+            detail=ErrorMessages.INVALID_TOKEN,
+        )
+    return _resolve_user_from_token(token=token, db=db)
 
+
+def _resolve_user_from_token(*, token: str, db: Session) -> User:
     # Verify token against Cognito
     payload = cognito_service.verify_token(token)
 
@@ -112,10 +106,6 @@ async def get_current_user(
             detail=ErrorMessages.USER_NOT_FOUND,
         )
 
-    # NOTE: This dependency must remain read-only. Any user-sync writes (e.g. cognito_sub,
-    # email_verified, phone_verified) should be performed in explicit service flows (login/signup)
-    # rather than during request authentication.
-
     # Ensure user is active
     if not user.is_active:
         api_logger.warning(format_log_message(LogMessages.Auth.INACTIVE_USER_ATTEMPT, email=user.email))
@@ -125,6 +115,31 @@ async def get_current_user(
         )
 
     return user
+
+
+async def get_current_user(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    db: Session = Depends(get_db)
+) -> User:
+    """FastAPI dependency that validates Cognito JWT and returns the current user.
+
+    Flow: extract Bearer token → verify with Cognito → validate token_use "access"
+    → resolve user by cognito_sub (or email fallback) → exclude soft-deleted → ensure user is active.
+
+    Args:
+        credentials: Injected by HTTPBearer; holds the Bearer token.
+        db: Injected database session for user lookup.
+
+    Returns:
+        The authenticated, active User model instance.
+
+    Raises:
+        HTTPException: 401 if token invalid/missing or user not found; 403 if user inactive.
+    """
+    # Keep as async FastAPI dependency; allows awaiting if future IO is added.
+    await anyio.lowlevel.checkpoint()
+    token = credentials.credentials
+    return _resolve_user_from_token(token=token, db=db)
 
 
 async def get_current_user_optional(

@@ -23,7 +23,12 @@ from app.utils.status_codes import HTTPStatus
 class FavoriteService:
     """Service layer for user property favorites."""
 
-    def __init__(self, repository: FavoriteRepository, *, media_url_signer: MediaUrlSigner | None = None) -> None:
+    def __init__(
+        self,
+        repository: FavoriteRepository,
+        *,
+        media_url_signer: MediaUrlSigner | None = None,
+    ) -> None:
         self._repo = repository
         self._media_url_signer = media_url_signer
 

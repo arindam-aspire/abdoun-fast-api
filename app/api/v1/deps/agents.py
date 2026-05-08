@@ -8,6 +8,8 @@ from sqlalchemy.orm import Session
 from app.db.session import get_db
 from app.repositories.agent_repository import AgentRepository
 from app.services.agent_service import AgentService
+from app.api.v1.deps.notifications import get_notification_service
+from app.services.notification_service import NotificationService
 
 
 DBSessionDep = Annotated[Session, Depends(get_db)]
@@ -27,6 +29,7 @@ def get_agent_repository(db: DBSessionDep) -> AgentRepository:
 
 def get_agent_service(
     repo: AgentRepository = Depends(get_agent_repository),
+    notification_service: NotificationService = Depends(get_notification_service),
 ) -> AgentService:
     """Provide an AgentService for invite, onboarding, and admin CRUD.
 
@@ -36,4 +39,4 @@ def get_agent_service(
     Returns:
         AgentService instance.
     """
-    return AgentService(repo)
+    return AgentService(repo, notification_service)

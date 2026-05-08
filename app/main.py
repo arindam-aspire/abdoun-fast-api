@@ -13,6 +13,7 @@ from app.schedulers.dashboard_summary_scheduler import run_dashboard_summary_sch
 from app.middleware.request_id import RequestIdMiddleware
 from app.middleware.security import SecurityHeadersMiddleware
 from app.api.v1.router import api_router
+from app.websockets.notification_websocket import router as notifications_ws_router
 from app.utils.constants import SystemMessages
 from app.utils.status_codes import STATUS_OK
 
@@ -95,6 +96,8 @@ def create_app() -> FastAPI:
             return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
     app.include_router(api_router, prefix=settings.api_v1_prefix)
+    # Realtime in-app notifications (single instance WebSocket).
+    app.include_router(notifications_ws_router)
 
     return app
 

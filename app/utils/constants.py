@@ -405,6 +405,8 @@ class ApiRoutes:
     UPLOADS_PREFIX = "/uploads"
     AGENT_PROPERTIES_PREFIX = "/agent-properties"
     LEADS_PREFIX = "/leads"
+    NOTIFICATIONS_PREFIX = "/notifications"
+    NOTIFICATION_SETTINGS_PREFIX = "/notification-settings"
 
     AUTH_TAG = "auth"
     AGENT_TAG = "agent"
@@ -420,6 +422,8 @@ class ApiRoutes:
     UPLOADS_TAG = "uploads"
     AGENT_PROPERTIES_TAG = "agent-properties"
     LEADS_TAG = "leads"
+    NOTIFICATIONS_TAG = "notifications"
+    NOTIFICATION_SETTINGS_TAG = "notification-settings"
     SEARCH_TAG = "search"
     LOCATIONS_TAG = "locations"
     TAXONOMY_TAG = "taxonomy"
