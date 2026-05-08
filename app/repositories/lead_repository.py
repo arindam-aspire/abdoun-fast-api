@@ -8,7 +8,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 from uuid import UUID
 
-from sqlalchemy import func, select, text
+from sqlalchemy import func, or_, select, text
 from sqlalchemy.orm import Session, selectinload
 
 from app.models.property_normalized import Lead, LeadMessage, LeadNote, LeadStatusHistory, PropertyNormalized
@@ -53,6 +53,19 @@ def _property_thumbnail_url(prop: PropertyNormalized) -> Optional[str]:
     return _legacy_thumbnail_url(getattr(prop, "images", None))
 
 
+def _normalize_phone_for_match(value: str | None) -> str:
+    if not value:
+        return ""
+    raw = str(value).strip()
+    prefix = "+" if raw.startswith("+") else ""
+    digits = "".join(ch for ch in raw if ch.isdigit())
+    return f"{prefix}{digits}" if digits else ""
+
+
+def _normalize_property_name_for_match(value: str | None) -> str:
+    return str(value or "").strip().lower()
+
+
 class LeadRepository:
     """Persistence/query layer for lead workflows."""
 
@@ -76,6 +89,34 @@ class LeadRepository:
         self._db.add(lead)
         self._db.flush()
         return lead
+
+    def find_duplicate_offline_lead(
+        self,
+        *,
+        phone_number: str,
+        property_id: Optional[UUID] = None,
+        property_name: Optional[str] = None,
+    ) -> Optional[Lead]:
+        normalized_phone = _normalize_phone_for_match(phone_number)
+        normalized_property_name = _normalize_property_name_for_match(property_name)
+        property_filters = []
+        if property_id:
+            property_filters.append(Lead.property_id == property_id)
+        if normalized_property_name:
+            property_filters.append(func.lower(func.trim(Lead.external_property_name)) == normalized_property_name)
+        if not normalized_phone or not property_filters:
+            return None
+
+        phone_expr = func.regexp_replace(func.coalesce(Lead.external_owner_phone, ""), "[^0-9+]", "", "g")
+        stmt = (
+            select(Lead)
+            .where(Lead.status != "CLOSED")
+            .where(phone_expr == normalized_phone)
+            .where(or_(*property_filters))
+            .order_by(Lead.created_at.desc())
+            .limit(1)
+        )
+        return self._db.execute(stmt).scalar_one_or_none()
 
     def allocate_next_lead_number(self) -> str:
         """Atomically allocate next display lead number for current UTC year (LD-YYYY-NNNNNN)."""
@@ -215,6 +256,31 @@ class LeadRepository:
         items = list(self._db.execute(stmt).scalars().all())
         total = int(self._db.execute(count_stmt).scalar() or 0)
         return items, total
+
+    def get_lead_status_summary(
+        self,
+        *,
+        scope: str,
+        actor_id: Optional[UUID] = None,
+        source: Optional[str] = None,
+    ) -> dict[str, int]:
+        statuses = ("NEW", "IN_PROGRESS", "REQUEST_FOR_CLOSE", "CLOSED")
+        stmt = select(Lead.status, func.count(Lead.id)).group_by(Lead.status)
+        if scope == "agent":
+            stmt = stmt.where(Lead.assigned_agent_id == actor_id)
+        elif scope == "user":
+            stmt = stmt.where(Lead.user_id == actor_id)
+        elif scope != "admin":
+            return {"total": 0, **{status: 0 for status in statuses}}
+        if source:
+            stmt = stmt.where(Lead.source == source)
+        rows = self._db.execute(stmt).all()
+        summary = {status: 0 for status in statuses}
+        for status, count in rows:
+            key = str(status)
+            if key in summary:
+                summary[key] = int(count or 0)
+        return {"total": sum(summary.values()), **summary}
 
     def add_status_history(
         self,

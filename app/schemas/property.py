@@ -1092,6 +1092,7 @@ class PropertySearchResultExtended(BaseModel):
     title and description use multi-language format: { "en": "...", "ar": "...", "esp": "...", "fr": "..." }.
     """
     id: int | str  # Support both int (old) and UUID string (normalized)
+    property_id: Optional[str] = None  # Normalized property UUID for APIs that need the internal id
     reference_number: Optional[str] = None  # Display ref from source (e.g. CSV property_id)
     title: dict[str, str]  # e.g. {"en": "Apartment for Rent", "ar": "شقة للإيجار", "esp": "...", "fr": "..."}
     description: Optional[dict[str, Optional[str]]] = None  # e.g. {"en": "...", "ar": "...", "esp": "...", "fr": "..."}
@@ -1171,6 +1172,7 @@ class PropertySearchResultExtended(BaseModel):
         
         return cls(
             id=prop_id,
+            property_id=str(obj.id) if isinstance(getattr(obj, "id", None), uuid.UUID) else None,
             reference_number=getattr(obj, "reference_number", None),
             title=title_by_lang,
             description=description_by_lang,

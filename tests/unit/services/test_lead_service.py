@@ -8,6 +8,8 @@ import pytest
 from fastapi import HTTPException
 
 from app.models.property_normalized import Lead
+from app.repositories.lead_repository import LeadRepository
+from app.schemas.lead import OfflineLeadCreateRequest
 from app.services.lead_service import LeadService
 
 
@@ -28,6 +30,14 @@ def _build_service(repo: MagicMock, permission: MagicMock | None = None) -> Lead
     repo.allocate_next_lead_number.return_value = "LD-2026-000001"
     repo.get_property_summaries_by_ids.return_value = {}
     repo.get_agent_summaries_by_ids.return_value = {}
+    repo.get_user_summaries_by_ids.return_value = {}
+    repo.get_lead_status_summary.return_value = {
+        "total": 0,
+        "NEW": 0,
+        "IN_PROGRESS": 0,
+        "REQUEST_FOR_CLOSE": 0,
+        "CLOSED": 0,
+    }
     return LeadService(
         repo=repo,
         workflow=workflow,
@@ -210,6 +220,101 @@ def test_list_admin_leads_uses_full_access_query() -> None:
 
     assert out["total"] == 0
     repo.list_admin_leads.assert_called_once()
+
+
+def test_admin_list_response_includes_status_summary_ignoring_status_filter() -> None:
+    repo = MagicMock()
+    repo.list_admin_leads.return_value = ([], 7)
+    service = _build_service(repo, permission=MagicMock())
+    repo.get_lead_status_summary.return_value = {
+        "total": 14,
+        "NEW": 7,
+        "IN_PROGRESS": 3,
+        "REQUEST_FOR_CLOSE": 2,
+        "CLOSED": 2,
+    }
+    actor = _user_with_role("admin")
+
+    out = service.list_admin_leads(actor=actor, status="NEW", source="OFFLINE_MANUAL", page=1, page_size=10)
+
+    assert out["items"] == []
+    assert out["total"] == 7
+    assert out["summary"] == {
+        "total": 14,
+        "NEW": 7,
+        "IN_PROGRESS": 3,
+        "REQUEST_FOR_CLOSE": 2,
+        "CLOSED": 2,
+    }
+    repo.list_admin_leads.assert_called_once_with(status="NEW", source="OFFLINE_MANUAL", limit=10, offset=0)
+    repo.get_lead_status_summary.assert_called_once_with(scope="admin", actor_id=None, source="OFFLINE_MANUAL")
+
+
+def test_agent_list_response_includes_assigned_scope_status_summary() -> None:
+    repo = MagicMock()
+    repo.list_agent_leads.return_value = ([], 3)
+    service = _build_service(repo)
+    repo.get_lead_status_summary.return_value = {
+        "total": 5,
+        "NEW": 2,
+        "IN_PROGRESS": 1,
+        "REQUEST_FOR_CLOSE": 2,
+    }
+    actor = _user_with_role("agent")
+
+    out = service.list_agent_leads(actor=actor, status="IN_PROGRESS", source=None, page=1, page_size=10)
+
+    assert out["total"] == 3
+    assert out["summary"] == {
+        "total": 5,
+        "NEW": 2,
+        "IN_PROGRESS": 1,
+        "REQUEST_FOR_CLOSE": 2,
+        "CLOSED": 0,
+    }
+    repo.get_lead_status_summary.assert_called_once_with(scope="agent", actor_id=actor.id, source=None)
+
+
+def test_user_list_response_includes_own_scope_status_summary() -> None:
+    repo = MagicMock()
+    repo.list_user_leads.return_value = ([], 1)
+    service = _build_service(repo, permission=MagicMock())
+    repo.get_lead_status_summary.return_value = {
+        "total": 4,
+        "NEW": 1,
+        "IN_PROGRESS": 1,
+        "REQUEST_FOR_CLOSE": 1,
+        "CLOSED": 1,
+    }
+    actor = _user_with_role("registered_user")
+
+    out = service.list_my_leads(actor=actor, status="CLOSED", source="EMAIL_FORM", page=1, page_size=10)
+
+    assert out["total"] == 1
+    assert out["summary"]["total"] == 4
+    assert out["summary"]["CLOSED"] == 1
+    repo.get_lead_status_summary.assert_called_once_with(scope="user", actor_id=actor.id, source="EMAIL_FORM")
+
+
+def test_repository_status_summary_defaults_and_counts_manual_source() -> None:
+    class _Result:
+        def all(self):
+            return [("NEW", 2), ("REQUEST_FOR_CLOSE", 1)]
+
+    db = MagicMock()
+    db.execute.return_value = _Result()
+    repo = LeadRepository(db)
+
+    out = repo.get_lead_status_summary(scope="admin", source="OFFLINE_MANUAL")
+
+    assert out == {
+        "total": 3,
+        "NEW": 2,
+        "IN_PROGRESS": 0,
+        "REQUEST_FOR_CLOSE": 1,
+        "CLOSED": 0,
+    }
+    db.execute.assert_called_once()
 
 
 def test_update_status_no_notification_on_commit_failure() -> None:
@@ -820,7 +925,7 @@ def test_successive_creates_use_distinct_allocated_lead_numbers() -> None:
     assert repo.allocate_next_lead_number.call_count == 2
 
 
-def test_agent_can_create_manual_owner_lead() -> None:
+def test_agent_can_create_offline_lead() -> None:
     repo = MagicMock()
     captured = {}
 
@@ -839,72 +944,184 @@ def test_agent_can_create_manual_owner_lead() -> None:
     )
     repo.allocate_next_lead_number.return_value = "LD-2026-000014"
     repo.get_agent_summaries_by_ids.return_value = {}
+    repo.get_property_summaries_by_ids.return_value = {}
+    repo.find_duplicate_offline_lead.return_value = None
     actor = _user_with_role("agent")
 
-    out = service.create_manual_owner_lead(
+    out = service.create_offline_lead(
         actor=actor,
-        owner_name="Owner Name",
-        phone_number="+962799999999",
-        email="owner@example.com",
-        message="Owner wants to sell property",
-        related_property_name="Villa in Abdoun",
+        payload=OfflineLeadCreateRequest(
+            customerName="Customer Name",
+            phoneNumber="+962 79 999 9999",
+            propertyName="Villa in Abdoun",
+            inquiryType="BUY",
+            source="PHONE",
+            notes="Customer wants to buy",
+        ),
     )
 
     lead = captured["lead"]
     assert out["leadNumber"] == "LD-2026-000014"
     assert out["status"] == "NEW"
-    assert out["source"] == "AGENT_MANUAL"
+    assert out["source"] == "OFFLINE_MANUAL"
     assert out["communicationMode"] == "EXTERNAL"
     assert out["assignedAgentId"] == str(actor.id)
     assert out["userId"] is None
     assert out["propertyId"] is None
     assert out["externalOwner"] == {
-        "name": "Owner Name",
-        "email": "owner@example.com",
+        "name": "Customer Name",
+        "email": None,
         "phone": "+962799999999",
     }
     assert out["externalPropertyName"] == "Villa in Abdoun"
+    assert out["offlineLead"]["customerName"] == "Customer Name"
+    assert out["offlineLead"]["source"] == "PHONE"
+    assert out["offlineLead"]["inquiryType"] == "BUY"
+    assert out["offlineLead"]["notes"] == "Customer wants to buy"
     assert lead.assigned_agent_id == actor.id
     assert lead.created_by_agent_id == actor.id
+    assert lead.created_by_admin_id is None
+    assert lead.offline_source == "PHONE"
     audit.record_status_transition.assert_called_once()
-    assert audit.record_status_transition.call_args.kwargs["reason"] == "Manual owner lead created"
+    assert audit.record_status_transition.call_args.kwargs["reason"] == "Offline lead created"
 
 
-def test_registered_user_cannot_create_manual_owner_lead() -> None:
+def test_admin_can_create_offline_lead_with_selected_agent() -> None:
+    repo = MagicMock()
+    captured = {}
+    repo.create_lead.side_effect = lambda *, lead: captured.setdefault("lead", lead)
+    service = _build_service(repo, permission=MagicMock())
+    repo.find_duplicate_offline_lead.return_value = None
+    repo.allocate_next_lead_number.return_value = "LD-2026-000020"
+    actor = _user_with_role("admin")
+    selected_agent_id = uuid4()
+
+    out = service.create_offline_lead(
+        actor=actor,
+        payload=OfflineLeadCreateRequest(
+            customerName="Customer Name",
+            phoneNumber="+962799999999",
+            propertyName="Villa in Abdoun",
+            inquiryType="RENT",
+            source="REFERRAL",
+            assignedAgentId=selected_agent_id,
+        ),
+    )
+
+    lead = captured["lead"]
+    assert out["assignedAgentId"] == str(selected_agent_id)
+    assert out["createdByAdminId"] == str(actor.id)
+    assert out["createdByAgentId"] is None
+    assert lead.assigned_agent_id == selected_agent_id
+    assert lead.created_by_admin_id == actor.id
+    assert lead.created_by_agent_id is None
+
+
+def test_registered_user_cannot_create_offline_lead() -> None:
     service = _build_service(MagicMock())
     actor = _user_with_role("registered_user")
 
     with pytest.raises(HTTPException) as exc:
-        service.create_manual_owner_lead(
+        service.create_offline_lead(
             actor=actor,
-            owner_name="Owner Name",
-            phone_number="+962799999999",
-            email=None,
-            message="Owner wants to sell property",
-            related_property_name="Villa in Abdoun",
+            payload=OfflineLeadCreateRequest(
+                customerName="Customer Name",
+                phoneNumber="+962799999999",
+                propertyName="Villa in Abdoun",
+                inquiryType="BUY",
+                source="PHONE",
+            ),
         )
 
     assert exc.value.status_code == 403
 
 
-def test_manual_owner_lead_appears_in_agent_list_payload() -> None:
+def test_admin_offline_lead_requires_assigned_agent() -> None:
+    repo = MagicMock()
+    service = _build_service(repo, permission=MagicMock())
+    actor = _user_with_role("admin")
+
+    with pytest.raises(HTTPException) as exc:
+        service.create_offline_lead(
+            actor=actor,
+            payload=OfflineLeadCreateRequest(
+                customerName="Customer Name",
+                phoneNumber="+962799999999",
+                propertyName="Villa in Abdoun",
+                inquiryType="BUY",
+                source="PHONE",
+            ),
+        )
+
+    assert exc.value.status_code == 400
+
+
+def test_duplicate_active_offline_lead_returns_409() -> None:
+    repo = MagicMock()
+    repo.find_duplicate_offline_lead.return_value = Lead(id=uuid4(), status="NEW")
+    service = _build_service(repo)
+    actor = _user_with_role("agent")
+
+    with pytest.raises(HTTPException) as exc:
+        service.create_offline_lead(
+            actor=actor,
+            payload=OfflineLeadCreateRequest(
+                customerName="Customer Name",
+                phoneNumber="+962799999999",
+                propertyName="Villa in Abdoun",
+                inquiryType="BUY",
+                source="PHONE",
+            ),
+        )
+
+    assert exc.value.status_code == 409
+    assert exc.value.detail == "A lead already exists for this phone and property."
+    repo.create_lead.assert_not_called()
+
+
+def test_closed_duplicate_offline_lead_allowed_when_repository_returns_none() -> None:
+    repo = MagicMock()
+    repo.find_duplicate_offline_lead.return_value = None
+    repo.create_lead.side_effect = lambda *, lead: lead
+    service = _build_service(repo)
+    actor = _user_with_role("agent")
+
+    out = service.create_offline_lead(
+        actor=actor,
+        payload=OfflineLeadCreateRequest(
+            customerName="Customer Name",
+            phoneNumber="+962799999999",
+            propertyName="Villa in Abdoun",
+            inquiryType="BUY",
+            source="PHONE",
+        ),
+    )
+
+    assert out["status"] == "NEW"
+    repo.create_lead.assert_called_once()
+
+
+def test_offline_lead_appears_in_agent_list_payload() -> None:
     repo = MagicMock()
     actor = _user_with_role("agent")
     lead = Lead(
         id=uuid4(),
         property_id=None,
         user_id=None,
-        source="AGENT_MANUAL",
+        source="OFFLINE_MANUAL",
         status="NEW",
         assigned_agent_id=actor.id,
-        message="Owner wants to sell property",
+        message="Customer wants to buy",
         lead_number="LD-2026-000015",
-        external_owner_name="Owner Name",
-        external_owner_email="owner@example.com",
+        external_owner_name="Customer Name",
+        external_owner_email=None,
         external_owner_phone="+962799999999",
         external_property_name="Villa in Abdoun",
         communication_mode="EXTERNAL",
         created_by_agent_id=actor.id,
+        offline_inquiry_type="BUY",
+        offline_source="PHONE",
+        offline_notes="Customer wants to buy",
         created_at=datetime.now(timezone.utc),
         updated_at=datetime.now(timezone.utc),
     )
@@ -915,22 +1132,23 @@ def test_manual_owner_lead_appears_in_agent_list_payload() -> None:
 
     item = out["items"][0]
     assert item["leadNumber"] == "LD-2026-000015"
-    assert item["source"] == "AGENT_MANUAL"
+    assert item["source"] == "OFFLINE_MANUAL"
     assert item["communicationMode"] == "EXTERNAL"
-    assert item["externalOwner"]["name"] == "Owner Name"
+    assert item["externalOwner"]["name"] == "Customer Name"
     assert item["externalPropertyName"] == "Villa in Abdoun"
+    assert item["offlineLead"]["source"] == "PHONE"
     assert item["property"] is None
     assert item["user"] is None
 
 
-def test_agent_can_move_manual_lead_to_in_progress_and_request_close() -> None:
+def test_agent_can_move_offline_lead_to_in_progress_and_request_close() -> None:
     repo = MagicMock()
     actor = _user_with_role("agent")
     lead = Lead(
         id=uuid4(),
         property_id=None,
         user_id=None,
-        source="AGENT_MANUAL",
+        source="OFFLINE_MANUAL",
         status="NEW",
         assigned_agent_id=actor.id,
         message="Owner wants to sell property",
@@ -948,14 +1166,14 @@ def test_agent_can_move_manual_lead_to_in_progress_and_request_close() -> None:
     assert lead.status == "REQUEST_FOR_CLOSE"
 
 
-def test_admin_can_close_manual_owner_lead() -> None:
+def test_admin_can_close_offline_lead() -> None:
     repo = MagicMock()
     actor = _user_with_role("admin")
     lead = Lead(
         id=uuid4(),
         property_id=None,
         user_id=None,
-        source="AGENT_MANUAL",
+        source="OFFLINE_MANUAL",
         status="REQUEST_FOR_CLOSE",
         assigned_agent_id=uuid4(),
         message="Owner wants to sell property",
@@ -980,7 +1198,7 @@ def test_post_message_on_external_lead_returns_400() -> None:
         id=uuid4(),
         property_id=None,
         user_id=None,
-        source="AGENT_MANUAL",
+        source="OFFLINE_MANUAL",
         status="NEW",
         assigned_agent_id=actor.id,
         message="Owner wants to sell property",
@@ -1007,7 +1225,7 @@ def test_list_messages_on_external_lead_returns_empty_list() -> None:
         id=uuid4(),
         property_id=None,
         user_id=None,
-        source="AGENT_MANUAL",
+        source="OFFLINE_MANUAL",
         status="NEW",
         assigned_agent_id=actor.id,
         message="Owner wants to sell property",
@@ -1021,3 +1239,42 @@ def test_list_messages_on_external_lead_returns_empty_list() -> None:
 
     assert service.list_messages(actor=actor, lead_id=lead.id) == []
     repo.list_messages.assert_not_called()
+
+
+@pytest.mark.parametrize("operation", ["status", "reassign", "add_note", "update_note", "delete_note", "message"])
+def test_closed_lead_mutations_are_read_only(operation: str) -> None:
+    repo = MagicMock()
+    actor = _user_with_role("admin" if operation == "reassign" else "agent")
+    note_id = uuid4()
+    lead = Lead(
+        id=uuid4(),
+        property_id=None,
+        user_id=None,
+        source="OFFLINE_MANUAL",
+        status="CLOSED",
+        assigned_agent_id=actor.id if operation != "reassign" else uuid4(),
+        message="Closed offline lead",
+        lead_number="LD-2026-000021",
+        communication_mode="EXTERNAL",
+        created_at=datetime.now(timezone.utc),
+        updated_at=datetime.now(timezone.utc),
+    )
+    repo.get_lead_by_id.return_value = lead
+    service = _build_service(repo, permission=MagicMock())
+
+    with pytest.raises(HTTPException) as exc:
+        if operation == "status":
+            service.update_status(actor=actor, lead_id=lead.id, to_status="IN_PROGRESS")
+        elif operation == "reassign":
+            service.reassign_lead(actor=actor, lead_id=lead.id, new_agent_id=uuid4())
+        elif operation == "add_note":
+            service.add_note(actor=actor, lead_id=lead.id, note="internal")
+        elif operation == "update_note":
+            service.update_note(actor=actor, lead_id=lead.id, note_id=note_id, note="updated")
+        elif operation == "delete_note":
+            service.delete_note(actor=actor, lead_id=lead.id, note_id=note_id)
+        else:
+            service.post_message(actor=actor, lead_id=lead.id, message="hello")
+
+    assert exc.value.status_code == 400
+    assert exc.value.detail == "Closed leads are read-only."

@@ -66,7 +66,7 @@ def _fake_lead_payload():
     }
 
 
-def _fake_manual_owner_lead_payload():
+def _fake_offline_lead_payload():
     now = datetime.now(timezone.utc)
     agent_id = uuid4()
     return {
@@ -78,14 +78,26 @@ def _fake_manual_owner_lead_payload():
         "user": None,
         "communicationMode": "EXTERNAL",
         "externalOwner": {
-            "name": "Owner Name",
-            "email": "owner@example.com",
+            "name": "Customer Name",
+            "email": None,
             "phone": "+962799999999",
         },
         "externalPropertyName": "Villa in Abdoun",
         "createdByAgentId": agent_id,
+        "createdByAdminId": None,
+        "offlineLead": {
+            "customerName": "Customer Name",
+            "phoneNumber": "+962799999999",
+            "propertyName": "Villa in Abdoun",
+            "propertyId": None,
+            "inquiryType": "BUY",
+            "source": "PHONE",
+            "notes": "Customer wants to buy",
+            "createdByAgentId": str(agent_id),
+            "createdByAdminId": None,
+        },
         "status": "NEW",
-        "source": "AGENT_MANUAL",
+        "source": "OFFLINE_MANUAL",
         "assignedAgentId": agent_id,
         "assignedAgent": {
             "id": str(agent_id),
@@ -94,13 +106,23 @@ def _fake_manual_owner_lead_payload():
             "phone": "+962790000002",
         },
         "assignedByAdminId": None,
-        "message": "Owner wants to sell property",
+        "message": "Customer wants to buy",
         "lastActivityAt": now,
         "requestCloseAt": None,
         "closedAt": None,
         "closedByAdminId": None,
         "createdAt": now,
         "updatedAt": now,
+    }
+
+
+def _fake_summary():
+    return {
+        "total": 14,
+        "NEW": 7,
+        "IN_PROGRESS": 3,
+        "REQUEST_FOR_CLOSE": 2,
+        "CLOSED": 2,
     }
 
 
@@ -164,6 +186,7 @@ def test_agent_list_route_success() -> None:
         "total": 1,
         "page": 1,
         "pageSize": 20,
+        "summary": _fake_summary(),
     }
     app.dependency_overrides[get_current_user] = lambda: _user("agent")
     app.dependency_overrides[get_lead_service] = lambda: service
@@ -173,6 +196,7 @@ def test_agent_list_route_success() -> None:
     res = client.get("/api/v1/agent/leads")
     assert res.status_code == 200
     assert res.json()["success"] is True
+    assert res.json()["data"]["summary"]["total"] == 14
     assert res.json()["data"]["items"][0]["property"]["thumbnailUrl"] == "https://cdn.example.com/test-thumb.jpg"
     assert res.json()["data"]["items"][0]["assignedAgent"]["phone"] == "+962790000002"
     app.dependency_overrides.clear()
@@ -185,6 +209,7 @@ def test_registered_user_my_leads_route_success() -> None:
         "total": 1,
         "page": 1,
         "pageSize": 20,
+        "summary": _fake_summary(),
     }
     app.dependency_overrides[get_current_user] = lambda: _user("registered_user")
     app.dependency_overrides[get_lead_service] = lambda: service
@@ -194,50 +219,126 @@ def test_registered_user_my_leads_route_success() -> None:
     res = client.get("/api/v1/leads/my")
     assert res.status_code == 200
     assert res.json()["success"] is True
+    assert res.json()["data"]["summary"]["NEW"] == 7
     app.dependency_overrides.clear()
 
 
-def test_manual_owner_lead_route_success() -> None:
+def test_admin_list_route_includes_summary() -> None:
     service = MagicMock()
-    service.create_manual_owner_lead.return_value = _fake_manual_owner_lead_payload()
+    service.list_admin_leads.return_value = {
+        "items": [_fake_lead_payload()],
+        "total": 1,
+        "page": 1,
+        "pageSize": 20,
+        "summary": _fake_summary(),
+    }
+    app.dependency_overrides[get_current_user] = lambda: _user("admin")
+    app.dependency_overrides[get_lead_service] = lambda: service
+    app.dependency_overrides[get_db] = _fake_db
+    client = TestClient(app)
+
+    res = client.get("/api/v1/admin/leads?status=NEW")
+    assert res.status_code == 200
+    assert res.json()["data"]["summary"] == _fake_summary()
+    service.list_admin_leads.assert_called_once()
+    app.dependency_overrides.clear()
+
+
+def test_agent_offline_lead_route_success() -> None:
+    service = MagicMock()
+    service.create_offline_lead.return_value = _fake_offline_lead_payload()
     app.dependency_overrides[get_current_user] = lambda: _user("agent")
     app.dependency_overrides[get_lead_service] = lambda: service
     app.dependency_overrides[get_db] = _fake_db
     client = TestClient(app)
 
     payload = {
-        "ownerName": "Owner Name",
+        "customerName": "Customer Name",
         "phoneNumber": "+962799999999",
-        "email": "owner@example.com",
-        "message": "Owner wants to sell property",
-        "relatedPropertyName": "Villa in Abdoun",
+        "propertyName": "Villa in Abdoun",
+        "inquiryType": "BUY",
+        "source": "PHONE",
+        "notes": "Customer wants to buy",
     }
     res = client.post("/api/v1/leads/manual", json=payload)
     assert res.status_code == 200
     data = res.json()["data"]
-    assert data["source"] == "AGENT_MANUAL"
+    assert data["source"] == "OFFLINE_MANUAL"
     assert data["communicationMode"] == "EXTERNAL"
-    assert data["externalOwner"]["name"] == "Owner Name"
+    assert data["externalOwner"]["name"] == "Customer Name"
     assert data["externalPropertyName"] == "Villa in Abdoun"
+    assert data["offlineLead"]["source"] == "PHONE"
+    service.create_offline_lead.assert_called_once()
     app.dependency_overrides.clear()
 
 
-def test_manual_owner_lead_route_forbidden_for_registered_user() -> None:
+def test_admin_offline_lead_route_success() -> None:
     service = MagicMock()
-    service.create_manual_owner_lead.side_effect = HTTPException(status_code=403, detail="Unauthorized")
+    payload_data = _fake_offline_lead_payload()
+    admin_id = uuid4()
+    payload_data["createdByAgentId"] = None
+    payload_data["createdByAdminId"] = admin_id
+    payload_data["offlineLead"]["createdByAgentId"] = None
+    payload_data["offlineLead"]["createdByAdminId"] = str(admin_id)
+    service.create_offline_lead.return_value = payload_data
+    app.dependency_overrides[get_current_user] = lambda: _user("admin")
+    app.dependency_overrides[get_lead_service] = lambda: service
+    app.dependency_overrides[get_db] = _fake_db
+    client = TestClient(app)
+    assigned_agent_id = uuid4()
+
+    payload = {
+        "customerName": "Customer Name",
+        "phoneNumber": "+962799999999",
+        "propertyName": "Villa in Abdoun",
+        "inquiryType": "BUY",
+        "source": "PHONE",
+        "assignedAgentId": str(assigned_agent_id),
+    }
+    res = client.post("/api/v1/leads/manual", json=payload)
+    assert res.status_code == 200
+    assert res.json()["message"] == "Offline lead created"
+    service.create_offline_lead.assert_called_once()
+    app.dependency_overrides.clear()
+
+
+def test_offline_lead_route_forbidden_for_registered_user() -> None:
+    service = MagicMock()
+    service.create_offline_lead.side_effect = HTTPException(status_code=403, detail="Unauthorized")
     app.dependency_overrides[get_current_user] = lambda: _user("registered_user")
     app.dependency_overrides[get_lead_service] = lambda: service
     app.dependency_overrides[get_db] = _fake_db
     client = TestClient(app)
 
     payload = {
-        "ownerName": "Owner Name",
+        "customerName": "Customer Name",
         "phoneNumber": "+962799999999",
-        "message": "Owner wants to sell property",
-        "relatedPropertyName": "Villa in Abdoun",
+        "propertyName": "Villa in Abdoun",
+        "inquiryType": "BUY",
+        "source": "PHONE",
     }
     res = client.post("/api/v1/leads/manual", json=payload)
     assert res.status_code == 403
+    app.dependency_overrides.clear()
+
+
+def test_offline_lead_route_invalid_phone_returns_422() -> None:
+    service = MagicMock()
+    app.dependency_overrides[get_current_user] = lambda: _user("agent")
+    app.dependency_overrides[get_lead_service] = lambda: service
+    app.dependency_overrides[get_db] = _fake_db
+    client = TestClient(app)
+
+    payload = {
+        "customerName": "Customer Name",
+        "phoneNumber": "12",
+        "propertyName": "Villa in Abdoun",
+        "inquiryType": "BUY",
+        "source": "PHONE",
+    }
+    res = client.post("/api/v1/leads/manual", json=payload)
+    assert res.status_code == 422
+    service.create_offline_lead.assert_not_called()
     app.dependency_overrides.clear()
 
 

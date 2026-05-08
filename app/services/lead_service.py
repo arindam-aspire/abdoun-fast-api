@@ -161,37 +161,67 @@ class LeadService:
             user_summary=self._user_summary_for_lead(lead),
         )
 
-    def create_manual_owner_lead(
+    def create_offline_lead(
         self,
         *,
         actor: User,
-        owner_name: str,
-        phone_number: Optional[str],
-        email: Optional[str],
-        message: str,
-        related_property_name: str,
+        payload: Any,
     ) -> dict[str, Any]:
-        if self._role(actor) != UserRoles.AGENT:
+        role = self._role(actor)
+        if role not in {UserRoles.AGENT, UserRoles.ADMIN}:
             raise HTTPException(status_code=HTTPStatus.FORBIDDEN, detail=ErrorMessages.UNAUTHORIZED_ACCESS)
+
+        assigned_agent_id = actor.id
+        created_by_agent_id = actor.id
+        created_by_admin_id = None
+        if role == UserRoles.ADMIN:
+            if not payload.assignedAgentId:
+                raise HTTPException(status_code=HTTPStatus.BAD_REQUEST, detail="assignedAgentId is required for admin offline lead creation")
+            self._permission.ensure_admin_can_manage_agent(admin_user=actor, agent_id=payload.assignedAgentId)
+            assigned_agent_id = payload.assignedAgentId
+            created_by_agent_id = None
+            created_by_admin_id = actor.id
+        elif payload.assignedAgentId and payload.assignedAgentId != actor.id:
+            raise HTTPException(status_code=HTTPStatus.FORBIDDEN, detail=ErrorMessages.UNAUTHORIZED_ACCESS)
+
+        normalized_phone = self._normalize_phone(payload.phoneNumber)
+        duplicate = self._repo.find_duplicate_offline_lead(
+            phone_number=normalized_phone,
+            property_id=payload.propertyId,
+            property_name=payload.propertyName,
+        )
+        if duplicate:
+            raise HTTPException(
+                status_code=HTTPStatus.CONFLICT,
+                detail="A lead already exists for this phone and property.",
+            )
 
         now = datetime.now(timezone.utc)
         lead_number = self._repo.allocate_next_lead_number()
+        customer_name = payload.customerName.strip()
+        property_name = payload.propertyName.strip() if payload.propertyName else None
+        notes = payload.notes.strip() if payload.notes else None
         lead = Lead(
-            property_id=None,
+            property_id=payload.propertyId,
             user_id=None,
-            inquiry_type="AGENT_MANUAL",
-            source="AGENT_MANUAL",
+            inquiry_type=payload.inquiryType,
+            source="OFFLINE_MANUAL",
             status="NEW",
-            assigned_agent_id=actor.id,
-            message=message.strip(),
+            assigned_agent_id=assigned_agent_id,
+            assigned_by_admin_id=actor.id if role == UserRoles.ADMIN else None,
+            message=notes or f"Offline lead created for {customer_name}",
             last_activity_at=now,
             lead_number=lead_number,
-            external_owner_name=owner_name.strip(),
-            external_owner_phone=phone_number.strip() if phone_number else None,
-            external_owner_email=email.strip() if email else None,
-            external_property_name=related_property_name.strip(),
+            external_owner_name=customer_name,
+            external_owner_phone=normalized_phone,
+            external_owner_email=None,
+            external_property_name=property_name,
             communication_mode="EXTERNAL",
-            created_by_agent_id=actor.id,
+            created_by_agent_id=created_by_agent_id,
+            created_by_admin_id=created_by_admin_id,
+            offline_inquiry_type=payload.inquiryType,
+            offline_source=payload.source,
+            offline_notes=notes,
         )
         try:
             self._repo.create_lead(lead=lead)
@@ -200,21 +230,27 @@ class LeadService:
                 from_status=None,
                 to_status="NEW",
                 actor_user_id=actor.id,
-                actor_role=UserRoles.AGENT,
-                reason="Manual owner lead created",
+                actor_role=role,
+                reason="Offline lead created",
             )
             self._repo.commit()
         except Exception as exc:
             self._repo.rollback()
             raise HTTPException(status_code=HTTPStatus.INTERNAL_SERVER_ERROR, detail=ErrorMessages.INTERNAL_SERVER_ERROR) from exc
         self._notifications.emit_lead_event(
-            event_type="manual_owner_lead_created",
+            event_type="offline_lead_created",
             lead_id=str(lead.id),
             actor_user_id=str(actor.id),
-            message="Manual owner lead created",
+            message="Offline lead created",
+        )
+        self._notifications.emit_email_hook_todo(
+            event_type="offline_lead_created",
+            lead_id=str(lead.id),
+            recipient_hint=str(assigned_agent_id),
         )
         return self._serialize_lead(
             lead,
+            property_summary=self._property_summary_for_lead(lead),
             assigned_agent_summary=self._agent_summary_for_lead(lead),
         )
 
@@ -256,6 +292,7 @@ class LeadService:
             "total": total,
             "page": page,
             "pageSize": page_size,
+            "summary": self._status_summary(scope="agent", actor_id=actor.id, source=source),
         }
 
     def list_admin_leads(
@@ -295,6 +332,7 @@ class LeadService:
             "total": total,
             "page": page,
             "pageSize": page_size,
+            "summary": self._status_summary(scope="admin", source=source),
         }
 
     def list_my_leads(
@@ -335,6 +373,7 @@ class LeadService:
             "total": total,
             "page": page,
             "pageSize": page_size,
+            "summary": self._status_summary(scope="user", actor_id=actor.id, source=source),
         }
 
     def get_lead_detail(self, *, actor: User, lead_id: UUID) -> dict[str, Any]:
@@ -357,6 +396,7 @@ class LeadService:
     ) -> dict[str, Any]:
         lead = self._must_get_lead(lead_id=lead_id)
         self._ensure_access(actor=actor, lead=lead)
+        self._ensure_lead_is_mutable(lead)
         try:
             self._workflow.validate_transition(from_status=str(lead.status), to_status=to_status)
         except ValueError as exc:
@@ -408,6 +448,7 @@ class LeadService:
 
     def reassign_lead(self, *, actor: User, lead_id: UUID, new_agent_id: UUID) -> dict[str, Any]:
         lead = self._must_get_lead(lead_id=lead_id)
+        self._ensure_lead_is_mutable(lead)
         if self._role(actor) != UserRoles.ADMIN:
             raise HTTPException(status_code=HTTPStatus.FORBIDDEN, detail=ErrorMessages.UNAUTHORIZED_ACCESS)
         self._permission.ensure_admin_can_manage_agent(admin_user=actor, agent_id=new_agent_id)
@@ -441,6 +482,7 @@ class LeadService:
         lead = self._must_get_lead(lead_id=lead_id)
         self._ensure_notes_access_allowed(actor=actor)
         self._ensure_access(actor=actor, lead=lead)
+        self._ensure_lead_is_mutable(lead)
         try:
             row = self._repo.create_note(lead_id=lead.id, author_user_id=actor.id, note=note.strip())
             self._repo.commit()
@@ -464,6 +506,7 @@ class LeadService:
     def update_note(self, *, actor: User, lead_id: UUID, note_id: UUID, note: str) -> dict[str, Any]:
         lead = self._must_get_lead(lead_id=lead_id)
         self._ensure_notes_access_allowed(actor=actor)
+        self._ensure_lead_is_mutable(lead)
         note_row = self._repo.get_note(note_id=note_id)
         if not note_row or note_row.lead_id != lead.id:
             raise HTTPException(status_code=HTTPStatus.NOT_FOUND, detail=ErrorMessages.NOT_FOUND)
@@ -480,6 +523,7 @@ class LeadService:
     def delete_note(self, *, actor: User, lead_id: UUID, note_id: UUID) -> bool:
         lead = self._must_get_lead(lead_id=lead_id)
         self._ensure_notes_access_allowed(actor=actor)
+        self._ensure_lead_is_mutable(lead)
         note_row = self._repo.get_note(note_id=note_id)
         if not note_row or note_row.lead_id != lead.id:
             raise HTTPException(status_code=HTTPStatus.NOT_FOUND, detail=ErrorMessages.NOT_FOUND)
@@ -506,6 +550,7 @@ class LeadService:
     def post_message(self, *, actor: User, lead_id: UUID, message: str) -> dict[str, Any]:
         lead = self._must_get_lead(lead_id=lead_id)
         self._ensure_access(actor=actor, lead=lead)
+        self._ensure_lead_is_mutable(lead)
         if self._communication_mode(lead) == "EXTERNAL":
             raise HTTPException(status_code=HTTPStatus.BAD_REQUEST, detail="This lead uses external communication.")
         try:
@@ -583,6 +628,11 @@ class LeadService:
         if self._role(actor) == UserRoles.REGISTERED_USER:
             raise HTTPException(status_code=HTTPStatus.FORBIDDEN, detail="Registered user cannot access lead notes")
 
+    @staticmethod
+    def _ensure_lead_is_mutable(lead: Lead) -> None:
+        if str(lead.status) == "CLOSED":
+            raise HTTPException(status_code=HTTPStatus.BAD_REQUEST, detail="Closed leads are read-only.")
+
     def _property_summary_for_lead(self, lead: Lead) -> Optional[dict[str, Any]]:
         if not lead.property_id:
             return None
@@ -598,6 +648,23 @@ class LeadService:
             return None
         return self._repo.get_user_summaries_by_ids({lead.user_id}).get(lead.user_id)
 
+    def _status_summary(
+        self,
+        *,
+        scope: str,
+        actor_id: Optional[UUID] = None,
+        source: Optional[str] = None,
+    ) -> dict[str, int]:
+        statuses = ("NEW", "IN_PROGRESS", "REQUEST_FOR_CLOSE", "CLOSED")
+        default_summary = {"total": 0, **{status: 0 for status in statuses}}
+        raw = self._repo.get_lead_status_summary(scope=scope, actor_id=actor_id, source=source)
+        if not isinstance(raw, dict):
+            return default_summary
+        summary = default_summary.copy()
+        for key in summary:
+            summary[key] = int(raw.get(key, 0) or 0)
+        return summary
+
     @staticmethod
     def _communication_mode(lead: Lead) -> str:
         return str(getattr(lead, "communication_mode", None) or "IN_APP")
@@ -610,6 +677,48 @@ class LeadService:
         if not any([name, email, phone]):
             return None
         return {"name": name, "email": email, "phone": phone}
+
+    @staticmethod
+    def _offline_lead_summary(lead: Lead) -> Optional[dict[str, Any]]:
+        if str(getattr(lead, "source", "")) not in {"OFFLINE_MANUAL", "AGENT_MANUAL"}:
+            return None
+        inquiry_type = getattr(lead, "offline_inquiry_type", None) or getattr(lead, "inquiry_type", None)
+        offline_source = getattr(lead, "offline_source", None)
+        if not any(
+            [
+                getattr(lead, "external_owner_name", None),
+                getattr(lead, "external_owner_phone", None),
+                getattr(lead, "external_property_name", None),
+                inquiry_type,
+                offline_source,
+                getattr(lead, "offline_notes", None),
+                getattr(lead, "created_by_agent_id", None),
+                getattr(lead, "created_by_admin_id", None),
+            ]
+        ):
+            return None
+        return {
+            "customerName": getattr(lead, "external_owner_name", None),
+            "phoneNumber": getattr(lead, "external_owner_phone", None),
+            "propertyName": getattr(lead, "external_property_name", None),
+            "propertyId": str(lead.property_id) if lead.property_id else None,
+            "inquiryType": inquiry_type,
+            "source": offline_source,
+            "notes": getattr(lead, "offline_notes", None),
+            "createdByAgentId": str(getattr(lead, "created_by_agent_id", None))
+            if getattr(lead, "created_by_agent_id", None)
+            else None,
+            "createdByAdminId": str(getattr(lead, "created_by_admin_id", None))
+            if getattr(lead, "created_by_admin_id", None)
+            else None,
+        }
+
+    @staticmethod
+    def _normalize_phone(value: str) -> str:
+        raw = str(value or "").strip()
+        prefix = "+" if raw.startswith("+") else ""
+        digits = "".join(ch for ch in raw if ch.isdigit())
+        return f"{prefix}{digits}" if digits else raw
 
     @staticmethod
     def _role(actor: User) -> str:
@@ -644,6 +753,10 @@ class LeadService:
             "createdByAgentId": str(getattr(lead, "created_by_agent_id", None))
             if getattr(lead, "created_by_agent_id", None)
             else None,
+            "createdByAdminId": str(getattr(lead, "created_by_admin_id", None))
+            if getattr(lead, "created_by_admin_id", None)
+            else None,
+            "offlineLead": self._offline_lead_summary(lead),
             "status": str(lead.status),
             "source": str(lead.source),
             "assignedAgentId": str(lead.assigned_agent_id) if lead.assigned_agent_id else None,

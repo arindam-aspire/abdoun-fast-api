@@ -418,7 +418,15 @@ class Lead(Base):
         index=True,
     )
     source = Column(
-        Enum("EMAIL_FORM", "PHONE", "WHATSAPP", "MANUAL_ADMIN", "AGENT_MANUAL", name="lead_source_enum"),
+        Enum(
+            "EMAIL_FORM",
+            "PHONE",
+            "WHATSAPP",
+            "MANUAL_ADMIN",
+            "AGENT_MANUAL",
+            "OFFLINE_MANUAL",
+            name="lead_source_enum",
+        ),
         nullable=False,
         server_default="EMAIL_FORM",
         index=True,
@@ -439,6 +447,12 @@ class Lead(Base):
     external_property_name = Column(String(255), nullable=True)
     communication_mode = Column(String(32), nullable=False, server_default="IN_APP")
     created_by_agent_id = Column(
+        UUID(as_uuid=True), ForeignKey(FK_USERS_ID, ondelete=ONDELETE_SET_NULL), nullable=True, index=True
+    )
+    offline_inquiry_type = Column(String(64), nullable=True)
+    offline_source = Column(String(64), nullable=True)
+    offline_notes = Column(Text, nullable=True)
+    created_by_admin_id = Column(
         UUID(as_uuid=True), ForeignKey(FK_USERS_ID, ondelete=ONDELETE_SET_NULL), nullable=True, index=True
     )
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)

@@ -26,7 +26,7 @@ from app.schemas.lead import (
     LeadMessagesResponse,
     LeadHistoryItemResponse,
     LeadHistoryResponse,
-    ManualOwnerLeadCreateRequest,
+    OfflineLeadCreateRequest,
     LeadStatusUpdateRequest,
 )
 from app.services.lead_service import LeadService
@@ -72,20 +72,16 @@ def list_my_leads(
 
 
 @public_router.post("/leads/manual")
-def create_manual_owner_lead(
-    body: ManualOwnerLeadCreateRequest,
+def create_offline_lead(
+    body: OfflineLeadCreateRequest,
     current_user: Annotated[User, Depends(get_current_user)],
     service: Annotated[LeadService, Depends(get_lead_service)],
 ) -> StandardResponse[LeadItemResponse]:
-    data = service.create_manual_owner_lead(
+    data = service.create_offline_lead(
         actor=current_user,
-        owner_name=body.ownerName,
-        phone_number=body.phoneNumber,
-        email=str(body.email) if body.email else None,
-        message=body.message,
-        related_property_name=body.relatedPropertyName,
+        payload=body,
     )
-    return create_success_response(data=LeadItemResponse(**data), message="Manual owner lead created")
+    return create_success_response(data=LeadItemResponse(**data), message="Offline lead created")
 
 
 @public_router.get("/leads/{lead_id}")

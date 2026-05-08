@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import Optional
 from uuid import UUID
 
-from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class ContactFormLeadCreateRequest(BaseModel):
@@ -17,14 +17,17 @@ class ContactFormLeadCreateRequest(BaseModel):
     message: str = Field(min_length=10, max_length=1000)
 
 
-class ManualOwnerLeadCreateRequest(BaseModel):
-    ownerName: str = Field(min_length=1, max_length=255)
-    phoneNumber: Optional[str] = Field(default=None, min_length=7, max_length=50)
-    email: Optional[EmailStr] = None
-    message: str = Field(min_length=1, max_length=1000)
-    relatedPropertyName: str = Field(min_length=1, max_length=255)
+class OfflineLeadCreateRequest(BaseModel):
+    customerName: str = Field(min_length=1, max_length=255)
+    phoneNumber: str = Field(min_length=7, max_length=50)
+    propertyName: Optional[str] = Field(default=None, max_length=255)
+    propertyId: Optional[UUID] = None
+    inquiryType: str = Field(pattern="^(BUY|RENT|SELL|OTHER)$")
+    source: str = Field(pattern="^(PHONE|WHATSAPP|WALK_IN|FACEBOOK|REFERRAL|OTHER)$")
+    notes: Optional[str] = Field(default=None, max_length=2000)
+    assignedAgentId: Optional[UUID] = None
 
-    @field_validator("ownerName", "message", "relatedPropertyName")
+    @field_validator("customerName")
     @classmethod
     def require_non_blank_text(cls, value: str) -> str:
         value = value.strip()
@@ -32,15 +35,27 @@ class ManualOwnerLeadCreateRequest(BaseModel):
             raise ValueError("Field is required")
         return value
 
+    @field_validator("propertyName", "notes")
+    @classmethod
+    def normalize_optional_text(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        value = value.strip()
+        return value or None
+
     @field_validator("phoneNumber")
     @classmethod
-    def normalize_phone(cls, value: Optional[str]) -> Optional[str]:
-        return value.strip() if value else None
+    def normalize_phone(cls, value: str) -> str:
+        value = value.strip()
+        digits = "".join(ch for ch in value if ch.isdigit())
+        if len(digits) < 7:
+            raise ValueError("Invalid phone number")
+        return value
 
     @model_validator(mode="after")
-    def require_contact_method(self) -> "ManualOwnerLeadCreateRequest":
-        if not self.phoneNumber and not self.email:
-            raise ValueError("At least one contact method is required: phoneNumber or email")
+    def require_property_reference(self) -> "OfflineLeadCreateRequest":
+        if not self.propertyId and not self.propertyName:
+            raise ValueError("Either propertyName or propertyId is required")
         return self
 
 
@@ -83,6 +98,18 @@ class ExternalOwnerSummaryResponse(BaseModel):
     phone: Optional[str] = None
 
 
+class OfflineLeadSummaryResponse(BaseModel):
+    customerName: Optional[str] = None
+    phoneNumber: Optional[str] = None
+    propertyName: Optional[str] = None
+    propertyId: Optional[str] = None
+    inquiryType: Optional[str] = None
+    source: Optional[str] = None
+    notes: Optional[str] = None
+    createdByAgentId: Optional[str] = None
+    createdByAdminId: Optional[str] = None
+
+
 class LeadStatusUpdateRequest(BaseModel):
     status: str = Field(pattern="^(NEW|IN_PROGRESS|REQUEST_FOR_CLOSE|CLOSED)$")
     reason: Optional[str] = Field(default=None, max_length=500)
@@ -115,6 +142,8 @@ class LeadItemResponse(BaseModel):
     externalOwner: Optional[ExternalOwnerSummaryResponse] = None
     externalPropertyName: Optional[str] = None
     createdByAgentId: Optional[UUID] = None
+    createdByAdminId: Optional[UUID] = None
+    offlineLead: Optional[OfflineLeadSummaryResponse] = None
     status: str
     source: str
     assignedAgentId: Optional[UUID] = None
@@ -129,11 +158,20 @@ class LeadItemResponse(BaseModel):
     updatedAt: datetime
 
 
+class LeadStatusSummaryResponse(BaseModel):
+    total: int = 0
+    NEW: int = 0
+    IN_PROGRESS: int = 0
+    REQUEST_FOR_CLOSE: int = 0
+    CLOSED: int = 0
+
+
 class LeadListResponse(BaseModel):
     items: list[LeadItemResponse]
     total: int
     page: int
     pageSize: int
+    summary: LeadStatusSummaryResponse
 
 
 class LeadNoteResponse(BaseModel):

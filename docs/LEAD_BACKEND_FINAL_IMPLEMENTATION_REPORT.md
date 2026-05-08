@@ -351,27 +351,35 @@ Required final validation commands:
 
 ---
 
-## Manual owner/external communication lead flow (2026-05-08)
+## Offline lead flow (2026-05-08)
 
 ### Behavior
 
-- Added canonical endpoint `POST /api/v1/leads/manual` for agents to create manual owner leads.
-- Manual owner leads use `source = AGENT_MANUAL`, `communicationMode = EXTERNAL`, `status = NEW`, `assignedAgentId = current agent`, `userId = null`, and `propertyId = null`.
-- External owner details are stored on the lead row and serialized as `externalOwner`; related property display text is serialized as `externalPropertyName`.
+- Replaced the old manual-owner creation contract with the offline lead contract on the existing canonical endpoint `POST /api/v1/leads/manual`.
+- No role-specific manual endpoints were added.
+- Offline leads use `source = OFFLINE_MANUAL`, `communicationMode = EXTERNAL`, `status = NEW`, `userId = null`, and nullable `propertyId`.
+- Agent-created offline leads self-assign to the current agent and set `createdByAgentId`.
+- Admin-created offline leads require `assignedAgentId`, assign the selected agent, and set `createdByAdminId`.
+- Customer details are stored on the reused external owner fields and serialized as `externalOwner`; offline details are serialized as `offlineLead`.
+- `externalPropertyName` remains the display fallback when no property UUID is linked.
+- Duplicate active offline leads return `409` when normalized phone plus property reference match; duplicate closed leads are allowed.
 - Existing contact-form inquiry flow remains unchanged and continues to use `communicationMode = IN_APP`.
 - `GET /api/v1/leads/{lead_id}/messages` returns an empty list for `EXTERNAL` leads.
 - `POST /api/v1/leads/{lead_id}/messages` returns `400` with `This lead uses external communication.` for `EXTERNAL` leads.
-- Manual owner lead creation records history with reason `Manual owner lead created`; later status transitions, close, and reassignment continue through existing LeadService/audit paths.
+- `CLOSED` leads are read-only for status updates, reassignment, notes mutation, and message posting.
+- Offline lead creation records history with reason `Offline lead created`; later status transitions, close, and reassignment continue through existing LeadService/audit paths.
 
 ### Migration
 
-- **`0041_manual_owner_leads`** (`alembic/versions/0041_add_manual_owner_lead_fields.py`): adds `AGENT_MANUAL` to `lead_source_enum` and adds nullable external owner/property fields plus `communication_mode` (`NOT NULL DEFAULT 'IN_APP'`) and `created_by_agent_id`.
+- **`0041_manual_owner_leads`** (`alembic/versions/0041_add_manual_owner_lead_fields.py`): retained as-is for already shared/applied external owner fields.
+- **`0043_offline_leads`** (`alembic/versions/0043_add_offline_lead_fields.py`): adds `OFFLINE_MANUAL` to `lead_source_enum`, plus `offline_inquiry_type`, `offline_source`, `offline_notes`, and `created_by_admin_id`.
 
 ### Files touched (this increment)
 
-- `alembic/versions/0041_add_manual_owner_lead_fields.py`
+- `alembic/versions/0043_add_offline_lead_fields.py`
 - `app/api/v1/routes/leads.py`
 - `app/models/property_normalized.py`
+- `app/repositories/lead_repository.py`
 - `app/schemas/lead.py`
 - `app/services/lead_service.py`
 - `docs/LEAD_API_CONTRACT.md`
@@ -381,6 +389,48 @@ Required final validation commands:
 
 ### Validation (post-change)
 
-- `pytest -q tests/unit/services/test_lead_service.py` — 33 passed
-- `pytest -q tests/unit/api/routes/test_leads_routes.py` — 16 passed
+- `pytest -q tests/unit/services/test_lead_service.py` — 47 passed
+- `pytest -q tests/unit/api/routes/test_leads_routes.py` — 19 passed
 - `pytest -q tests/unit/services/test_lead_permission_service.py` — 6 passed
+
+---
+
+## Lead list response summary counts (2026-05-08)
+
+### Behavior
+
+- Added `summary` to existing lead list responses:
+  - `GET /api/v1/admin/leads`
+  - `GET /api/v1/agent/leads`
+  - `GET /api/v1/leads/my`
+- No new summary endpoints were created.
+- Summary shape is `{ total, NEW, IN_PROGRESS, REQUEST_FOR_CLOSE, CLOSED }`.
+- Summary counts use the same role scope as the list endpoint:
+  - admin: all leads
+  - agent: assigned leads
+  - registered user: own leads
+- Summary ignores the active `status` filter and pagination.
+- Summary respects the active `source` filter.
+- Current list endpoints do not expose backend search, so local/frontend search does not affect backend summary counts.
+- Offline `OFFLINE_MANUAL` / `EXTERNAL` leads are included in the grouped status counts.
+
+### Implementation
+
+- Added `LeadRepository.get_lead_status_summary(...)`, a single grouped query by status.
+- `LeadService` now fetches list rows normally, fetches one scoped summary, and attaches it to the paginated response.
+- `LeadListResponse` now includes `summary: LeadStatusSummaryResponse`.
+
+### Files touched (this increment)
+
+- `app/repositories/lead_repository.py`
+- `app/schemas/lead.py`
+- `app/services/lead_service.py`
+- `docs/LEAD_API_CONTRACT.md`
+- `docs/LEAD_BACKEND_FINAL_IMPLEMENTATION_REPORT.md`
+- `tests/unit/services/test_lead_service.py`
+- `tests/unit/api/routes/test_leads_routes.py`
+
+### Validation (post-change)
+
+- `pytest -q tests/unit/services/test_lead_service.py` — 37 passed
+- `pytest -q tests/unit/api/routes/test_leads_routes.py` — 17 passed
