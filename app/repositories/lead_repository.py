@@ -12,7 +12,7 @@ from sqlalchemy import func, or_, select, text
 from sqlalchemy.orm import Session, selectinload
 
 from app.models.property_normalized import Lead, LeadMessage, LeadNote, LeadStatusHistory, PropertyNormalized
-from app.models.user import User
+from app.models.user import Role, User
 from app.services.translation_service import get_title_description_for_language
 
 
@@ -89,6 +89,26 @@ class LeadRepository:
         self._db.add(lead)
         self._db.flush()
         return lead
+
+    def list_active_user_ids_with_role(self, *, role_name: str) -> list[UUID]:
+        """Distinct active, non-deleted user IDs that have the given role name."""
+        stmt = (
+            select(User.id)
+            .join(User.roles)
+            .where(Role.name == role_name)
+            .where(User.deleted_at.is_(None))
+            .where(User.is_active.is_(True))
+            .distinct()
+        )
+        return list(self._db.scalars(stmt).all())
+
+    def get_role_names_by_user_ids(self, user_ids: set[UUID]) -> dict[UUID, set[str]]:
+        """Role names per user for notification routing (single query)."""
+        if not user_ids:
+            return {}
+        stmt = select(User).options(selectinload(User.roles)).where(User.id.in_(user_ids))
+        rows = list(self._db.execute(stmt).scalars().unique().all())
+        return {user.id: {r.name for r in (user.roles or [])} for user in rows}
 
     def find_duplicate_offline_lead(
         self,

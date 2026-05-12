@@ -23,7 +23,7 @@ from app.schemas.user import (
 )
 from app.services import cognito as cognito_module
 from app.services import notification as notification_module
-from app.services.notification_service import NotificationCreateInput, NotificationService
+from app.services.notification_event_emitter import NotificationEmitPayload, NotificationEventEmitter
 from app.constants.notification_types import NotificationType
 from app.utils.constants import (
     AgentAssignmentStatus,
@@ -140,14 +140,14 @@ def _try_create_cognito_user_for_agent(
 class AgentService:
     """Service for agent invites, onboarding, admin CRUD, and admin-agent assignments."""
 
-    def __init__(self, repo: AgentRepository, notification_service: NotificationService | None = None) -> None:
+    def __init__(self, repo: AgentRepository, notification_emitter: NotificationEventEmitter | None = None) -> None:
         """Store the agent repository for all operations.
 
         Args:
             repo: AgentRepository instance (request-scoped).
         """
         self._repo = repo
-        self._notifications = notification_service
+        self._notification_emitter = notification_emitter
 
     def _agent_summary_payload(
         self,
@@ -725,19 +725,22 @@ class AgentService:
                     )
                 )
             # Phase 1: create in-app notification for the agent.
-            if self._notifications is not None:
+            if self._notification_emitter is not None:
                 try:
-                    self._notifications.create_notification(
-                        input=NotificationCreateInput(
+                    self._notification_emitter.emit(
+                        payload=NotificationEmitPayload(
+                            event_type=NotificationType.AGENT_APPROVED.value,
+                            type_key=NotificationType.AGENT_APPROVED.value,
                             recipient_user_id=user.id,
                             actor_user_id=current_user.id,
-                            type_key=NotificationType.AGENT_APPROVED.value,
-                            data={
+                            recipient_role_names=frozenset({UserRoles.AGENT}),
+                            template_data={
                                 "entity_type": "agent",
                                 "entity_id": str(user.id),
-                                "action_url": f"/agents/{user.id}",
                                 "metadata": {"agent_email": user.email},
                             },
+                            idempotency_key=f"agent.approved:{user.id}",
+                            route_context={"agent_user_id": str(user.id)},
                         )
                     )
                 except Exception as n:
@@ -746,7 +749,8 @@ class AgentService:
                             LogMessages.RBAC.NOTIFICATION_FAILED,
                             context="agent approved (in-app)",
                             error=str(n),
-                        )
+                        ),
+                        exc_info=True,
                     )
             return {
                 "id": user.id,
@@ -816,19 +820,22 @@ class AgentService:
                     )
                 )
             # Phase 1: create in-app notification for the agent.
-            if self._notifications is not None:
+            if self._notification_emitter is not None:
                 try:
-                    self._notifications.create_notification(
-                        input=NotificationCreateInput(
+                    self._notification_emitter.emit(
+                        payload=NotificationEmitPayload(
+                            event_type=NotificationType.AGENT_REJECTED.value,
+                            type_key=NotificationType.AGENT_REJECTED.value,
                             recipient_user_id=user.id,
                             actor_user_id=current_user.id,
-                            type_key=NotificationType.AGENT_REJECTED.value,
-                            data={
+                            recipient_role_names=frozenset({UserRoles.AGENT}),
+                            template_data={
                                 "entity_type": "agent",
                                 "entity_id": str(user.id),
-                                "action_url": f"/agents/{user.id}",
                                 "metadata": {"reason": profile.decline_reason or ""},
                             },
+                            idempotency_key=f"agent.rejected:{user.id}",
+                            route_context={"agent_user_id": str(user.id)},
                         )
                     )
                 except Exception as n:
@@ -837,7 +844,8 @@ class AgentService:
                             LogMessages.RBAC.NOTIFICATION_FAILED,
                             context="agent rejected (in-app)",
                             error=str(n),
-                        )
+                        ),
+                        exc_info=True,
                     )
             return {
                 "id": user.id,

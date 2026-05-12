@@ -4,9 +4,11 @@ from fastapi import Depends
 from sqlalchemy.orm import Session
 
 from app.api.v1.deps.media_urls import get_media_url_signer
+from app.api.v1.deps.notifications import get_notification_event_emitter
 from app.db.session import get_db
 from app.repositories.saved_search_repository import SavedSearchRepository
 from app.services.media_url_signer import MediaUrlSigner
+from app.services.notification_event_emitter import NotificationEventEmitter
 from app.services.saved_search_service import SavedSearchService
 
 
@@ -18,7 +20,12 @@ def get_saved_search_repository(db: Session = Depends(get_db)) -> SavedSearchRep
 def get_saved_search_service(
     repo: SavedSearchRepository = Depends(get_saved_search_repository),
     media_url_signer: MediaUrlSigner = Depends(get_media_url_signer),
+    notification_emitter: NotificationEventEmitter = Depends(get_notification_event_emitter),
 ) -> SavedSearchService:
     """Provide SavedSearchService for user saved-search endpoints."""
-    return SavedSearchService(repo, media_url_signer=media_url_signer)
+    return SavedSearchService(
+        repo,
+        media_url_signer=media_url_signer,
+        notification_emitter=notification_emitter,
+    )
 

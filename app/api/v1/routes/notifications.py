@@ -51,8 +51,11 @@ def list_notifications(
             NotificationResponse(
                 id=n.id,
                 typeKey=n.type_key,
+                eventType=n.event_type or n.type_key,
                 title=n.title,
                 message=n.message,
+                actionUrl=n.action_url
+                or (n.data.get("action_url") if isinstance(n.data, dict) else None),
                 isRead=n.is_read,
                 createdAt=n.created_at,
                 readAt=n.read_at,

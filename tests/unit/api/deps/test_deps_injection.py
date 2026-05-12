@@ -45,6 +45,7 @@ from app.services.property_import_service import PropertyImportService
 from app.services.property_submission_service import PropertySubmissionService
 from app.services.user_service import UserService
 from app.services.s3_service import S3Service
+from app.services.notification_event_emitter import NotificationEventEmitter
 from app.services.profile_picture_upload_service import ProfilePictureUploadService
 from app.services.upload_service import UploadService
 from app.services.profile_update_service import ProfileUpdateService
@@ -63,7 +64,7 @@ def test_get_agent_repository_returns_agent_repository(mock_db: MagicMock) -> No
 
 def test_get_agent_service_returns_agent_service(mock_db: MagicMock) -> None:
     repo = AgentRepository(mock_db)
-    svc = get_agent_service(repo=repo)
+    svc = get_agent_service(repo=repo, notification_emitter=MagicMock(spec=NotificationEventEmitter))
     assert isinstance(svc, AgentService)
 
 

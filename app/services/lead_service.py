@@ -8,6 +8,7 @@ from uuid import UUID
 
 from fastapi import HTTPException
 
+from app.constants.notification_types import NotificationType
 from app.models.property_normalized import Lead
 from app.models.user import User
 from app.repositories.lead_repository import LeadRepository
@@ -15,7 +16,10 @@ from app.services.lead_audit_service import LeadAuditService
 from app.services.lead_notification_service import LeadNotificationService
 from app.services.lead_permission_service import LeadPermissionService
 from app.services.lead_workflow_manager import LeadWorkflowManager
+from app.services.notification_event_emitter import NotificationEmitPayload, NotificationEventEmitter
 from app.utils.constants import ErrorMessages, UserRoles
+from app.utils.logger import api_logger
+from app.utils.log_messages import format_log_message
 from app.utils.status_codes import HTTPStatus
 
 
@@ -29,12 +33,58 @@ class LeadService:
         permission: LeadPermissionService,
         audit: LeadAuditService,
         notifications: LeadNotificationService,
+        notification_emitter: NotificationEventEmitter | None = None,
     ) -> None:
         self._repo = repo
         self._workflow = workflow
         self._permission = permission
         self._audit = audit
         self._notifications = notifications
+        self._notification_emitter = notification_emitter
+
+    def _emit_lead_notification_batch(
+        self,
+        *,
+        payloads: list[NotificationEmitPayload],
+        log_context: str,
+        entity_id: str,
+    ) -> None:
+        if self._notification_emitter is None or not payloads:
+            return
+        try:
+            self._notification_emitter.emit_bulk(payloads=payloads)
+        except Exception as exc:
+            api_logger.error(
+                format_log_message(
+                    "Lead notification dispatch failed context={ctx} entity_id={eid} error={err}",
+                    ctx=log_context,
+                    eid=entity_id,
+                    err=str(exc),
+                ),
+                exc_info=True,
+            )
+
+    def _emit_lead_notification_single(
+        self,
+        *,
+        payload: NotificationEmitPayload,
+        log_context: str,
+        entity_id: str,
+    ) -> None:
+        if self._notification_emitter is None:
+            return
+        try:
+            self._notification_emitter.emit(payload=payload)
+        except Exception as exc:
+            api_logger.error(
+                format_log_message(
+                    "Lead notification dispatch failed context={ctx} entity_id={eid} error={err}",
+                    ctx=log_context,
+                    eid=entity_id,
+                    err=str(exc),
+                ),
+                exc_info=True,
+            )
 
     def create_contact_form_lead(
         self,
@@ -92,6 +142,15 @@ class LeadService:
                 status_code=HTTPStatus.INTERNAL_SERVER_ERROR,
                 detail=ErrorMessages.INTERNAL_SERVER_ERROR,
             ) from exc
+
+        # In-app notifications: separate commits via NotificationEventEmitter (after lead txn succeeds).
+        self._notify_contact_form_lead_created(
+            lead=lead,
+            actor=actor,
+            assigned_agent_id=assigned_agent_id,
+            resolved_property_id=resolved_property_id,
+        )
+
         self._notifications.emit_lead_event(
             event_type="lead_created",
             lead_id=str(lead.id),
@@ -108,6 +167,130 @@ class LeadService:
             property_summary=self._property_summary_for_lead(lead),
             assigned_agent_summary=self._agent_summary_for_lead(lead),
             user_summary=self._user_summary_for_lead(lead),
+        )
+
+    def _notify_contact_form_lead_created(
+        self,
+        *,
+        lead: Lead,
+        actor: User,
+        assigned_agent_id: UUID,
+        resolved_property_id: UUID,
+    ) -> None:
+        """Notify assigned agent, lead owner, and admins; dedupes shared identities."""
+        if self._notification_emitter is None:
+            return
+
+        prop_summary = self._repo.get_property_summaries_by_ids([resolved_property_id]).get(resolved_property_id) or {}
+        title = (prop_summary.get("title") or "").strip() if isinstance(prop_summary, dict) else ""
+        lead_num = (getattr(lead, "lead_number", None) or "").strip()
+        lead_name = title or lead_num or "Lead"
+        lead_id_display = lead_num or str(lead.id)
+
+        creator_raw = getattr(actor, "full_name", None)
+        creator_name = str(creator_raw).strip() if creator_raw is not None else ""
+        if not creator_name:
+            creator_name = "Unknown"
+
+        recipient_ids: list[UUID] = [assigned_agent_id, actor.id]
+        recipient_ids.extend(self._repo.list_active_user_ids_with_role(role_name=UserRoles.ADMIN))
+        unique_recipients = list(dict.fromkeys(recipient_ids))
+
+        roles_by_user = self._repo.get_role_names_by_user_ids(set(unique_recipients))
+        et = NotificationType.LEAD_CREATED.value
+        lead_uuid_str = str(lead.id)
+
+        payloads: list[NotificationEmitPayload] = []
+        for recipient_user_id in unique_recipients:
+            role_names = roles_by_user.get(recipient_user_id) or set()
+            payloads.append(
+                NotificationEmitPayload(
+                    event_type=et,
+                    type_key=et,
+                    recipient_user_id=recipient_user_id,
+                    actor_user_id=actor.id,
+                    recipient_role_names=frozenset(role_names),
+                    template_data={
+                        "lead_name": lead_name,
+                        "lead_id": lead_id_display,
+                        "creator_name": creator_name,
+                        "entity_type": "lead",
+                        "entity_id": lead_uuid_str,
+                        "metadata": {
+                            "lead_id": lead_uuid_str,
+                            "lead_number": lead_num or None,
+                        },
+                    },
+                    idempotency_key=f"lead.created:{lead_uuid_str}:{recipient_user_id}",
+                )
+            )
+        self._emit_lead_notification_batch(
+            payloads=payloads,
+            log_context="contact_form_lead_created",
+            entity_id=lead_uuid_str,
+        )
+
+    def _notify_manual_lead_created(
+        self,
+        *,
+        lead: Lead,
+        actor: User,
+        assigned_agent_id: UUID,
+        contact_user_id: Optional[UUID],
+        property_id: UUID,
+    ) -> None:
+        """Notify agent, admin creator, linked contact user, and admins (same routing family as offline)."""
+        if self._notification_emitter is None:
+            return
+
+        prop_summary = self._repo.get_property_summaries_by_ids([property_id]).get(property_id) or {}
+        title = (prop_summary.get("title") or "").strip() if isinstance(prop_summary, dict) else ""
+        lead_num = (getattr(lead, "lead_number", None) or "").strip()
+        lead_name = title or lead_num or "Lead"
+        lead_id_display = lead_num or str(lead.id)
+        lead_uuid_str = str(lead.id)
+
+        creator_raw = getattr(actor, "full_name", None)
+        creator_name = str(creator_raw).strip() if creator_raw is not None else ""
+        if not creator_name:
+            creator_name = "Unknown"
+
+        recipient_ids: list[UUID] = [assigned_agent_id, actor.id]
+        if contact_user_id is not None:
+            recipient_ids.append(contact_user_id)
+        recipient_ids.extend(self._repo.list_active_user_ids_with_role(role_name=UserRoles.ADMIN))
+        unique_recipients = list(dict.fromkeys(recipient_ids))
+        roles_by_user = self._repo.get_role_names_by_user_ids(set(unique_recipients))
+        et = NotificationType.LEAD_MANUAL_CREATED.value
+
+        payloads: list[NotificationEmitPayload] = []
+        for recipient_user_id in unique_recipients:
+            role_names = roles_by_user.get(recipient_user_id) or set()
+            payloads.append(
+                NotificationEmitPayload(
+                    event_type=et,
+                    type_key=et,
+                    recipient_user_id=recipient_user_id,
+                    actor_user_id=actor.id,
+                    recipient_role_names=frozenset(role_names),
+                    template_data={
+                        "lead_name": lead_name,
+                        "lead_id": lead_id_display,
+                        "creator_name": creator_name,
+                        "entity_type": "lead",
+                        "entity_id": lead_uuid_str,
+                        "metadata": {
+                            "lead_id": lead_uuid_str,
+                            "lead_number": lead_num or None,
+                        },
+                    },
+                    idempotency_key=f"lead.manual_created:{lead_uuid_str}:{recipient_user_id}",
+                )
+            )
+        self._emit_lead_notification_batch(
+            payloads=payloads,
+            log_context="admin_manual_lead_created",
+            entity_id=lead_uuid_str,
         )
 
     def create_admin_manual_lead(
@@ -153,6 +336,13 @@ class LeadService:
             lead_id=str(lead.id),
             actor_user_id=str(actor.id),
             message=f"Manual lead created from source {source}",
+        )
+        self._notify_manual_lead_created(
+            lead=lead,
+            actor=actor,
+            assigned_agent_id=assigned_agent_id,
+            contact_user_id=contact_user_id,
+            property_id=property_id,
         )
         return self._serialize_lead(
             lead,
@@ -237,6 +427,16 @@ class LeadService:
         except Exception as exc:
             self._repo.rollback()
             raise HTTPException(status_code=HTTPStatus.INTERNAL_SERVER_ERROR, detail=ErrorMessages.INTERNAL_SERVER_ERROR) from exc
+
+        # In-app notifications after lead commit (same payload shape as contact-form leads).
+        self._notify_offline_lead_created(
+            lead=lead,
+            actor=actor,
+            assigned_agent_id=assigned_agent_id,
+            customer_name=customer_name,
+            property_name=property_name,
+        )
+
         self._notifications.emit_lead_event(
             event_type="offline_lead_created",
             lead_id=str(lead.id),
@@ -252,6 +452,211 @@ class LeadService:
             lead,
             property_summary=self._property_summary_for_lead(lead),
             assigned_agent_summary=self._agent_summary_for_lead(lead),
+        )
+
+    def _notify_offline_lead_created(
+        self,
+        *,
+        lead: Lead,
+        actor: User,
+        assigned_agent_id: UUID,
+        customer_name: str,
+        property_name: Optional[str],
+    ) -> None:
+        """Notify agent, creator, linked lead owner (registered user), and admins; dedupes by user id."""
+        if self._notification_emitter is None:
+            return
+
+        lead_num = (getattr(lead, "lead_number", None) or "").strip()
+        lead_uuid_str = str(lead.id)
+        lead_id_display = lead_num or lead_uuid_str
+
+        lead_name = (property_name or "").strip() if property_name else ""
+        if not lead_name and lead.property_id:
+            prop_summary = self._repo.get_property_summaries_by_ids([lead.property_id]).get(lead.property_id) or {}
+            if isinstance(prop_summary, dict):
+                lead_name = (prop_summary.get("title") or "").strip()
+        if not lead_name:
+            lead_name = (customer_name or "").strip() or lead_num or "Lead"
+
+        creator_raw = getattr(actor, "full_name", None)
+        creator_name = str(creator_raw).strip() if creator_raw is not None else ""
+        if not creator_name:
+            creator_name = "Unknown"
+
+        recipient_ids: list[UUID] = [assigned_agent_id, actor.id]
+        owner_id = getattr(lead, "user_id", None)
+        if owner_id is not None:
+            recipient_ids.append(owner_id)
+        recipient_ids.extend(self._repo.list_active_user_ids_with_role(role_name=UserRoles.ADMIN))
+        unique_recipients = list(dict.fromkeys(recipient_ids))
+
+        roles_by_user = self._repo.get_role_names_by_user_ids(set(unique_recipients))
+        et = NotificationType.LEAD_OFFLINE_CREATED.value
+
+        payloads: list[NotificationEmitPayload] = []
+        for recipient_user_id in unique_recipients:
+            role_names = roles_by_user.get(recipient_user_id) or set()
+            payloads.append(
+                NotificationEmitPayload(
+                    event_type=et,
+                    type_key=et,
+                    recipient_user_id=recipient_user_id,
+                    actor_user_id=actor.id,
+                    recipient_role_names=frozenset(role_names),
+                    template_data={
+                        "lead_name": lead_name,
+                        "lead_id": lead_id_display,
+                        "creator_name": creator_name,
+                        "entity_type": "lead",
+                        "entity_id": lead_uuid_str,
+                        "metadata": {
+                            "lead_id": lead_uuid_str,
+                            "lead_number": lead_num or None,
+                        },
+                    },
+                    idempotency_key=f"lead.offline_created:{lead_uuid_str}:{recipient_user_id}",
+                )
+            )
+        self._emit_lead_notification_batch(
+            payloads=payloads,
+            log_context="offline_lead_created",
+            entity_id=lead_uuid_str,
+        )
+
+    def _notify_lead_in_app_message_recipient(
+        self,
+        *,
+        lead: Lead,
+        recipient_user_id: UUID,
+        actor: User,
+        type_key: str,
+        idempotency_key: str,
+    ) -> None:
+        """Notify lead counterparty (e.g. registered owner)."""
+        if self._notification_emitter is None:
+            return
+
+        lead_num = (getattr(lead, "lead_number", None) or "").strip()
+        lead_uuid_str = str(lead.id)
+        lead_id_display = lead_num or lead_uuid_str
+
+        lead_name = "Lead"
+        if lead.property_id:
+            prop_summary = self._repo.get_property_summaries_by_ids([lead.property_id]).get(lead.property_id) or {}
+            if isinstance(prop_summary, dict):
+                title = (prop_summary.get("title") or "").strip()
+                if title:
+                    lead_name = title
+
+        sender_raw = getattr(actor, "full_name", None)
+        sender_name = str(sender_raw).strip() if sender_raw is not None else ""
+        if not sender_name:
+            sender_name = "Unknown"
+
+        roles_by_user = self._repo.get_role_names_by_user_ids({recipient_user_id})
+        role_names = roles_by_user.get(recipient_user_id) or set()
+
+        payload = NotificationEmitPayload(
+            event_type=type_key,
+            type_key=type_key,
+            recipient_user_id=recipient_user_id,
+            actor_user_id=actor.id,
+            recipient_role_names=frozenset(role_names),
+            template_data={
+                "lead_name": lead_name,
+                "lead_id": lead_id_display,
+                "sender_name": sender_name,
+                "entity_type": "lead",
+                "entity_id": lead_uuid_str,
+                "metadata": {
+                    "lead_id": lead_uuid_str,
+                    "lead_number": lead_num or None,
+                },
+            },
+            idempotency_key=idempotency_key,
+        )
+        self._emit_lead_notification_single(
+            payload=payload,
+            log_context="lead_in_app_message",
+            entity_id=lead_uuid_str,
+        )
+
+    def _notify_lead_status_changed_stakeholders(
+        self,
+        *,
+        lead: Lead,
+        actor: User,
+        previous_status: str,
+        new_status: str,
+    ) -> None:
+        """Notify lead owner, assigned agent, and admins (deduped); excludes actor."""
+        if self._notification_emitter is None:
+            return
+
+        lead_num = (getattr(lead, "lead_number", None) or "").strip()
+        lead_uuid_str = str(lead.id)
+        lead_id_display = lead_num or lead_uuid_str
+
+        lead_name = "Lead"
+        if lead.property_id:
+            prop_summary = self._repo.get_property_summaries_by_ids([lead.property_id]).get(lead.property_id) or {}
+            if isinstance(prop_summary, dict):
+                title = (prop_summary.get("title") or "").strip()
+                if title:
+                    lead_name = title
+
+        actor_raw = getattr(actor, "full_name", None)
+        actor_name = str(actor_raw).strip() if actor_raw is not None else ""
+        if not actor_name:
+            actor_name = "Unknown"
+
+        recipient_ids: list[UUID] = []
+        if getattr(lead, "user_id", None) is not None:
+            recipient_ids.append(lead.user_id)
+        if getattr(lead, "assigned_agent_id", None) is not None:
+            recipient_ids.append(lead.assigned_agent_id)
+        recipient_ids.extend(self._repo.list_active_user_ids_with_role(role_name=UserRoles.ADMIN))
+
+        unique_recipients = list(dict.fromkeys(rid for rid in recipient_ids if rid != actor.id))
+        if not unique_recipients:
+            return
+
+        roles_by_user = self._repo.get_role_names_by_user_ids(set(unique_recipients))
+        et = NotificationType.LEAD_STATUS_CHANGED.value
+
+        payloads: list[NotificationEmitPayload] = []
+        for recipient_user_id in unique_recipients:
+            role_names = roles_by_user.get(recipient_user_id) or set()
+            payloads.append(
+                NotificationEmitPayload(
+                    event_type=et,
+                    type_key=et,
+                    recipient_user_id=recipient_user_id,
+                    actor_user_id=actor.id,
+                    recipient_role_names=frozenset(role_names),
+                    template_data={
+                        "lead_name": lead_name,
+                        "lead_id": lead_id_display,
+                        "previous_status": previous_status,
+                        "new_status": new_status,
+                        "actor_name": actor_name,
+                        "entity_type": "lead",
+                        "entity_id": lead_uuid_str,
+                        "metadata": {
+                            "lead_id": lead_uuid_str,
+                            "lead_number": lead_num or None,
+                            "previous_status": previous_status,
+                            "new_status": new_status,
+                        },
+                    },
+                    idempotency_key=f"lead.status_changed:{lead_uuid_str}:{recipient_user_id}:{previous_status}:{new_status}",
+                )
+            )
+        self._emit_lead_notification_batch(
+            payloads=payloads,
+            log_context="lead_status_changed",
+            entity_id=lead_uuid_str,
         )
 
     def list_agent_leads(
@@ -434,6 +839,13 @@ class LeadService:
             self._repo.rollback()
             raise HTTPException(status_code=HTTPStatus.INTERNAL_SERVER_ERROR, detail=ErrorMessages.INTERNAL_SERVER_ERROR) from exc
 
+        self._notify_lead_status_changed_stakeholders(
+            lead=lead,
+            actor=actor,
+            previous_status=previous_status,
+            new_status=to_status,
+        )
+
         self._notifications.emit_lead_event(
             event_type="lead_status_changed",
             lead_id=str(lead.id),
@@ -476,7 +888,101 @@ class LeadService:
             actor_user_id=str(actor.id),
             message=f"Lead reassigned to {new_agent_id}",
         )
+
+        # In-app: notify old and new assigned agents only (separate commits via NotificationEventEmitter).
+        self._notify_lead_reassign_agents(
+            lead=lead,
+            actor=actor,
+            old_agent_id=old_agent_id,
+            new_agent_id=new_agent_id,
+        )
+
         return self._serialize_lead(lead, property_summary=self._property_summary_for_lead(lead))
+
+    def _notify_lead_reassign_agents(
+        self,
+        *,
+        lead: Lead,
+        actor: User,
+        old_agent_id: Optional[UUID],
+        new_agent_id: UUID,
+    ) -> None:
+        """Notify previous and new assignees only."""
+        if self._notification_emitter is None:
+            return
+        if old_agent_id == new_agent_id:
+            return
+
+        lead_num = (getattr(lead, "lead_number", None) or "").strip()
+        lead_uuid_str = str(lead.id)
+        lead_id_display = lead_num or lead_uuid_str
+
+        prop_summary = self._property_summary_for_lead(lead)
+        lead_name = "Lead"
+        if isinstance(prop_summary, dict):
+            lead_name = (prop_summary.get("title") or "").strip() or lead_name
+        if lead_name == "Lead" and lead_num:
+            lead_name = lead_num
+
+        admin_raw = getattr(actor, "full_name", None)
+        admin_name = str(admin_raw).strip() if admin_raw is not None else ""
+        if not admin_name:
+            admin_name = "Unknown"
+
+        agent_roles = frozenset({UserRoles.AGENT})
+        payloads: list[NotificationEmitPayload] = []
+
+        if old_agent_id is not None and old_agent_id != new_agent_id:
+            tk = NotificationType.LEAD_REASSIGN_PREVIOUS_ASSIGNEE.value
+            payloads.append(
+                NotificationEmitPayload(
+                    event_type=tk,
+                    type_key=tk,
+                    recipient_user_id=old_agent_id,
+                    actor_user_id=actor.id,
+                    recipient_role_names=agent_roles,
+                    template_data={
+                        "lead_name": lead_name,
+                        "lead_id": lead_id_display,
+                        "admin_name": admin_name,
+                        "entity_type": "lead",
+                        "entity_id": lead_uuid_str,
+                        "metadata": {
+                            "lead_id": lead_uuid_str,
+                            "lead_number": lead_num or None,
+                        },
+                    },
+                    idempotency_key=f"lead.reassign_previous:{lead_uuid_str}:{old_agent_id}:{new_agent_id}",
+                )
+            )
+
+        tk_new = NotificationType.LEAD_REASSIGN_NEW_ASSIGNEE.value
+        payloads.append(
+            NotificationEmitPayload(
+                event_type=tk_new,
+                type_key=tk_new,
+                recipient_user_id=new_agent_id,
+                actor_user_id=actor.id,
+                recipient_role_names=agent_roles,
+                template_data={
+                    "lead_name": lead_name,
+                    "lead_id": lead_id_display,
+                    "admin_name": admin_name,
+                    "entity_type": "lead",
+                    "entity_id": lead_uuid_str,
+                    "metadata": {
+                        "lead_id": lead_uuid_str,
+                        "lead_number": lead_num or None,
+                    },
+                },
+                idempotency_key=f"lead.reassign_new:{lead_uuid_str}:{new_agent_id}:{old_agent_id or 'none'}",
+            )
+        )
+        self._emit_lead_notification_batch(
+            payloads=payloads,
+            log_context="lead_reassign",
+            entity_id=lead_uuid_str,
+        )
 
     def add_note(self, *, actor: User, lead_id: UUID, note: str) -> dict[str, Any]:
         lead = self._must_get_lead(lead_id=lead_id)
@@ -489,6 +995,7 @@ class LeadService:
         except Exception as exc:
             self._repo.rollback()
             raise HTTPException(status_code=HTTPStatus.INTERNAL_SERVER_ERROR, detail=ErrorMessages.INTERNAL_SERVER_ERROR) from exc
+
         self._notifications.emit_lead_event(
             event_type="lead_note_added",
             lead_id=str(lead.id),
@@ -578,6 +1085,38 @@ class LeadService:
         except Exception as exc:
             self._repo.rollback()
             raise HTTPException(status_code=HTTPStatus.INTERNAL_SERVER_ERROR, detail=ErrorMessages.INTERNAL_SERVER_ERROR) from exc
+
+        # Role-based recipients for in-app message notifications.
+        # - REGISTERED_USER sender -> assigned agent + admins
+        # - AGENT sender -> registered user + admins
+        # - ADMIN/other sender -> registered user + assigned agent + admins
+        sender_role = self._role(actor)
+        recipient_ids: list[UUID] = []
+        if sender_role == UserRoles.REGISTERED_USER:
+            if lead.assigned_agent_id is not None:
+                recipient_ids.append(lead.assigned_agent_id)
+        elif sender_role == UserRoles.AGENT:
+            if lead.user_id is not None:
+                recipient_ids.append(lead.user_id)
+        else:
+            if lead.user_id is not None:
+                recipient_ids.append(lead.user_id)
+            if lead.assigned_agent_id is not None:
+                recipient_ids.append(lead.assigned_agent_id)
+
+        recipient_ids.extend(self._repo.list_active_user_ids_with_role(role_name=UserRoles.ADMIN))
+
+        for recipient_user_id in dict.fromkeys(recipient_ids):
+            if recipient_user_id == actor.id:
+                continue
+            self._notify_lead_in_app_message_recipient(
+                lead=lead,
+                recipient_user_id=recipient_user_id,
+                actor=actor,
+                type_key=NotificationType.LEAD_REPLY_ADDED.value,
+                idempotency_key=f"lead.reply_added:{lead.id}:{recipient_user_id}:{row.id}",
+            )
+
         self._notifications.emit_lead_event(
             event_type="lead_reply_sent",
             lead_id=str(lead.id),

@@ -12,8 +12,10 @@ from pydantic import BaseModel, Field, field_validator
 class NotificationResponse(BaseModel):
     id: uuid.UUID
     type_key: str = Field(alias="typeKey")
+    event_type: Optional[str] = Field(default=None, alias="eventType")
     title: str
     message: str
+    action_url: Optional[str] = Field(default=None, alias="actionUrl")
     is_read: bool = Field(alias="isRead")
     created_at: datetime = Field(alias="createdAt")
     read_at: Optional[datetime] = Field(default=None, alias="readAt")

@@ -1,11 +1,12 @@
-"""Notification service (Phase 1 in-app notifications only)."""
+"""Notification service (in-app notifications, DB + optional WebSocket)."""
 
 from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
 from typing import Any, Mapping, Optional, Sequence
-from sqlalchemy.exc import SQLAlchemyError
+
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from fastapi import HTTPException
 
@@ -14,6 +15,7 @@ from app.models.user import User
 from app.repositories.notification_repository import NotificationRepository
 from app.services.notification_preference_service import NotificationPreferenceService
 from app.services.notification_template_service import NotificationTemplateService
+from app.services.notification_validator import NotificationValidator
 from app.services.realtime_notification_service import RealtimeNotificationService
 from app.utils.logger import api_logger
 from app.utils.log_messages import format_log_message
@@ -24,8 +26,10 @@ from app.utils.status_codes import HTTPStatus
 class NotificationCreateInput:
     recipient_user_id: uuid.UUID
     actor_user_id: uuid.UUID | None
+    event_type: str
     type_key: str
     data: Mapping[str, Any] | None = None
+    idempotency_key: str | None = None
 
 
 class NotificationService:
@@ -41,32 +45,135 @@ class NotificationService:
         self._templates = template_service
         self._realtime = realtime_service
 
-    def create_notification(self, *, input: NotificationCreateInput) -> Optional[Notification]:
-        # Respect preferences (default enabled).
-        if not self._prefs.is_enabled(user_id=input.recipient_user_id, notification_type=input.type_key):
-            return None
+    def _emit_notification_created_realtime(self, *, row: Notification) -> None:
+        if self._realtime is None:
+            return
+        try:
+            unread = self._repo.unread_count(user_id=row.recipient_user_id)
+            self._realtime.notification_created(notification=row, unread_count=unread)
+        except Exception:
+            api_logger.warning(
+                format_log_message(
+                    "Realtime notification_created failed recipient_user_id={user_id} notification_id={nid}",
+                    user_id=str(row.recipient_user_id),
+                    nid=str(row.id),
+                ),
+                exc_info=True,
+            )
 
+    def _materialize_notification(self, *, input: NotificationCreateInput) -> Notification:
+        NotificationValidator.validate_dispatch(
+            event_type=input.event_type,
+            type_key=input.type_key,
+            recipient_user_id=input.recipient_user_id,
+            data=input.data,
+        )
         title, message = self._templates.build(type_key=input.type_key, data=input.data)
-        row = Notification(
+        raw_action = (input.data or {}).get("action_url")
+        action_url = str(raw_action).strip() if raw_action else None
+        return Notification(
             recipient_user_id=input.recipient_user_id,
             actor_user_id=input.actor_user_id,
             type_key=input.type_key,
+            event_type=input.event_type,
+            idempotency_key=input.idempotency_key,
+            action_url=action_url,
             title=title,
             message=message,
             data=dict(input.data) if input.data is not None else None,
             is_read=False,
         )
-        self._repo.create(notification=row)
-        self._repo.commit()
-        self._repo.refresh(row)
-        if self._realtime is not None:
-            try:
-                unread = self._repo.unread_count(user_id=row.recipient_user_id)
-                self._realtime.notification_created(notification=row, unread_count=unread)
-            except Exception:
-                # Realtime is best-effort only.
-                pass
+
+    def create_notification(self, *, input: NotificationCreateInput) -> Optional[Notification]:
+        if input.idempotency_key:
+            existing = self._repo.get_by_idempotency_key(key=input.idempotency_key)
+            if existing is not None:
+                return existing
+
+        if not self._prefs.is_enabled(user_id=input.recipient_user_id, notification_type=input.type_key):
+            return None
+
+        row = self._materialize_notification(input=input)
+        try:
+            self._repo.create(notification=row)
+            self._repo.commit()
+            self._repo.refresh(row)
+        except IntegrityError:
+            self._repo.rollback()
+            if input.idempotency_key:
+                existing = self._repo.get_by_idempotency_key(key=input.idempotency_key)
+                if existing is not None:
+                    return existing
+            api_logger.error(
+                format_log_message(
+                    "Notification insert integrity error recipient={rid} idempotency_key={ik}",
+                    rid=str(input.recipient_user_id),
+                    ik=input.idempotency_key or "",
+                ),
+                exc_info=True,
+            )
+            raise
+
+        self._emit_notification_created_realtime(row=row)
         return row
+
+    def create_notifications_bulk(self, *, inputs: Sequence[NotificationCreateInput]) -> list[Notification]:
+        if not inputs:
+            return []
+
+        keys = [i.idempotency_key for i in inputs if i.idempotency_key]
+        existing = {n.idempotency_key: n for n in self._repo.list_by_idempotency_keys(keys=keys) if n.idempotency_key}
+
+        seen_keys: set[str] = set()
+        staged: list[tuple[NotificationCreateInput, Notification]] = []
+        skipped_returned: list[Notification] = []
+
+        for inp in inputs:
+            if not inp.idempotency_key:
+                raise ValueError("create_notifications_bulk requires idempotency_key on every item")
+
+            if inp.idempotency_key in existing:
+                skipped_returned.append(existing[inp.idempotency_key])
+                continue
+            if inp.idempotency_key in seen_keys:
+                continue
+            seen_keys.add(inp.idempotency_key)
+
+            if not self._prefs.is_enabled(user_id=inp.recipient_user_id, notification_type=inp.type_key):
+                continue
+
+            row = self._materialize_notification(input=inp)
+            staged.append((inp, row))
+
+        if not staged:
+            return skipped_returned
+
+        rows_only = [row for _, row in staged]
+
+        try:
+            self._repo.add_all(notifications=rows_only)
+            self._repo.commit()
+        except IntegrityError:
+            self._repo.rollback()
+            api_logger.warning(
+                format_log_message(
+                    "Notification bulk insert race; falling back to sequential inserts count={n}",
+                    n=len(staged),
+                ),
+                exc_info=True,
+            )
+            created_seq: list[Notification] = []
+            for inp, _row in staged:
+                got = self.create_notification(input=inp)
+                if got is not None:
+                    created_seq.append(got)
+            return skipped_returned + created_seq
+
+        for _inp, row in staged:
+            self._repo.refresh(row)
+            self._emit_notification_created_realtime(row=row)
+
+        return skipped_returned + rows_only
 
     def list_notifications(
         self,
@@ -102,7 +209,14 @@ class NotificationService:
                 self._realtime.notification_read(notification=notif, unread_count=unread)
                 self._realtime.unread_count_updated(user_id=current_user.id, unread_count=unread)
             except Exception:
-                pass
+                api_logger.warning(
+                    format_log_message(
+                        "Realtime notification_read failed user_id={user_id} notification_id={nid}",
+                        user_id=str(current_user.id),
+                        nid=str(notification_id),
+                    ),
+                    exc_info=True,
+                )
         return changed
 
     def mark_all_as_read(self, *, current_user: User) -> int:
@@ -113,7 +227,13 @@ class NotificationService:
                 unread = self._repo.unread_count(user_id=current_user.id)
                 self._realtime.unread_count_updated(user_id=current_user.id, unread_count=unread)
             except Exception:
-                pass
+                api_logger.warning(
+                    format_log_message(
+                        "Realtime unread_count_updated failed user_id={user_id}",
+                        user_id=str(current_user.id),
+                    ),
+                    exc_info=True,
+                )
         return updated
 
     def archive(self, *, current_user: User, notification_id: uuid.UUID) -> bool:
@@ -132,7 +252,14 @@ class NotificationService:
                 self._realtime.notification_archived(notification=notif, unread_count=unread)
                 self._realtime.unread_count_updated(user_id=current_user.id, unread_count=unread)
             except Exception:
-                pass
+                api_logger.warning(
+                    format_log_message(
+                        "Realtime notification_archived failed user_id={user_id} notification_id={nid}",
+                        user_id=str(current_user.id),
+                        nid=str(notification_id),
+                    ),
+                    exc_info=True,
+                )
         api_logger.info(
             format_log_message(
                 "Notification archived user_id={user_id} notification_id={notification_id}",
@@ -159,7 +286,14 @@ class NotificationService:
                 self._realtime.notification_unarchived(notification=notif, unread_count=unread)
                 self._realtime.unread_count_updated(user_id=current_user.id, unread_count=unread)
             except Exception:
-                pass
+                api_logger.warning(
+                    format_log_message(
+                        "Realtime notification_unarchived failed user_id={user_id} notification_id={nid}",
+                        user_id=str(current_user.id),
+                        nid=str(notification_id),
+                    ),
+                    exc_info=True,
+                )
         api_logger.info(
             format_log_message(
                 "Notification unarchived user_id={user_id} notification_id={notification_id}",
@@ -205,7 +339,13 @@ class NotificationService:
             if self._realtime is not None:
                 self._realtime.unread_count_updated(user_id=current_user.id, unread_count=unread)
         except Exception:
-            pass
+            api_logger.warning(
+                format_log_message(
+                    "Realtime unread_count_updated failed user_id={user_id} (bulk_archive)",
+                    user_id=str(current_user.id),
+                ),
+                exc_info=True,
+            )
 
         api_logger.info(
             format_log_message(
@@ -253,7 +393,13 @@ class NotificationService:
             if self._realtime is not None:
                 self._realtime.unread_count_updated(user_id=current_user.id, unread_count=unread)
         except Exception:
-            pass
+            api_logger.warning(
+                format_log_message(
+                    "Realtime unread_count_updated failed user_id={user_id} (bulk_unarchive)",
+                    user_id=str(current_user.id),
+                ),
+                exc_info=True,
+            )
 
         api_logger.info(
             format_log_message(
@@ -292,7 +438,13 @@ class NotificationService:
                 unread = self._repo.unread_count(user_id=current_user.id)
                 self._realtime.unread_count_updated(user_id=current_user.id, unread_count=unread)
             except Exception:
-                pass
+                api_logger.warning(
+                    format_log_message(
+                        "Realtime unread_count_updated failed user_id={user_id} (delete)",
+                        user_id=str(current_user.id),
+                    ),
+                    exc_info=True,
+                )
         api_logger.info(
             format_log_message(
                 "Notification deleted user_id={user_id} notification_id={notification_id}",
@@ -341,7 +493,13 @@ class NotificationService:
             if self._realtime is not None:
                 self._realtime.unread_count_updated(user_id=current_user.id, unread_count=unread)
         except Exception:
-            pass
+            api_logger.warning(
+                format_log_message(
+                    "Realtime unread_count_updated failed user_id={user_id} (bulk_delete)",
+                    user_id=str(current_user.id),
+                ),
+                exc_info=True,
+            )
 
         api_logger.info(
             format_log_message(
@@ -357,4 +515,3 @@ class NotificationService:
     def _enforce_ownership(*, current_user: User, notif: Notification) -> None:
         if notif.recipient_user_id != current_user.id:
             raise HTTPException(status_code=HTTPStatus.FORBIDDEN, detail="Forbidden")
-

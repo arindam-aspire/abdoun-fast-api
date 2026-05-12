@@ -1,7 +1,6 @@
 """Realtime notification service (WebSocket delivery only).
 
-This is an additive enhancement: DB remains the source of truth.
-All websocket failures must degrade gracefully.
+DB remains the source of truth; payload mirrors persisted fields + API shape.
 """
 
 from __future__ import annotations
@@ -70,15 +69,28 @@ def _notification_payload(*, notification: Notification, unread_count: int) -> d
     def _iso(dt: Optional[datetime]) -> Optional[str]:
         return dt.isoformat() if dt is not None else None
 
+    meta = None
+    if isinstance(notification.data, dict):
+        meta = notification.data.get("metadata")
+        if meta is not None and not isinstance(meta, dict):
+            meta = {"value": meta}
+
+    action_url = notification.action_url
+    if action_url is None and isinstance(notification.data, dict):
+        raw = notification.data.get("action_url")
+        action_url = str(raw) if raw is not None else None
+
     return {
         "id": str(notification.id),
+        "event_type": notification.event_type or notification.type_key,
         "type_key": notification.type_key,
         "title": notification.title,
         "message": notification.message,
+        "action_url": action_url,
+        "metadata": meta,
         "is_read": bool(notification.is_read),
         "created_at": _iso(notification.created_at),
         "read_at": _iso(notification.read_at),
         "archived_at": _iso(notification.archived_at),
         "unread_count": int(unread_count),
     }
-

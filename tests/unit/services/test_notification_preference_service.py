@@ -41,7 +41,7 @@ def test_update_preferences_commits() -> None:
     user_id = uuid.uuid4()
     svc.update_preferences(
         user_id=user_id,
-        items=[PreferenceItem(notification_type=NotificationType.LEAD_ASSIGNED.value, enabled=False)],
+        items=[PreferenceItem(notification_type=NotificationType.LEAD_CREATED.value, enabled=False)],
     )
     assert repo.committed is True
 

@@ -19,7 +19,11 @@ class PropertyAdminRepository:
         self._db = db
 
     def get_property(self, property_id: uuid.UUID) -> PropertyNormalized | None:
-        stmt = select(PropertyNormalized).where(PropertyNormalized.id == property_id)
+        stmt = (
+            select(PropertyNormalized)
+            .where(PropertyNormalized.id == property_id)
+            .options(selectinload(PropertyNormalized.translations))
+        )
         return self._db.execute(stmt).scalar_one_or_none()
 
     def get_user_with_roles(self, user_id: uuid.UUID) -> Optional[User]:

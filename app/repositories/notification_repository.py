@@ -30,11 +30,28 @@ class NotificationRepository:
     def refresh(self, instance: object) -> None:
         self._db.refresh(instance)
 
+    def flush(self) -> None:
+        self._db.flush()
+
     # CRUD ----------------------------------------------------------------
 
     def create(self, *, notification: Notification) -> Notification:
         self._db.add(notification)
         return notification
+
+    def add_all(self, *, notifications: Sequence[Notification]) -> None:
+        if notifications:
+            self._db.add_all(notifications)
+
+    def get_by_idempotency_key(self, *, key: str) -> Optional[Notification]:
+        stmt: Select = select(Notification).where(Notification.idempotency_key == key).limit(1)
+        return self._db.execute(stmt).scalar_one_or_none()
+
+    def list_by_idempotency_keys(self, *, keys: Sequence[str]) -> Sequence[Notification]:
+        if not keys:
+            return []
+        stmt: Select = select(Notification).where(Notification.idempotency_key.in_(keys))
+        return self._db.execute(stmt).scalars().all()
 
     def get_by_id(self, notification_id: uuid.UUID) -> Optional[Notification]:
         stmt: Select = select(Notification).where(Notification.id == notification_id)

@@ -38,6 +38,15 @@ class Notification(Base):
 
     type_key: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
 
+    # Routing / analytics (mirrors domain event); backfilled from type_key for legacy rows.
+    event_type: Mapped[Optional[str]] = mapped_column(String(100), nullable=True, index=True)
+
+    # Idempotency: duplicate key → skip insert (retries, double-submit).
+    idempotency_key: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, unique=True)
+
+    # Client deep-link (also mirrored in data for backward compatibility).
+    action_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     message: Mapped[str] = mapped_column(Text, nullable=False)
 

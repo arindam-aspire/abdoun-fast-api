@@ -11,6 +11,7 @@ from app.db.session import get_db
 from app.repositories.notification_repository import NotificationRepository
 from app.repositories.notification_preferences_repository import NotificationPreferencesRepository
 from app.services.notification_preference_service import NotificationPreferenceService
+from app.services.notification_event_emitter import NotificationEventEmitter
 from app.services.notification_service import NotificationService
 from app.services.notification_template_service import NotificationTemplateService
 from app.services.realtime_notification_service import RealtimeNotificationService
@@ -55,4 +56,10 @@ def get_notification_service(
         template_service=templates,
         realtime_service=realtime,
     )
+
+
+def get_notification_event_emitter(
+    svc: NotificationService = Depends(get_notification_service),
+) -> NotificationEventEmitter:
+    return NotificationEventEmitter(notification_service=svc)
 

@@ -6,12 +6,12 @@ from typing import List
 from fastapi import HTTPException
 from sqlalchemy.exc import IntegrityError
 
-from app.models.user import User
+from app.constants.notification_types import NotificationType
 from app.domains.shared.pagination import calculate_pagination
+from app.models.user import User
 from app.models.user_saved_search import UserSavedSearch
 from app.repositories.saved_search_repository import SavedSearchRepository
 from app.schemas.property import PropertySearchResultExtended
-from app.services.media_url_signer import MediaUrlSigner
 from app.schemas.saved_search import (
     SavedSearchCreateRequest,
     SavedSearchExecutionResponse,
@@ -19,16 +19,27 @@ from app.schemas.saved_search import (
     SavedSearchResponse,
     SavedSearchUpdateRequest,
 )
-from app.utils.constants import ErrorMessages
+from app.services.media_url_signer import MediaUrlSigner
+from app.services.notification_event_emitter import NotificationEmitPayload, NotificationEventEmitter
+from app.utils.constants import ErrorMessages, UserRoles
+from app.utils.logger import api_logger
+from app.utils.log_messages import format_log_message
 from app.utils.status_codes import HTTPStatus
 
 
 class SavedSearchService:
     """Service layer for saved-search CRUD and execution."""
 
-    def __init__(self, repository: SavedSearchRepository, *, media_url_signer: MediaUrlSigner | None = None) -> None:
+    def __init__(
+        self,
+        repository: SavedSearchRepository,
+        *,
+        media_url_signer: MediaUrlSigner | None = None,
+        notification_emitter: NotificationEventEmitter | None = None,
+    ) -> None:
         self._repo = repository
         self._media_url_signer = media_url_signer
+        self._notification_emitter = notification_emitter
 
     @staticmethod
     def _build_query_string(search_criteria: dict) -> str:
@@ -51,6 +62,93 @@ class SavedSearchService:
             else:
                 flattened_items.append((key, value))
         return urlencode(flattened_items, doseq=True)
+
+    def _notify_saved_search_created(self, *, user: User, saved_search: UserSavedSearch) -> None:
+        """Notify the creating user only (idempotent per saved search)."""
+        if self._notification_emitter is None:
+            return
+
+        search_name = (getattr(saved_search, "name", None) or "").strip() or "Saved search"
+        creator_raw = getattr(user, "full_name", None)
+        creator_name = str(creator_raw).strip() if creator_raw is not None else ""
+        if not creator_name:
+            creator_name = "Unknown"
+
+        role_names = {getattr(r, "name", None) for r in (getattr(user, "roles", None) or [])}
+        role_names.discard(None)
+        saved_id_str = str(saved_search.id)
+        et = NotificationType.SAVED_SEARCH_CREATED.value
+        try:
+            self._notification_emitter.emit(
+                payload=NotificationEmitPayload(
+                    event_type=et,
+                    type_key=et,
+                    recipient_user_id=user.id,
+                    actor_user_id=user.id,
+                    recipient_role_names=frozenset(role_names),
+                    template_data={
+                        "search_name": search_name,
+                        "creator_name": creator_name,
+                        "entity_type": "saved_search",
+                        "entity_id": saved_id_str,
+                        "metadata": {"saved_search_id": saved_id_str},
+                    },
+                    idempotency_key=f"saved_search.created:{user.id}:{saved_id_str}",
+                )
+            )
+        except Exception:
+            api_logger.error(
+                format_log_message(
+                    "Saved search notification dispatch failed user_id={uid} saved_search_id={sid}",
+                    uid=str(user.id),
+                    sid=saved_id_str,
+                ),
+                exc_info=True,
+            )
+
+    def _notify_saved_searches_created_bulk(self, *, user: User, saved_searches: List[UserSavedSearch]) -> None:
+        if self._notification_emitter is None or not saved_searches:
+            return
+        role_names = {getattr(r, "name", None) for r in (getattr(user, "roles", None) or [])}
+        role_names.discard(None)
+        fr = frozenset(role_names)
+        et = NotificationType.SAVED_SEARCH_CREATED.value
+        creator_raw = getattr(user, "full_name", None)
+        creator_name = str(creator_raw).strip() if creator_raw is not None else ""
+        if not creator_name:
+            creator_name = "Unknown"
+        payloads: list[NotificationEmitPayload] = []
+        for saved_search in saved_searches:
+            search_name = (getattr(saved_search, "name", None) or "").strip() or "Saved search"
+            saved_id_str = str(saved_search.id)
+            payloads.append(
+                NotificationEmitPayload(
+                    event_type=et,
+                    type_key=et,
+                    recipient_user_id=user.id,
+                    actor_user_id=user.id,
+                    recipient_role_names=fr,
+                    template_data={
+                        "search_name": search_name,
+                        "creator_name": creator_name,
+                        "entity_type": "saved_search",
+                        "entity_id": saved_id_str,
+                        "metadata": {"saved_search_id": saved_id_str},
+                    },
+                    idempotency_key=f"saved_search.created:{user.id}:{saved_id_str}",
+                )
+            )
+        try:
+            self._notification_emitter.emit_bulk(payloads=payloads)
+        except Exception:
+            api_logger.error(
+                format_log_message(
+                    "Saved search bulk notification dispatch failed user_id={uid} count={n}",
+                    uid=str(user.id),
+                    n=len(payloads),
+                ),
+                exc_info=True,
+            )
 
     @staticmethod
     def _validate_create_payload(body: SavedSearchCreateRequest) -> None:
@@ -90,7 +188,6 @@ class SavedSearchService:
             self._repo.create_saved_search(saved_search)
             self._repo.commit()
             self._repo.refresh(saved_search)
-            return self._to_response(saved_search)
         except IntegrityError:
             self._repo.rollback()
             raise HTTPException(
@@ -103,6 +200,10 @@ class SavedSearchService:
                 status_code=HTTPStatus.INTERNAL_SERVER_ERROR,
                 detail=ErrorMessages.REQUEST_FAILED,
             )
+
+        # In-app confirmation for creator only (NotificationEventEmitter uses its own commit).
+        self._notify_saved_search_created(user=user, saved_search=saved_search)
+        return self._to_response(saved_search)
 
     def create_saved_searches_bulk(
         self, *, user: User, items: List[SavedSearchCreateRequest]
@@ -146,6 +247,7 @@ class SavedSearchService:
             self._repo.commit()
             for saved_search in saved_searches:
                 self._repo.refresh(saved_search)
+            self._notify_saved_searches_created_bulk(user=user, saved_searches=saved_searches)
             return [self._to_response(saved_search) for saved_search in saved_searches]
         except IntegrityError:
             self._repo.rollback()
