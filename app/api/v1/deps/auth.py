@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.db.session import get_db
 from app.repositories.auth_repository import AuthRepository
 from app.repositories.profile_change_repository import ProfileChangeRepository
+from app.repositories.user_remember_me_session_repository import UserRememberMeSessionRepository
 from app.api.v1.deps.media_urls import get_media_url_signer
 from app.services.auth_service import AuthService
 from app.services.media_url_signer import MediaUrlSigner
@@ -42,7 +43,11 @@ def get_auth_service(
     Returns:
         AuthService instance.
     """
-    return AuthService(repo, media_url_signer=media_url_signer)
+    return AuthService(
+        repo,
+        media_url_signer=media_url_signer,
+        remember_me_repository=UserRememberMeSessionRepository(repo._db),
+    )
 
 
 def get_profile_update_service(db: DBSessionDep) -> ProfileUpdateService:

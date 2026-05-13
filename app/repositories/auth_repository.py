@@ -2,24 +2,31 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from sqlalchemy import Select, or_, select
+from sqlalchemy import Select, or_, select, update
 from sqlalchemy.orm import Session, selectinload
 
+from app.core.config import Settings, get_settings
 from app.models.user import AgentProfile, Role, User
 
 
 class AuthRepository:
     """Repository for authentication-related user, role, and profile persistence."""
 
-    def __init__(self, db: Session) -> None:
+    def __init__(self, db: Session, *, settings: Settings | None = None) -> None:
         """Store the database session for all operations.
 
         Args:
             db: SQLAlchemy Session (request-scoped).
+            settings: Optional settings override (tests); defaults to ``get_settings()``.
         """
         self._db = db
+        _s = settings or get_settings()
+        self._password_login_max_failed_attempts = _s.password_login_max_failed_attempts
+        self._password_login_rolling_window_minutes = _s.password_login_rolling_window_minutes
+        self._password_login_lock_duration_minutes = _s.password_login_lock_duration_minutes
 
     # Generic helpers -----------------------------------------------------
 
@@ -74,6 +81,63 @@ class AuthRepository:
         )
         return self._db.execute(stmt).scalar_one_or_none()
 
+    def acquire_user_for_password_login_security(self, user_id: uuid.UUID) -> User:
+        """Load user row with ``FOR UPDATE`` and clear an expired password-login lock.
+
+        Caller should ``commit()`` soon after to release the row lock (before slow I/O).
+        """
+        stmt: Select = (
+            select(User)
+            .options(selectinload(User.profile))
+            .where(User.id == user_id, User.deleted_at.is_(None))
+            .with_for_update()
+        )
+        u = self._db.execute(stmt).scalar_one()
+        now = datetime.now(timezone.utc)
+        lock_until = u.password_login_locked_until
+        if lock_until is not None and lock_until <= now:
+            u.password_login_failed_attempts = 0
+            u.password_login_first_failed_at = None
+            u.password_login_locked_until = None
+            self._db.flush()
+        return u
+
+    def record_failed_password_login_attempt(self, user_id: uuid.UUID) -> None:
+        """Increment failed password attempts with rolling window; may set ``password_login_locked_until``."""
+        stmt = select(User).where(User.id == user_id, User.deleted_at.is_(None)).with_for_update()
+        u = self._db.execute(stmt).scalar_one()
+        now = datetime.now(timezone.utc)
+        if u.password_login_locked_until is not None and u.password_login_locked_until <= now:
+            u.password_login_failed_attempts = 0
+            u.password_login_first_failed_at = None
+            u.password_login_locked_until = None
+        first = u.password_login_first_failed_at
+        window = timedelta(minutes=self._password_login_rolling_window_minutes)
+        if first is None or (now - first) > window:
+            u.password_login_failed_attempts = 1
+            u.password_login_first_failed_at = now
+        else:
+            u.password_login_failed_attempts += 1
+            if u.password_login_failed_attempts >= self._password_login_max_failed_attempts:
+                u.password_login_locked_until = now + timedelta(
+                    minutes=self._password_login_lock_duration_minutes
+                )
+        self._db.flush()
+
+    def reset_password_login_security_by_id(self, user_id: uuid.UUID) -> None:
+        """Reset password-login lockout counters after successful password authentication."""
+        stmt = (
+            update(User)
+            .where(User.id == user_id)
+            .values(
+                password_login_failed_attempts=0,
+                password_login_first_failed_at=None,
+                password_login_locked_until=None,
+            )
+        )
+        self._db.execute(stmt)
+        self._db.flush()
+
     def get_user_by_cognito_sub_with_profile(
         self,
         cognito_sub: str,
@@ -83,6 +147,14 @@ class AuthRepository:
             select(User)
             .options(selectinload(User.profile))
             .where(User.cognito_sub == cognito_sub, User.deleted_at.is_(None))
+        )
+        return self._db.execute(stmt).scalar_one_or_none()
+
+    def get_user_by_id_with_profile(self, user_id: uuid.UUID) -> Optional[User]:
+        stmt: Select = (
+            select(User)
+            .options(selectinload(User.profile))
+            .where(User.id == user_id, User.deleted_at.is_(None))
         )
         return self._db.execute(stmt).scalar_one_or_none()
 

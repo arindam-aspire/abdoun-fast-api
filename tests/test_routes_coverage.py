@@ -246,6 +246,7 @@ def _fake_agent_dashboard_service():
 
 def _fake_auth_service():
     from app.schemas.user import UserResponse, TokenResponse, PermissionsResponse
+    from app.services.remember_me_http_effect import RememberMeHttpEffect
 
     uid = uuid.uuid4()
     user_data = {
@@ -262,14 +263,24 @@ def _fake_auth_service():
         "requires_password_set": False,
     }
     token_data = {"access_token": "t", "expires_in": 3600, "token_type": "Bearer"}
+    _no_rm = RememberMeHttpEffect()
     s = MagicMock()
     s.signup.return_value = create_success_response(data=UserResponse(**user_data))
     s.confirm_signup.return_value = create_success_response(data=True)
     s.resend_confirmation.return_value = create_success_response(data=True)
-    s.login_password.return_value = create_success_response(data=TokenResponse(**token_data))
+    s.login_password.return_value = (
+        create_success_response(data=TokenResponse(**token_data)),
+        _no_rm,
+    )
     s.login_otp_request.return_value = create_success_response(data={})
-    s.login_otp_verify.return_value = create_success_response(data=TokenResponse(**token_data))
-    s.refresh_token.return_value = create_success_response(data=TokenResponse(**token_data))
+    s.login_otp_verify.return_value = (
+        create_success_response(data=TokenResponse(**token_data)),
+        _no_rm,
+    )
+    s.refresh_token.return_value = (
+        create_success_response(data=TokenResponse(**token_data)),
+        _no_rm,
+    )
     s.forgot_password_request.return_value = create_success_response(data=True)
     s.forgot_password_confirm.return_value = create_success_response(data=True)
     s.set_password.return_value = create_success_response(data=True)
@@ -277,7 +288,10 @@ def _fake_auth_service():
     s.get_current_user_permissions.return_value = create_success_response(
         data=PermissionsResponse(permissions=[])
     )
-    s.logout.return_value = create_success_response(data=True)
+    s.logout.return_value = (
+        create_success_response(data=True),
+        RememberMeHttpEffect(clear_cookie=True),
+    )
     s.social_login.return_value = create_success_response(data={"url": "https://example.com"})
     s.social_callback.return_value = create_success_response(data=TokenResponse(**token_data))
     return s
@@ -971,12 +985,18 @@ def test_auth_me_profile_picture(client, mock_db):
 
 
 def test_auth_logout(client, mock_db):
+    from app.utils.constants import RememberMeConstants
+
     app.dependency_overrides[get_current_user] = _fake_admin_user_sync
     app.dependency_overrides[get_db] = _fake_get_db(mock_db)
     app.dependency_overrides[get_auth_service] = _fake_auth_service
     try:
         r = client.post("/api/v1/auth/logout", headers={"Authorization": "Bearer x"})
         assert r.status_code == 200
+        set_cookie_values = [
+            v for k, v in r.headers.multi_items() if k.lower() == "set-cookie"
+        ]
+        assert any(RememberMeConstants.COOKIE_NAME in v for v in set_cookie_values)
     finally:
         app.dependency_overrides.pop(get_current_user, None)
         app.dependency_overrides.pop(get_db, None)

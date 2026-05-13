@@ -1,13 +1,16 @@
 """Auth service: signup, login (password/OTP), refresh, logout, profile, permissions; uses AuthRepository and Cognito."""
 from __future__ import annotations
 
-from fastapi import HTTPException
+from datetime import datetime, timedelta, timezone
+
+from fastapi import HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials
 from botocore.exceptions import ClientError
 
-from app.core.config import get_settings
+from app.core.config import Settings, get_settings
 from app.models.user import User
 from app.repositories.auth_repository import AuthRepository
+from app.repositories.user_remember_me_session_repository import UserRememberMeSessionRepository
 from app.schemas.user import (
     ConfirmSignupRequest,
     ForgotPasswordConfirm,
@@ -25,10 +28,14 @@ from app.schemas.user import (
 )
 from app.services.cognito import cognito_service
 from app.services.media_url_signer import MediaUrlSigner
+from app.services.remember_me_crypto import decrypt_refresh_token, encrypt_refresh_token
+from app.services.remember_me_http_effect import RememberMeHttpEffect
+from app.services.remember_me_tokens import generate_opaque_remember_me_token, hash_remember_me_opaque_token
 from app.utils.constants import (
     CognitoConstants,
     Defaults,
     ErrorMessages,
+    RememberMeConstants,
     SuccessMessages,
     UserRoles,
 )
@@ -42,9 +49,18 @@ from app.api.v1.deps.security import get_user_permissions
 class AuthService:
     """Service layer encapsulating authentication and user signup flows."""
 
-    def __init__(self, repository: AuthRepository, *, media_url_signer: MediaUrlSigner | None = None) -> None:
+    def __init__(
+        self,
+        repository: AuthRepository,
+        *,
+        media_url_signer: MediaUrlSigner | None = None,
+        remember_me_repository: UserRememberMeSessionRepository | None = None,
+    ) -> None:
         self._repo = repository
         self._media_url_signer = media_url_signer
+        self._remember_me_repo = remember_me_repository or UserRememberMeSessionRepository(
+            repository._db
+        )
 
     def _sign_user_response(self, user_response: UserResponse) -> UserResponse:
         if self._media_url_signer is not None:
@@ -77,6 +93,97 @@ class AuthService:
 
     def _requires_password_set(self, user: User) -> bool:
         return bool(user.profile is not None and user.profile.password_set_at is None)
+
+    def _client_meta(self, request: Request | None) -> tuple[str | None, str | None]:
+        if request is None:
+            return None, None
+        user_agent = (request.headers.get("user-agent") or "").strip() or None
+        xff = (request.headers.get("x-forwarded-for") or "").split(",")[0].strip()
+        client_host = request.client.host if request.client else None
+        ip = xff or client_host or None
+        return user_agent, ip
+
+    def _remember_me_session_seconds(self, settings: Settings) -> int:
+        days = int(getattr(settings, "remember_me_session_days", 0))
+        if days > 0:
+            from_days = days * 24 * 60 * 60
+            return min(from_days, RememberMeConstants.MAX_SESSION_SECONDS)
+        return RememberMeConstants.MAX_SESSION_SECONDS
+
+    def _remember_me_expires_at(self, settings: Settings) -> datetime:
+        return datetime.now(timezone.utc) + timedelta(
+            seconds=self._remember_me_session_seconds(settings)
+        )
+
+    def _remaining_remember_me_seconds(self, *, expires_at: datetime, now: datetime) -> int:
+        remaining = int((expires_at - now).total_seconds())
+        return max(0, min(remaining, RememberMeConstants.MAX_SESSION_SECONDS))
+
+    def _token_response_from_cognito_auth(
+        self,
+        *,
+        auth_result: dict,
+        requires_password_set: bool,
+        omit_refresh_in_body: bool,
+        remember_me_cookie: bool,
+    ) -> TokenResponse:
+        rt = auth_result.get("RefreshToken")
+        return TokenResponse(
+            access_token=auth_result["AccessToken"],
+            refresh_token=None if omit_refresh_in_body else rt,
+            id_token=auth_result.get("IdToken"),
+            expires_in=int(auth_result["ExpiresIn"]),
+            requires_password_set=requires_password_set,
+            remember_me_cookie=remember_me_cookie,
+        )
+
+    def _persist_remember_me(
+        self,
+        *,
+        user: User,
+        cognito_refresh_token: str,
+        cognito_username: str,
+        request: Request | None,
+    ) -> tuple[str, int]:
+        settings = get_settings()
+        session_seconds = self._remember_me_session_seconds(settings)
+        user_agent, ip_address = self._client_meta(request)
+        opaque = generate_opaque_remember_me_token()
+        self._remember_me_repo.create(
+            user_id=user.id,
+            token_hash=hash_remember_me_opaque_token(opaque),
+            cognito_refresh_encrypted=encrypt_refresh_token(settings, cognito_refresh_token),
+            cognito_username=cognito_username,
+            expires_at=self._remember_me_expires_at(settings),
+            user_agent=user_agent,
+            ip_address=ip_address,
+        )
+        self._repo.commit()
+        return opaque, session_seconds
+
+    def _resolve_cognito_refresh_username(
+        self,
+        *,
+        user: User,
+        auth_result: dict,
+        fallback_username: str,
+    ) -> str:
+        """Return username value to use for Cognito SECRET_HASH during refresh.
+
+        Prefer stable `sub` claim from access token. Fallback to provided username
+        (typically email) for compatibility.
+        """
+        access_token = auth_result.get("AccessToken")
+        if access_token:
+            payload = cognito_service.verify_token(access_token)
+            if payload:
+                sub = (payload.get("sub") or "").strip()
+                if sub:
+                    return sub
+        user_sub = (getattr(user, "cognito_sub", None) or "").strip()
+        if user_sub:
+            return user_sub
+        return fallback_username
 
     def _resolve_user_for_refresh_access_token(self, *, access_token: str) -> tuple[User, dict]:
         payload = cognito_service.verify_token(access_token)
@@ -261,23 +368,46 @@ class AuthService:
                 detail=server_error,
             )
 
+    def _audit_failed_password_login(self, *, user_id: str, email: str, request: Request | None) -> None:
+        _, ip = self._client_meta(request)
+        api_logger.warning(
+            format_log_message(
+                LogMessages.Auth.PASSWORD_LOGIN_FAILED_AUDIT,
+                user_id=user_id,
+                email=email,
+                ip=ip or "-",
+                reason="invalid_password",
+            )
+        )
+
     # Login flows ---------------------------------------------------------
 
-    def login_password(self, login_in: LoginRequest) -> StandardResponse[TokenResponse]:
+    def login_password(
+        self, login_in: LoginRequest, request: Request | None = None
+    ) -> tuple[StandardResponse[TokenResponse], RememberMeHttpEffect]:
+        now = datetime.now(timezone.utc)
         user = self._repo.get_user_by_email_or_phone_with_profile(login_in.username)
         if not user:
-            api_logger.warning(
-                format_log_message(
-                    LogMessages.Auth.LOGIN_FAILED,
-                    email=login_in.username,
-                    error=ErrorMessages.USER_NOT_FOUND,
-                )
+            self._audit_failed_password_login(
+                user_id="-", email=login_in.username, request=request
             )
             raise HTTPException(
-                status_code=HTTPStatus.NOT_FOUND,
-                detail=ErrorMessages.USER_NOT_FOUND,
+                status_code=HTTPStatus.UNAUTHORIZED,
+                detail=ErrorMessages.INVALID_LOGIN_CREDENTIALS_UNIFIED,
             )
+
         self._ensure_user_login_allowed(user)
+        user = self._repo.acquire_user_for_password_login_security(user.id)
+        if user.password_login_locked_until is not None and user.password_login_locked_until > now:
+            self._repo.commit()
+            raise HTTPException(
+                status_code=HTTPStatus.FORBIDDEN,
+                detail=ErrorMessages.account_locked_failed_password_logins(
+                    lock_duration_minutes=get_settings().password_login_lock_duration_minutes
+                ),
+            )
+        self._repo.commit()
+
         cognito_username = user.email
         try:
             auth_result = cognito_service.login_password(
@@ -290,36 +420,81 @@ class AuthService:
                 if payload:
                     self._sync_verified_flags_from_token_payload(user=user, payload=payload)
             requires_password_set = self._requires_password_set(user)
+            cognito_refresh = auth_result.get("RefreshToken")
+            remember_me = bool(login_in.remember_me)
+            if remember_me:
+                if not cognito_refresh:
+                    raise HTTPException(
+                        status_code=HTTPStatus.BAD_REQUEST,
+                        detail=ErrorMessages.REMEMBER_ME_NO_REFRESH_TOKEN,
+                    )
+                opaque, max_age = self._persist_remember_me(
+                    user=user,
+                    cognito_refresh_token=cognito_refresh,
+                    cognito_username=self._resolve_cognito_refresh_username(
+                        user=user,
+                        auth_result=auth_result,
+                        fallback_username=cognito_username,
+                    ),
+                    request=request,
+                )
+                self._repo.reset_password_login_security_by_id(user.id)
+                self._repo.commit()
+                return create_success_response(
+                    data=self._token_response_from_cognito_auth(
+                        auth_result=auth_result,
+                        requires_password_set=requires_password_set,
+                        omit_refresh_in_body=True,
+                        remember_me_cookie=True,
+                    ),
+                    message=SuccessMessages.LOGIN_SUCCESSFUL,
+                ), RememberMeHttpEffect(
+                    set_cookie_opaque=opaque,
+                    cookie_max_age_seconds=max_age,
+                )
+
+            self._repo.reset_password_login_security_by_id(user.id)
+            self._repo.commit()
             return create_success_response(
-                data=TokenResponse(
-                    access_token=auth_result["AccessToken"],
-                    refresh_token=auth_result.get("RefreshToken"),
-                    id_token=auth_result.get("IdToken"),
-                    expires_in=auth_result["ExpiresIn"],
+                data=self._token_response_from_cognito_auth(
+                    auth_result=auth_result,
                     requires_password_set=requires_password_set,
+                    omit_refresh_in_body=False,
+                    remember_me_cookie=False,
                 ),
                 message=SuccessMessages.LOGIN_SUCCESSFUL,
-            )
+            ), RememberMeHttpEffect()
+        except HTTPException:
+            self._repo.rollback()
+            raise
         except ClientError as e:
-            error_code = e.response["Error"]["Code"]
-            if error_code == "UserNotFoundException":
-                raise HTTPException(
-                    status_code=HTTPStatus.NOT_FOUND,
-                    detail=ErrorMessages.USER_NOT_FOUND,
-                )
+            error_code = e.response.get("Error", {}).get("Code", "")
             if error_code == "UserNotConfirmedException":
+                self._repo.commit()
                 raise HTTPException(
                     status_code=HTTPStatus.FORBIDDEN,
                     detail=ErrorMessages.USER_NOT_CONFIRMED,
                 )
+            if error_code == "TooManyRequestsException":
+                self._repo.commit()
+                raise HTTPException(
+                    status_code=HTTPStatus.TOO_MANY_REQUESTS,
+                    detail=ErrorMessages.COGNITO_RATE_LIMITED,
+                )
+            self._repo.record_failed_password_login_attempt(user.id)
+            self._repo.commit()
+            self._audit_failed_password_login(
+                user_id=str(user.id), email=user.email, request=request
+            )
             raise HTTPException(
                 status_code=HTTPStatus.UNAUTHORIZED,
-                detail=ErrorMessages.INVALID_CREDENTIALS,
+                detail=ErrorMessages.INVALID_LOGIN_CREDENTIALS_UNIFIED,
             )
         except Exception:  # pragma: no cover - defensive
+            self._repo.rollback()
             raise HTTPException(
                 status_code=HTTPStatus.UNAUTHORIZED,
-                detail=ErrorMessages.INVALID_CREDENTIALS,
+                detail=ErrorMessages.INVALID_LOGIN_CREDENTIALS_UNIFIED,
             )
 
     def login_otp_request(self, otp_req: OTPRequest) -> StandardResponse[dict]:
@@ -367,7 +542,9 @@ class AuthService:
                 detail=server_error,
             )
 
-    def login_otp_verify(self, otp_ver: OTPVerify) -> StandardResponse[TokenResponse]:
+    def login_otp_verify(
+        self, otp_ver: OTPVerify, request: Request | None = None
+    ) -> tuple[StandardResponse[TokenResponse], RememberMeHttpEffect]:
         user = self._repo.get_user_by_email_or_phone_with_profile(otp_ver.username)
         if not user:
             raise HTTPException(
@@ -387,24 +564,57 @@ class AuthService:
                 if payload:
                     self._sync_verified_flags_from_token_payload(user=user, payload=payload)
             requires_password_set = self._requires_password_set(user)
+            cognito_refresh = auth_result.get("RefreshToken")
+            remember_me = bool(otp_ver.remember_me)
+            if remember_me:
+                if not cognito_refresh:
+                    raise HTTPException(
+                        status_code=HTTPStatus.BAD_REQUEST,
+                        detail=ErrorMessages.REMEMBER_ME_NO_REFRESH_TOKEN,
+                    )
+                opaque, max_age = self._persist_remember_me(
+                    user=user,
+                    cognito_refresh_token=cognito_refresh,
+                    cognito_username=self._resolve_cognito_refresh_username(
+                        user=user,
+                        auth_result=auth_result,
+                        fallback_username=cognito_username,
+                    ),
+                    request=request,
+                )
+                return create_success_response(
+                    data=self._token_response_from_cognito_auth(
+                        auth_result=auth_result,
+                        requires_password_set=requires_password_set,
+                        omit_refresh_in_body=True,
+                        remember_me_cookie=True,
+                    ),
+                    message=SuccessMessages.LOGIN_SUCCESSFUL,
+                ), RememberMeHttpEffect(
+                    set_cookie_opaque=opaque,
+                    cookie_max_age_seconds=max_age,
+                )
+
             return create_success_response(
-                data=TokenResponse(
-                    access_token=auth_result["AccessToken"],
-                    refresh_token=auth_result.get("RefreshToken"),
-                    id_token=auth_result.get("IdToken"),
-                    expires_in=auth_result["ExpiresIn"],
+                data=self._token_response_from_cognito_auth(
+                    auth_result=auth_result,
                     requires_password_set=requires_password_set,
+                    omit_refresh_in_body=False,
+                    remember_me_cookie=False,
                 ),
                 message=SuccessMessages.LOGIN_SUCCESSFUL,
-            )
+            ), RememberMeHttpEffect()
+        except HTTPException:
+            raise
         except Exception:  # pragma: no cover - defensive
             raise HTTPException(
                 status_code=HTTPStatus.UNAUTHORIZED,
                 detail=ErrorMessages.INVALID_OTP,
             )
 
-    def refresh_token(self, body: RefreshRequest) -> StandardResponse[TokenResponse]:
-        settings = get_settings()
+    def _refresh_via_body(
+        self, body: RefreshRequest, *, settings: Settings
+    ) -> StandardResponse[TokenResponse]:
         if settings.cognito_client_secret and not (body.username or "").strip():
             raise HTTPException(
                 status_code=HTTPStatus.BAD_REQUEST,
@@ -412,7 +622,7 @@ class AuthService:
             )
         try:
             auth_result = cognito_service.refresh_token(
-                body.refresh_token,
+                body.refresh_token or "",
                 (body.username or "").strip(),
             )
             access_token = auth_result["AccessToken"]
@@ -428,16 +638,14 @@ class AuthService:
             )
 
             return create_success_response(
-                data=TokenResponse(
-                    access_token=access_token,
-                    refresh_token=auth_result.get("RefreshToken"),
-                    id_token=auth_result.get("IdToken"),
-                    expires_in=auth_result["ExpiresIn"],
+                data=self._token_response_from_cognito_auth(
+                    auth_result=auth_result,
                     requires_password_set=requires_password_set,
-                )
+                    omit_refresh_in_body=False,
+                    remember_me_cookie=False,
+                ),
             )
         except HTTPException:
-            # Preserve explicit auth errors (inactive/deleted, invalid token, etc.)
             raise
         except Exception:  # pragma: no cover - defensive
             raise HTTPException(
@@ -445,7 +653,131 @@ class AuthService:
                 detail=ErrorMessages.INVALID_TOKEN,
             )
 
-    def logout(self, user: User, auth: HTTPAuthorizationCredentials) -> StandardResponse[bool]:
+    def _refresh_via_remember_me_cookie(
+        self, *, request: Request, settings: Settings
+    ) -> tuple[StandardResponse[TokenResponse], RememberMeHttpEffect]:
+        raw = (request.cookies.get(RememberMeConstants.COOKIE_NAME) or "").strip()
+        if not raw:
+            raise HTTPException(
+                status_code=HTTPStatus.BAD_REQUEST,
+                detail=ErrorMessages.REMEMBER_ME_REFRESH_OR_COOKIE_REQUIRED,
+            )
+        now = datetime.now(timezone.utc)
+        row = self._remember_me_repo.get_active_by_token_hash(hash_remember_me_opaque_token(raw))
+        if not row:
+            raise HTTPException(
+                status_code=HTTPStatus.UNAUTHORIZED,
+                detail=ErrorMessages.REMEMBER_ME_SESSION_INVALID,
+            )
+        cognito_rt = decrypt_refresh_token(settings, row.cognito_refresh_encrypted)
+        if not cognito_rt:
+            self._remember_me_repo.revoke_by_id(row.id, revoked_at=now)
+            self._repo.commit()
+            raise HTTPException(
+                status_code=HTTPStatus.UNAUTHORIZED,
+                detail=ErrorMessages.REMEMBER_ME_SESSION_INVALID,
+            )
+        user = self._repo.get_user_by_id_with_profile(row.user_id)
+        if not user:
+            self._remember_me_repo.revoke_by_id(row.id, revoked_at=now)
+            self._repo.commit()
+            raise HTTPException(
+                status_code=HTTPStatus.UNAUTHORIZED,
+                detail=ErrorMessages.REMEMBER_ME_SESSION_INVALID,
+            )
+        self._ensure_user_login_allowed(user)
+        try:
+            auth_result = cognito_service.refresh_token(
+                cognito_rt,
+                row.cognito_username,
+            )
+        except ClientError:
+            # Backward-compatible recovery for sessions created with email username:
+            # retry with user.cognito_sub (preferred Cognito refresh identity for secret hash).
+            retry_username = (getattr(user, "cognito_sub", None) or "").strip()
+            if retry_username and retry_username != row.cognito_username:
+                try:
+                    auth_result = cognito_service.refresh_token(
+                        cognito_rt,
+                        retry_username,
+                    )
+                except ClientError:
+                    raise HTTPException(
+                        status_code=HTTPStatus.UNAUTHORIZED,
+                        detail=ErrorMessages.INVALID_TOKEN,
+                    )
+            else:
+                raise HTTPException(
+                    status_code=HTTPStatus.UNAUTHORIZED,
+                    detail=ErrorMessages.INVALID_TOKEN,
+                )
+        access_token = auth_result["AccessToken"]
+        user2, payload = self._resolve_user_for_refresh_access_token(access_token=access_token)
+        if user2.id != user.id:
+            self._remember_me_repo.revoke_by_id(row.id, revoked_at=now)
+            self._repo.commit()
+            raise HTTPException(
+                status_code=HTTPStatus.UNAUTHORIZED,
+                detail=ErrorMessages.REMEMBER_ME_SESSION_INVALID,
+            )
+        self._sync_verified_flags_from_token_payload(user=user2, payload=payload)
+        requires_password_set = bool(
+            user2.profile is not None and user2.profile.password_set_at is None
+        )
+        new_cognito_rt = auth_result.get("RefreshToken") or cognito_rt
+        new_opaque = generate_opaque_remember_me_token()
+        new_enc = encrypt_refresh_token(settings, new_cognito_rt)
+        self._remember_me_repo.update_after_rotation(
+            row.id,
+            new_token_hash=hash_remember_me_opaque_token(new_opaque),
+            cognito_refresh_encrypted=new_enc,
+            cognito_username=self._resolve_cognito_refresh_username(
+                user=user2,
+                auth_result=auth_result,
+                fallback_username=row.cognito_username,
+            ),
+            expires_at=row.expires_at,
+            last_used_at=now,
+        )
+        self._repo.commit()
+        max_age = self._remaining_remember_me_seconds(expires_at=row.expires_at, now=now)
+        return create_success_response(
+            data=self._token_response_from_cognito_auth(
+                auth_result=auth_result,
+                requires_password_set=requires_password_set,
+                omit_refresh_in_body=True,
+                remember_me_cookie=True,
+            ),
+        ), RememberMeHttpEffect(
+            set_cookie_opaque=new_opaque,
+            cookie_max_age_seconds=max_age,
+        )
+
+    def refresh_token(
+        self,
+        body: RefreshRequest,
+        *,
+        request: Request | None = None,
+    ) -> tuple[StandardResponse[TokenResponse], RememberMeHttpEffect]:
+        settings = get_settings()
+        body_rt = (body.refresh_token or "").strip()
+        if body_rt:
+            return self._refresh_via_body(body, settings=settings), RememberMeHttpEffect()
+        if request is not None:
+            return self._refresh_via_remember_me_cookie(request=request, settings=settings)
+        raise HTTPException(
+            status_code=HTTPStatus.BAD_REQUEST,
+            detail=ErrorMessages.REMEMBER_ME_REFRESH_OR_COOKIE_REQUIRED,
+        )
+
+    def logout(
+        self,
+        user: User,
+        auth: HTTPAuthorizationCredentials,
+    ) -> tuple[StandardResponse[bool], RememberMeHttpEffect]:
+        now = datetime.now(timezone.utc)
+        self._remember_me_repo.revoke_all_for_user(user.id, revoked_at=now)
+        self._repo.commit()
         try:
             cognito_service.logout(auth.credentials)
             api_logger.info(
@@ -453,14 +785,14 @@ class AuthService:
             )
             return create_success_response(
                 data=True, message=SuccessMessages.LOGOUT_SUCCESSFUL
-            )
+            ), RememberMeHttpEffect(clear_cookie=True)
         except Exception as e:  # pragma: no cover - defensive
             api_logger.error(
                 format_log_message(LogMessages.Auth.LOGOUT_FAILED, error=str(e))
             )
             return create_success_response(
                 data=False, message=ErrorMessages.LOGOUT_FAILED
-            )
+            ), RememberMeHttpEffect(clear_cookie=True)
 
     # Password reset / set flows -----------------------------------------
 
@@ -635,6 +967,7 @@ class AuthService:
                     id_token=auth_result.get("id_token"),
                     expires_in=auth_result["expires_in"],
                     requires_password_set=False,
+                    remember_me_cookie=False,
                 ),
                 message=SuccessMessages.SOCIAL_LOGIN_SUCCESSFUL,
             )

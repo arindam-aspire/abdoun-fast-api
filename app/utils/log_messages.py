@@ -73,6 +73,9 @@ class LogMessages:
         TOKEN_REFRESH_FAILED = "Token refresh failed: {error}"
         OTP_REQUEST_SUCCESS = "OTP request successful for: {username}"
         OTP_REQUEST_FAILED = "OTP request failed for {username}: {error}"
+        PASSWORD_LOGIN_FAILED_AUDIT = (
+            "password_login_failed user_id={user_id} email={email} ip={ip} reason={reason}"
+        )
         PASSWORD_RESET_REQUEST = "Password reset requested for: {email}"
         PASSWORD_RESET_SUCCESS = "Password reset successful for: {email}"
         PASSWORD_RESET_FAILED = "Password reset failed for {email}: {error}"

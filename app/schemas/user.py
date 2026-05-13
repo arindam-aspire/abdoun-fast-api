@@ -5,7 +5,7 @@ from datetime import datetime
 from enum import Enum
 from typing import List, Optional
 
-from pydantic import BaseModel, EmailStr, Field, computed_field, field_validator
+from pydantic import AliasChoices, BaseModel, EmailStr, Field, computed_field, field_validator
 
 from app.utils.constants import AgentStatus, Defaults, ValidationMessages
 
@@ -175,11 +175,20 @@ class TokenResponse(BaseModel):
     expires_in: int
     # In response body only (not in JWT). True = first-time agent without password; show set-password UI.
     requires_password_set: bool = Field(False, description="True if user must set a password (e.g. agent who signed in via OTP and has not set one)")
+    remember_me_cookie: bool = Field(
+        False,
+        description="True when refresh is bound to an HttpOnly Remember Me cookie instead of the response body.",
+    )
 
 class LoginRequest(BaseModel):
     """Login request (username = email or phone, password)."""
     username: str  # email or phone
     password: str
+    remember_me: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("remember_me", "rememberMe"),
+        description="If true, issue a long-lived Remember Me session (max 30 days) via HttpOnly cookie.",
+    )
 
     @field_validator("username")
     @classmethod
@@ -213,15 +222,28 @@ class OTPRequest(BaseModel):
 
 class RefreshRequest(BaseModel):
     """Refresh token request (refresh_token; optional username for SECRET_HASH)."""
-    refresh_token: str
+
+    refresh_token: Optional[str] = None
     # Required when Cognito app client has a secret (for SECRET_HASH). Use sub or email from login/id_token.
     username: Optional[str] = None
+
+    @field_validator("refresh_token", mode="before")
+    @classmethod
+    def refresh_token_empty_as_none(cls, v: object) -> object:
+        if v is None or (isinstance(v, str) and not v.strip()):
+            return None
+        return v
 
 class OTPVerify(BaseModel):
     """Verify OTP (username, code, session from /login/otp/request)."""
     username: str  # email or phone (E.164); same as in /login/otp/request
     code: str
     session: str
+    remember_me: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("remember_me", "rememberMe"),
+        description="If true, issue a long-lived Remember Me session (max 30 days) via HttpOnly cookie.",
+    )
 
     @field_validator("username")
     @classmethod

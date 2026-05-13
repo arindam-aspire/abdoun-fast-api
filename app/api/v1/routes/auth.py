@@ -7,13 +7,14 @@ to `AuthService`.
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.security import HTTPAuthorizationCredentials
 
 from app.api.v1.deps.auth import get_auth_service, get_profile_update_service
 from app.api.v1.deps.media_urls import get_media_url_signer
 from app.api.v1.deps.profile_picture_upload import get_profile_picture_upload_service
 from app.api.v1.deps.security import get_current_user, require_role, security
+from app.core.config import get_settings
 from app.core.limiter import limiter
 from app.models.user import User
 from app.utils.constants import Defaults, RateLimits, SuccessMessages, UserRoles
@@ -39,6 +40,7 @@ from app.schemas.user import (
     UserResponse,
 )
 from app.services.auth_service import AuthService
+from app.services.remember_me_http_effect import apply_remember_me_http_effect
 from app.services.media_url_signer import MediaUrlSigner
 from app.services.profile_picture_upload_service import ProfilePictureUploadService
 from app.services.profile_update_service import ProfileUpdateService
@@ -98,11 +100,20 @@ def resend_confirmation(
 @limiter.limit(RateLimits.LOGIN_PASSWORD)
 def login_password(
     request: Request,
+    response: Response,
     login_in: LoginRequest,
     service: Annotated[AuthService, Depends(get_auth_service)],
 ) -> StandardResponse[TokenResponse]:
-    """Authenticate with email or phone number + password. Returns access and refresh tokens."""
-    return service.login_password(login_in)
+    """Authenticate with email or phone + password.
+
+    When ``rememberMe`` / ``remember_me`` is true, the Cognito refresh token is stored
+    server-side (encrypted) and a high-entropy opaque token is set in an HttpOnly cookie
+    (max 30 days). The JSON body omits ``refresh_token`` in that case; use ``remember_me_cookie``
+    on ``TokenResponse`` to detect this mode.
+    """
+    std, effect = service.login_password(login_in, request)
+    apply_remember_me_http_effect(response=response, settings=get_settings(), effect=effect)
+    return std
 
 
 @router.post("/login/otp/request")
@@ -120,30 +131,40 @@ def login_otp_request(
 @limiter.limit(RateLimits.LOGIN_OTP_VERIFY)
 def login_otp_verify(
     request: Request,
+    response: Response,
     otp_ver: OTPVerify,
     service: Annotated[AuthService, Depends(get_auth_service)],
 ) -> StandardResponse[TokenResponse]:
-    """Verify OTP and return tokens. Requires session from /login/otp/request."""
-    return service.login_otp_verify(otp_ver)
+    """Verify OTP and return tokens; supports ``rememberMe`` like password login (HttpOnly cookie)."""
+    std, effect = service.login_otp_verify(otp_ver, request)
+    apply_remember_me_http_effect(response=response, settings=get_settings(), effect=effect)
+    return std
 
 
 @router.post("/refresh")
 def refresh_token(
+    request: Request,
+    response: Response,
     body: RefreshRequest,
     service: Annotated[AuthService, Depends(get_auth_service)],
 ) -> StandardResponse[TokenResponse]:
-    """Refresh access token using refresh_token in request body."""
-    return service.refresh_token(body)
+    """Refresh access token using refresh_token in the body or the HttpOnly Remember Me cookie."""
+    std, effect = service.refresh_token(body, request=request)
+    apply_remember_me_http_effect(response=response, settings=get_settings(), effect=effect)
+    return std
 
 
 @router.post("/logout")
 def logout(
+    response: Response,
     user: Annotated[User, Depends(get_current_user)],
     auth: Annotated[HTTPAuthorizationCredentials, Depends(security)],
     service: Annotated[AuthService, Depends(get_auth_service)],
 ) -> StandardResponse[bool]:
-    """Invalidate the current user's Cognito session."""
-    return service.logout(user, auth)
+    """Invalidate Cognito session, revoke all Remember Me DB sessions for this user, and clear the HttpOnly cookie."""
+    std, effect = service.logout(user, auth)
+    apply_remember_me_http_effect(response=response, settings=get_settings(), effect=effect)
+    return std
 
 
 @router.post("/forgot-password/request")

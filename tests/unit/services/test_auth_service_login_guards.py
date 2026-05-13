@@ -32,6 +32,7 @@ def test_login_password_blocks_inactive_user(service: AuthService, mock_repo: Ma
         service.login_password(LoginRequest(username="u@example.com", **{password_field: "x"}))
     assert exc.value.status_code == 403
     assert exc.value.detail == ErrorMessages.USER_INACTIVE
+    mock_repo.acquire_user_for_password_login_security.assert_not_called()
 
 
 def test_login_otp_request_blocks_inactive_user(service: AuthService, mock_repo: MagicMock) -> None:

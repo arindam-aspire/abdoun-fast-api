@@ -9,14 +9,20 @@ from app.main import app
 from app.utils.constants import RequestIdConstants, SecurityHeadersConstants
 
 
+from app.services.remember_me_http_effect import RememberMeHttpEffect
+
+
 class _FakeAuthService:
-    def login_password(self, _login_in: Any):
-        return {
-            "success": True,
-            "data": {"access_token": "test", "expires_in": 3600, "token_type": "Bearer"},
-            "message": None,
-            "error": None,
-        }
+    def login_password(self, _login_in: Any, _request: Any = None):
+        return (
+            {
+                "success": True,
+                "data": {"access_token": "test", "expires_in": 3600, "token_type": "Bearer"},
+                "message": None,
+                "error": None,
+            },
+            RememberMeHttpEffect(),
+        )
 
 
 def test_security_headers_present_on_health(client: TestClient) -> None:

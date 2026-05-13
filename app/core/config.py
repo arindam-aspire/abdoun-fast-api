@@ -222,6 +222,43 @@ class Settings(BaseModel):
         "PROFILE_OTP_HIDE_PHONE_CODE_IN_RESPONSE", ""
     ).lower() in ("1", "true", "yes")
 
+    # Remember Me: optional master secret for encrypting Cognito refresh at rest (defaults to PROFILE_OTP_PEPPER material).
+    remember_me_master_secret: str = _get_env_str("REMEMBER_ME_MASTER_SECRET", default="")
+    remember_me_cookie_domain: Optional[str] = _get_env_optional_str("REMEMBER_ME_COOKIE_DOMAIN")
+    remember_me_cookie_samesite: str = os.getenv("REMEMBER_ME_COOKIE_SAMESITE", "lax").strip().lower()
+    remember_me_session_days: int = int(
+        os.getenv("REMEMBER_ME_SESSION_DAYS", ConfigDefaults.REMEMBER_ME_SESSION_DAYS)
+    )
+
+    # Password login: lock after N failures within a rolling window; lock lasts M minutes.
+    password_login_max_failed_attempts: int = max(
+        1,
+        int(
+            os.getenv(
+                "PASSWORD_LOGIN_MAX_FAILED_ATTEMPTS",
+                ConfigDefaults.PASSWORD_LOGIN_MAX_FAILED_ATTEMPTS,
+            )
+        ),
+    )
+    password_login_rolling_window_minutes: int = max(
+        1,
+        int(
+            os.getenv(
+                "PASSWORD_LOGIN_ROLLING_WINDOW_MINUTES",
+                ConfigDefaults.PASSWORD_LOGIN_ROLLING_WINDOW_MINUTES,
+            )
+        ),
+    )
+    password_login_lock_duration_minutes: int = max(
+        1,
+        int(
+            os.getenv(
+                "PASSWORD_LOGIN_LOCK_DURATION_MINUTES",
+                ConfigDefaults.PASSWORD_LOGIN_LOCK_DURATION_MINUTES,
+            )
+        ),
+    )
+
     # -----------------------------------------------------------------------
     # Observability (opt-in / env-driven)
     # -----------------------------------------------------------------------

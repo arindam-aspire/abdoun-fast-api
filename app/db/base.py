@@ -11,5 +11,6 @@ from app.models.notification_preference import *  # noqa: F401
 from app.models.user_profile_change_challenge import *  # noqa: F401
 from app.models.user_property_favorite import *  # noqa: F401
 from app.models.user_saved_search import *  # noqa: F401
+from app.models.user_remember_me_session import *  # noqa: F401
 
 __all__ = ["Base"]

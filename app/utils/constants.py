@@ -43,6 +43,7 @@ class ErrorMessages:
     INVITE_TOKEN_REQUIRED = "Invite token is required"
     REGISTRATION_FAILED = "Agent registration failed"
     COGNITO_ERROR = "Authentication service error: {error}"
+    COGNITO_RATE_LIMITED = "Too many authentication requests. Please try again shortly."
     NOT_FOUND = "Not Found"
     
     # RBAC/Agent Errors
@@ -95,6 +96,29 @@ class ErrorMessages:
     SAVED_SEARCH_NAME_EXISTS = "Saved search name already exists"
     INVALID_SAVED_SEARCH_NAME = "Saved search name is required"
     INVALID_SEARCH_CRITERIA = "search_criteria must be a non-empty JSON object"
+
+    # Remember Me (persistent sessions)
+    REMEMBER_ME_NO_REFRESH_TOKEN = (
+        "Remember Me is not available: no refresh token was returned. "
+        "Ensure the Cognito app client allows refresh tokens."
+    )
+    REMEMBER_ME_REFRESH_OR_COOKIE_REQUIRED = (
+        "Provide refresh_token in the request body, or call refresh with credentials "
+        "so the Remember Me cookie is sent."
+    )
+    REMEMBER_ME_SESSION_INVALID = "Remember Me session is invalid, expired, or revoked"
+
+    # Password login lockout (anti-enumeration: use INVALID_LOGIN_CREDENTIALS_UNIFIED for wrong credentials)
+    INVALID_LOGIN_CREDENTIALS_UNIFIED = (
+        "Your credentials are invalid, please check and try again."
+    )
+    @staticmethod
+    def account_locked_failed_password_logins(*, lock_duration_minutes: int) -> str:
+        """User-facing lockout message; ``lock_duration_minutes`` should match configured lock duration."""
+        return (
+            "Your account is temporarily locked due to multiple failed login attempts. "
+            f"Please try again after {lock_duration_minutes} minutes or use Forgot Password or OTP Login to continue."
+        )
 
     # Admin dashboard
     INVALID_ADMIN_DASHBOARD_MONTH = "month must be a valid calendar month in the form YYYY-MM (e.g. 2026-04), range 2000-2100."
@@ -429,6 +453,16 @@ class ApiRoutes:
     TAXONOMY_TAG = "taxonomy"
 
 
+class RememberMeConstants:
+    """Remember Me: HttpOnly cookie + server-side session (hashed opaque token, encrypted Cognito RT)."""
+
+    COOKIE_NAME = "abdoun_rm_rt"
+    COOKIE_PATH = "/api/v1/auth"
+    MAX_SESSION_SECONDS = 30 * 24 * 60 * 60
+    OPAQUE_TOKEN_NUM_BYTES = 32
+    FERNET_KEY_DERIVE_LABEL = "::abdoun_user_remember_me_v1"
+
+
 class ConfigDefaults:
     """Default configuration values used by `app/core/config.py` when env vars are absent."""
 
@@ -453,6 +487,13 @@ class ConfigDefaults:
 
     # Profile change OTP (hashing). Override in every deployed environment.
     PROFILE_OTP_PEPPER_DEFAULT = "dev-only-change-profile-otp-pepper"
+    # Remember Me server-side session lifetime from env.
+    REMEMBER_ME_SESSION_DAYS = "30"
+
+    # Password login: failed attempts within rolling window → temporary lock (see Settings).
+    PASSWORD_LOGIN_MAX_FAILED_ATTEMPTS = "5"
+    PASSWORD_LOGIN_ROLLING_WINDOW_MINUTES = "15"
+    PASSWORD_LOGIN_LOCK_DURATION_MINUTES = "15"
 
     # Observability
     METRICS_PATH = "/metrics"
