@@ -35,8 +35,18 @@ def draft_submission_owners_prefix(submission_id: uuid.UUID) -> str:
 
 
 def draft_image_key(submission_id: uuid.UUID, filename: str) -> str:
-    """Draft object key for property image."""
+    """Draft object key for property image (legacy flat path; prefer original/watermarked)."""
     return f"{draft_submission_images_prefix(submission_id)}{sanitize_filename(filename)}"
+
+
+def draft_image_original_key(path_id: uuid.UUID, filename: str) -> str:
+    """Draft S3 key for the unmodified image uploaded via presigned PUT."""
+    return f"{draft_submission_images_prefix(path_id)}original/{sanitize_filename(filename)}"
+
+
+def draft_image_watermarked_key(path_id: uuid.UUID, filename: str) -> str:
+    """Draft S3 key for the server-generated watermarked copy."""
+    return f"{draft_submission_images_prefix(path_id)}watermarked/{sanitize_filename(filename)}"
 
 
 def draft_video_key(submission_id: uuid.UUID, filename: str) -> str:

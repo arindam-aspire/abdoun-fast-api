@@ -40,7 +40,6 @@ def test_presigned_url_generation_for_each_context() -> None:
 
     contexts = {
         "owner_document": ("passport.pdf", "application/pdf"),
-        "property_media_image": ("front.jpg", "image/jpeg"),
         "property_media_video": ("tour.mp4", "video/mp4"),
         "property_document": ("title-deed.pdf", "application/pdf"),
     }
@@ -57,6 +56,30 @@ def test_presigned_url_generation_for_each_context() -> None:
         )
         assert out.upload_url == "https://presigned"
         assert out.url == "https://public/object"
+        assert out.requires_watermark_finalize is False
+        assert out.upload_completed is False
+
+
+def test_json_presigned_rejects_property_media_image() -> None:
+    user = SimpleNamespace(id=uuid.uuid4())
+    repo = MagicMock()
+    s3 = MagicMock()
+    submission = _submission(user.id)
+    repo.get_submission_by_id.return_value = submission
+    service = UploadService(repository=repo, s3_service=s3, settings=_settings())
+
+    with pytest.raises(HTTPException) as exc_info:
+        service.generate_presigned_upload(
+            body=PresignedUploadRequest(
+                submission_id=submission.id,
+                context="property_media_image",
+                file_name="front.jpg",
+                content_type="image/jpeg",
+                file_size=1024,
+            ),
+            user=user,
+        )
+    assert exc_info.value.status_code == 400
 
 
 def test_extension_allowed_with_or_without_dot_in_env() -> None:
@@ -82,9 +105,9 @@ def test_extension_allowed_with_or_without_dot_in_env() -> None:
     out = service.generate_presigned_upload(
         body=PresignedUploadRequest(
             submission_id=submission.id,
-            context="property_media_image",
-            file_name="front.jpg",
-            content_type="image/jpeg",
+            context="property_media_video",
+            file_name="tour.mp4",
+            content_type="video/mp4",
             file_size=None,
         ),
         user=user,
@@ -173,9 +196,9 @@ def test_presigned_uses_draft_client_id_without_submission_row() -> None:
     out = service.generate_presigned_upload(
         body=PresignedUploadRequest(
             draft_client_id=client_id,
-            context="property_media_image",
-            file_name="front.jpg",
-            content_type="image/jpeg",
+            context="property_media_video",
+            file_name="tour.mp4",
+            content_type="video/mp4",
             file_size=50,
         ),
         user=user,
@@ -199,9 +222,9 @@ def test_submission_id_path_still_loads_submission() -> None:
     out = service.generate_presigned_upload(
         body=PresignedUploadRequest(
             submission_id=submission.id,
-            context="property_media_image",
-            file_name="a.jpg",
-            content_type="image/jpeg",
+            context="property_media_video",
+            file_name="tour.mp4",
+            content_type="video/mp4",
         ),
         user=user,
     )

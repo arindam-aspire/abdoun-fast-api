@@ -14,7 +14,6 @@ from app.services.s3_service import S3Service
 from app.utils.status_codes import HTTPStatus
 from app.utils.storage_paths import (
     draft_document_key,
-    draft_image_key,
     draft_owner_document_key,
     draft_video_key,
 )
@@ -38,6 +37,8 @@ class UploadService:
 
     ``submission_id`` targets a persisted draft; ``draft_client_id`` (with the same path layout) is for uploads
     before a submission row exists. The route always requires an authenticated user.
+
+    Property images use multipart ``POST /uploads/presigned-url`` (handled in the route, not here).
     """
 
     def __init__(
@@ -93,12 +94,22 @@ class UploadService:
         self._validate_content_type(context=body.context, content_type=body.content_type)
         self._validate_file_size(context=body.context, file_size=body.file_size)
 
+        if body.context == "property_media_image":
+            raise HTTPException(
+                status_code=HTTPStatus.BAD_REQUEST,
+                detail=(
+                    "Property images must use multipart/form-data on POST /uploads/presigned-url "
+                    "with the file field. Server watermarks and uploads in one request."
+                ),
+            )
+
+        expiry = self._settings.aws_s3_presigned_expiry
+
         key = self._build_draft_key(
             context=body.context,
             path_id=path_id,
             filename=cleaned_name,
         )
-        expiry = self._settings.aws_s3_presigned_expiry
         upload_url = self._s3.generate_presigned_upload_url(
             key=key,
             content_type=body.content_type,
@@ -108,6 +119,7 @@ class UploadService:
             upload_url=upload_url,
             url=self._s3.build_public_url(key),
             expires_in=expiry,
+            requires_watermark_finalize=False,
         )
 
     def _allowed_extensions_for_context(self, context: str) -> set[str]:
@@ -148,11 +160,8 @@ class UploadService:
 
     def _build_draft_key(self, *, context: str, path_id, filename: str) -> str:
         """S3 key under ``drafts/property-submissions/{path_id}/...`` (submission or client draft id)."""
-        if context == "property_media_image":
-            return draft_image_key(path_id, filename)
         if context == "property_media_video":
             return draft_video_key(path_id, filename)
         if context == "property_document":
             return draft_document_key(path_id, filename)
         return draft_owner_document_key(path_id, filename)
-

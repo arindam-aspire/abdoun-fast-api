@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 import boto3
+from botocore.exceptions import ClientError
 
 from app.core.config import Settings, get_settings
 from app.utils.status_codes import HTTPStatus
@@ -84,3 +85,41 @@ class S3Service:
         if not self._settings.aws_s3_bucket:
             raise HTTPException(status_code=HTTPStatus.INTERNAL_SERVER_ERROR, detail="AWS_S3_BUCKET is not configured")
         self._client.delete_object(Bucket=self._settings.aws_s3_bucket, Key=key)
+
+    def object_exists(self, *, key: str) -> bool:
+        """Return True if the object exists in the configured bucket."""
+        if not self._settings.aws_s3_bucket:
+            raise HTTPException(status_code=HTTPStatus.INTERNAL_SERVER_ERROR, detail="AWS_S3_BUCKET is not configured")
+        try:
+            self._client.head_object(Bucket=self._settings.aws_s3_bucket, Key=key)
+            return True
+        except ClientError as exc:
+            code = exc.response.get("Error", {}).get("Code", "")
+            if code in {"404", "NotFound", "NoSuchKey"}:
+                return False
+            raise
+
+    def get_object(self, *, key: str) -> tuple[bytes, str | None]:
+        """Download object bytes and optional Content-Type from the configured bucket."""
+        if not self._settings.aws_s3_bucket:
+            raise HTTPException(status_code=HTTPStatus.INTERNAL_SERVER_ERROR, detail="AWS_S3_BUCKET is not configured")
+        try:
+            response = self._client.get_object(Bucket=self._settings.aws_s3_bucket, Key=key)
+        except ClientError as exc:
+            code = exc.response.get("Error", {}).get("Code", "")
+            if code in {"NoSuchKey", "404", "NotFound"}:
+                raise HTTPException(status_code=HTTPStatus.NOT_FOUND, detail="Object not found in S3") from exc
+            raise
+        body = response["Body"].read()
+        return body, response.get("ContentType")
+
+    def put_object(self, *, key: str, body: bytes, content_type: str) -> None:
+        """Upload object bytes to the configured bucket (overwrites existing key)."""
+        if not self._settings.aws_s3_bucket:
+            raise HTTPException(status_code=HTTPStatus.INTERNAL_SERVER_ERROR, detail="AWS_S3_BUCKET is not configured")
+        self._client.put_object(
+            Bucket=self._settings.aws_s3_bucket,
+            Key=key,
+            Body=body,
+            ContentType=content_type,
+        )

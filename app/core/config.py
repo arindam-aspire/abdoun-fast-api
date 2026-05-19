@@ -208,6 +208,19 @@ class Settings(BaseModel):
         ".mp4,.mov,.avi,.mkv,.webm",
     )
 
+    # Server-side property image watermarking (POST /uploads/property-images)
+    watermark_image_path: str = os.getenv(
+        "WATERMARK_IMAGE_PATH",
+        "app/assets/watermark/abdoun_water_mark_logo.png",
+    )
+    watermark_scale: float = float(os.getenv("WATERMARK_SCALE", "0.50"))
+    watermark_opacity: int = int(os.getenv("WATERMARK_OPACITY", "128"))
+    watermark_position: str = os.getenv("WATERMARK_POSITION", "center")
+    watermark_position_padding: int = int(os.getenv("POSITION_PADDING", "20"))
+    watermark_jpeg_quality: int = int(os.getenv("JPEG_QUALITY", "95"))
+    watermark_poll_interval_seconds: float = float(os.getenv("WATERMARK_POLL_INTERVAL_SECONDS", "2"))
+    watermark_poll_timeout_seconds: float = float(os.getenv("WATERMARK_POLL_TIMEOUT_SECONDS", "300"))
+
     # Base URL for invite links (e.g. https://app.example.com)
     app_base_url: str = _get_env_str("APP_BASE_URL", default=ConfigDefaults.APP_BASE_URL)
 

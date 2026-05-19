@@ -1,6 +1,7 @@
 """Unit tests for S3 service helpers."""
 
 from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
 
 from app.services.s3_service import S3Service
 
@@ -23,6 +24,19 @@ def test_build_client_kwargs_keeps_endpoint_optional() -> None:
     kwargs_with = S3Service._build_client_kwargs(_settings(endpoint_url="https://s3.custom.local"))
     assert "endpoint_url" not in kwargs_without
     assert kwargs_with["endpoint_url"] == "https://s3.custom.local"
+
+
+def test_put_object_uploads_bytes() -> None:
+    client = MagicMock()
+    with patch("app.services.s3_service.boto3.client", return_value=client):
+        service = S3Service(_settings(endpoint_url=None))
+        service.put_object(key="drafts/a.jpg", body=b"bytes", content_type="image/jpeg")
+    client.put_object.assert_called_once_with(
+        Bucket="abdoun-bucket",
+        Key="drafts/a.jpg",
+        Body=b"bytes",
+        ContentType="image/jpeg",
+    )
 
 
 def test_build_public_url_uses_aws_or_endpoint() -> None:
