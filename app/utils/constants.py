@@ -499,6 +499,19 @@ class ConfigDefaults:
     METRICS_PATH = "/metrics"
     SLOW_QUERY_THRESHOLD_MS = "500"
 
+    # Property image upload (multipart POST /uploads/presigned-url, context=property_media_image)
+    PROPERTY_IMAGE_MAX_SIZE_MB = "5"
+
+    # Server-side watermarking (optional env overrides; see Settings in app/core/config.py)
+    WATERMARK_IMAGE_PATH = "app/assets/watermark/abdoun_water_mark_logo.png"
+    WATERMARK_SCALE = "0.50"
+    WATERMARK_OPACITY = "128"
+    WATERMARK_POSITION = "center"
+    WATERMARK_POLL_INTERVAL_SECONDS = "2"
+    WATERMARK_POLL_TIMEOUT_SECONDS = "300"
+    WATERMARK_POSITION_PADDING = "20"  # env: POSITION_PADDING
+    WATERMARK_JPEG_QUALITY = "95"  # env: JPEG_QUALITY
+
 
 class ConfigErrorMessages:
     """Configuration validation error messages."""

@@ -193,7 +193,9 @@ class Settings(BaseModel):
     property_video_muted: bool = os.getenv("PROPERTY_VIDEO_MUTED", "false").lower() == "true"
     property_video_loop: bool = os.getenv("PROPERTY_VIDEO_LOOP", "false").lower() == "true"
 
-    property_image_max_size_mb: int = int(os.getenv("PROPERTY_IMAGE_MAX_SIZE_MB", "20"))
+    property_image_max_size_mb: int = int(
+        os.getenv("PROPERTY_IMAGE_MAX_SIZE_MB", ConfigDefaults.PROPERTY_IMAGE_MAX_SIZE_MB)
+    )
     property_document_max_size_mb: int = int(os.getenv("PROPERTY_DOCUMENT_MAX_SIZE_MB", "20"))
     allowed_property_image_extensions: list[str] = _parse_csv_env(
         "ALLOWED_PROPERTY_IMAGE_EXTENSIONS",
@@ -208,18 +210,26 @@ class Settings(BaseModel):
         ".mp4,.mov,.avi,.mkv,.webm",
     )
 
-    # Server-side property image watermarking (POST /uploads/property-images)
-    watermark_image_path: str = os.getenv(
+    # Server-side property image watermarking (defaults in ConfigDefaults; env overrides optional)
+    watermark_image_path: str = _get_env_str(
         "WATERMARK_IMAGE_PATH",
-        "app/assets/watermark/abdoun_water_mark_logo.png",
+        default=ConfigDefaults.WATERMARK_IMAGE_PATH,
     )
-    watermark_scale: float = float(os.getenv("WATERMARK_SCALE", "0.50"))
-    watermark_opacity: int = int(os.getenv("WATERMARK_OPACITY", "128"))
-    watermark_position: str = os.getenv("WATERMARK_POSITION", "center")
-    watermark_position_padding: int = int(os.getenv("POSITION_PADDING", "20"))
-    watermark_jpeg_quality: int = int(os.getenv("JPEG_QUALITY", "95"))
-    watermark_poll_interval_seconds: float = float(os.getenv("WATERMARK_POLL_INTERVAL_SECONDS", "2"))
-    watermark_poll_timeout_seconds: float = float(os.getenv("WATERMARK_POLL_TIMEOUT_SECONDS", "300"))
+    watermark_scale: float = float(os.getenv("WATERMARK_SCALE", ConfigDefaults.WATERMARK_SCALE))
+    watermark_opacity: int = int(os.getenv("WATERMARK_OPACITY", ConfigDefaults.WATERMARK_OPACITY))
+    watermark_position: str = os.getenv("WATERMARK_POSITION", ConfigDefaults.WATERMARK_POSITION)
+    watermark_position_padding: int = int(
+        os.getenv("POSITION_PADDING", ConfigDefaults.WATERMARK_POSITION_PADDING)
+    )
+    watermark_jpeg_quality: int = int(
+        os.getenv("JPEG_QUALITY", ConfigDefaults.WATERMARK_JPEG_QUALITY)
+    )
+    watermark_poll_interval_seconds: float = float(
+        os.getenv("WATERMARK_POLL_INTERVAL_SECONDS", ConfigDefaults.WATERMARK_POLL_INTERVAL_SECONDS)
+    )
+    watermark_poll_timeout_seconds: float = float(
+        os.getenv("WATERMARK_POLL_TIMEOUT_SECONDS", ConfigDefaults.WATERMARK_POLL_TIMEOUT_SECONDS)
+    )
 
     # Base URL for invite links (e.g. https://app.example.com)
     app_base_url: str = _get_env_str("APP_BASE_URL", default=ConfigDefaults.APP_BASE_URL)

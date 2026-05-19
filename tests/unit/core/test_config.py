@@ -18,6 +18,15 @@ from app.core.config import (
     _parse_csv_env,
     get_settings,
 )
+from app.utils.constants import ConfigDefaults
+
+
+def test_watermark_defaults_defined_in_config_defaults() -> None:
+    assert ConfigDefaults.WATERMARK_IMAGE_PATH.endswith("abdoun_water_mark_logo.png")
+    assert ConfigDefaults.WATERMARK_SCALE == "0.50"
+    assert ConfigDefaults.WATERMARK_OPACITY == "128"
+    assert ConfigDefaults.WATERMARK_POSITION == "center"
+    assert ConfigDefaults.PROPERTY_IMAGE_MAX_SIZE_MB == "5"
 
 
 def test_get_database_url_default(monkeypatch: pytest.MonkeyPatch) -> None:

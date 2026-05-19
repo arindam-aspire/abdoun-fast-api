@@ -49,6 +49,10 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
+    from app.utils.multipart_limits import configure_multipart_limits
+
+    configure_multipart_limits(settings)
+
     app.state.limiter = limiter
     app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 

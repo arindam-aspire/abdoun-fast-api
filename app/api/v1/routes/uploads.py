@@ -25,6 +25,7 @@ from app.schemas.uploads import (
 )
 from app.services.property_image_upload_service import PropertyImageUploadService
 from app.services.upload_service import UploadService
+from app.utils.multipart_limits import parse_property_image_form
 from app.utils.responses import StandardResponse, create_success_response
 from app.utils.status_codes import HTTPStatus
 
@@ -56,7 +57,7 @@ async def get_presigned_upload_url(
 
     **Property images** — ``multipart/form-data`` on this same path (one request, no S3 PUT from browser):
     ``file``, ``context=property_media_image``, ``submission_id`` *or* ``draft_client_id``,
-    optional ``file_name``, ``content_type``, ``file_size``.
+    optional ``file_name``, ``content_type``, ``file_size``. Max file size: ``PROPERTY_IMAGE_MAX_SIZE_MB`` (default 5).
 
     **Videos/documents** — ``application/json`` body (unchanged); client PUTs to ``upload_url`` after.
     """
@@ -96,7 +97,7 @@ async def _presigned_url_multipart(
     upload_service: UploadService,
     image_service: PropertyImageUploadService,
 ) -> StandardResponse[PresignedUploadData]:
-    form = await request.form()
+    form = await parse_property_image_form(request)
     context = form.get("context")
     if context != "property_media_image":
         raise HTTPException(
