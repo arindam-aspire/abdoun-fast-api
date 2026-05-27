@@ -150,6 +150,15 @@ class AuthRepository:
         )
         return self._db.execute(stmt).scalar_one_or_none()
 
+    def get_user_by_id_with_roles(self, user_id: uuid.UUID) -> Optional[User]:
+        """Load user and roles in one query (login/refresh access-token enrichment)."""
+        stmt: Select = (
+            select(User)
+            .options(selectinload(User.roles))
+            .where(User.id == user_id, User.deleted_at.is_(None))
+        )
+        return self._db.execute(stmt).scalar_one_or_none()
+
     def get_user_by_id_with_profile(self, user_id: uuid.UUID) -> Optional[User]:
         stmt: Select = (
             select(User)

@@ -16,6 +16,7 @@ from app.api.v1.routes import (
     agent,
     agent_properties,
     agents,
+    agency,
     auth,
     favorites,
     leads,
@@ -48,6 +49,7 @@ if settings.use_refactored_auth:
 else:
     _auth_router = auth.router
 api_router.include_router(_auth_router, prefix=ApiRoutes.AUTH_PREFIX, tags=[ApiRoutes.AUTH_TAG])
+api_router.include_router(agency.router, prefix=ApiRoutes.AGENCY_PREFIX, tags=[ApiRoutes.AGENCY_TAG])
 
 if settings.use_refactored_agents:
     from app.domains.agents import agent_router as _agent_router

@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, List, Optional
 
 if TYPE_CHECKING:
     from app.models.recently_viewed_property import RecentlyViewedProperty
+    from app.models.agency import Agency
 
 from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, Table, Text
 from sqlalchemy.dialects.postgresql import UUID
@@ -90,9 +91,13 @@ class User(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     cognito_sub: Mapped[Optional[str]] = mapped_column(String(100), unique=True, index=True, nullable=True)
+    agency_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("agency_master.id", ondelete=ONDELETE_SET_NULL), nullable=True, index=True
+    )
     full_name: Mapped[str] = mapped_column(String(255), nullable=False)
     email: Mapped[str] = mapped_column(String(255), unique=True, index=True, nullable=False)
     phone_number: Mapped[Optional[str]] = mapped_column(String(20), unique=True, index=True, nullable=True)
+    password_hash: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     profile_picture_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     preferred_language: Mapped[str] = mapped_column(String(10), nullable=False, default="en")
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
@@ -133,6 +138,7 @@ class User(Base):
         uselist=False,
         foreign_keys="[AgentProfile.user_id]"
     )
+    agency: Mapped[Optional["Agency"]] = relationship("Agency", back_populates="users")
     
     # Assignments where this user is the admin
     assigned_agents: Mapped[List["AdminAgentAssignment"]] = relationship(

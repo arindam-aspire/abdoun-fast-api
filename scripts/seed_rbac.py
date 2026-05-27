@@ -30,6 +30,20 @@ def seed_rbac():
         # Define roles and their permission codes
         roles_data = [
             {
+                "name": UserRoles.SUPER_ADMIN,
+                "description": "Platform super administrator with full access",
+                "permissions": [
+                    UserPermissions.USER_CREATE,
+                    UserPermissions.USER_DELETE,
+                    UserPermissions.AGENT_APPROVE,
+                    UserPermissions.AGENT_ASSIGN,
+                    UserPermissions.ROLE_ASSIGN,
+                    UserPermissions.PROPERTY_CREATE,
+                    UserPermissions.PROPERTY_UPDATE,
+                    UserPermissions.PROPERTY_DELETE
+                ]
+            },
+            {
                 "name": UserRoles.ADMIN,
                 "description": "Administrator with full access",
                 "permissions": [

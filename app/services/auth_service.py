@@ -1,6 +1,7 @@
 """Auth service: signup, login (password/OTP), refresh, logout, profile, permissions; uses AuthRepository and Cognito."""
 from __future__ import annotations
 
+import uuid
 from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException, Request
@@ -30,6 +31,7 @@ from app.services.cognito import cognito_service
 from app.services.media_url_signer import MediaUrlSigner
 from app.services.remember_me_crypto import decrypt_refresh_token, encrypt_refresh_token
 from app.services.remember_me_http_effect import RememberMeHttpEffect
+from app.utils.auth_access_token import create_auth_access_token, decode_auth_access_token
 from app.services.remember_me_tokens import generate_opaque_remember_me_token, hash_remember_me_opaque_token
 from app.utils.constants import (
     CognitoConstants,
@@ -119,6 +121,18 @@ class AuthService:
         remaining = int((expires_at - now).total_seconds())
         return max(0, min(remaining, RememberMeConstants.MAX_SESSION_SECONDS))
 
+    def _apply_enriched_access_token(self, *, auth_result: dict, user: User) -> dict:
+        """Replace Cognito access JWT with API-issued JWT (same response key, enriched payload)."""
+        result = dict(auth_result)
+        expires_in = int(result.get("ExpiresIn") or result.get("expires_in") or 3600)
+        user_with_roles = self._repo.get_user_by_id_with_roles(user.id) or user
+        enriched = create_auth_access_token(user=user_with_roles, expires_in=expires_in)
+        if "AccessToken" in result:
+            result["AccessToken"] = enriched
+        if "access_token" in result:
+            result["access_token"] = enriched
+        return result
+
     def _token_response_from_cognito_auth(
         self,
         *,
@@ -127,12 +141,14 @@ class AuthService:
         omit_refresh_in_body: bool,
         remember_me_cookie: bool,
     ) -> TokenResponse:
-        rt = auth_result.get("RefreshToken")
+        rt = auth_result.get("RefreshToken") or auth_result.get("refresh_token")
+        access = auth_result.get("AccessToken") or auth_result.get("access_token")
+        expires_in = int(auth_result.get("ExpiresIn") or auth_result.get("expires_in") or 3600)
         return TokenResponse(
-            access_token=auth_result["AccessToken"],
+            access_token=access,
             refresh_token=None if omit_refresh_in_body else rt,
-            id_token=auth_result.get("IdToken"),
-            expires_in=int(auth_result["ExpiresIn"]),
+            id_token=auth_result.get("IdToken") or auth_result.get("id_token"),
+            expires_in=expires_in,
             requires_password_set=requires_password_set,
             remember_me_cookie=remember_me_cookie,
         )
@@ -170,10 +186,9 @@ class AuthService:
     ) -> str:
         """Return username value to use for Cognito SECRET_HASH during refresh.
 
-        Prefer stable `sub` claim from access token. Fallback to provided username
-        (typically email) for compatibility.
+        Prefer stable Cognito ``sub`` from the Cognito access token (before enrichment).
         """
-        access_token = auth_result.get("AccessToken")
+        access_token = auth_result.get("AccessToken") or auth_result.get("access_token")
         if access_token:
             payload = cognito_service.verify_token(access_token)
             if payload:
@@ -186,6 +201,23 @@ class AuthService:
         return fallback_username
 
     def _resolve_user_for_refresh_access_token(self, *, access_token: str) -> tuple[User, dict]:
+        api_payload = decode_auth_access_token(access_token)
+        if api_payload:
+            try:
+                user_id = uuid.UUID(str(api_payload["sub"]))
+            except (ValueError, TypeError):
+                raise HTTPException(
+                    status_code=HTTPStatus.UNAUTHORIZED,
+                    detail=ErrorMessages.INVALID_TOKEN,
+                )
+            user = self._repo.get_user_by_id_with_profile(user_id)
+            if not user:
+                raise HTTPException(
+                    status_code=HTTPStatus.UNAUTHORIZED,
+                    detail=ErrorMessages.INVALID_TOKEN,
+                )
+            return user, api_payload
+
         payload = cognito_service.verify_token(access_token)
         if not payload:
             raise HTTPException(
@@ -440,9 +472,10 @@ class AuthService:
                 )
                 self._repo.reset_password_login_security_by_id(user.id)
                 self._repo.commit()
+                enriched = self._apply_enriched_access_token(auth_result=auth_result, user=user)
                 return create_success_response(
                     data=self._token_response_from_cognito_auth(
-                        auth_result=auth_result,
+                        auth_result=enriched,
                         requires_password_set=requires_password_set,
                         omit_refresh_in_body=True,
                         remember_me_cookie=True,
@@ -455,9 +488,10 @@ class AuthService:
 
             self._repo.reset_password_login_security_by_id(user.id)
             self._repo.commit()
+            enriched = self._apply_enriched_access_token(auth_result=auth_result, user=user)
             return create_success_response(
                 data=self._token_response_from_cognito_auth(
-                    auth_result=auth_result,
+                    auth_result=enriched,
                     requires_password_set=requires_password_set,
                     omit_refresh_in_body=False,
                     remember_me_cookie=False,
@@ -582,9 +616,10 @@ class AuthService:
                     ),
                     request=request,
                 )
+                enriched = self._apply_enriched_access_token(auth_result=auth_result, user=user)
                 return create_success_response(
                     data=self._token_response_from_cognito_auth(
-                        auth_result=auth_result,
+                        auth_result=enriched,
                         requires_password_set=requires_password_set,
                         omit_refresh_in_body=True,
                         remember_me_cookie=True,
@@ -595,9 +630,10 @@ class AuthService:
                     cookie_max_age_seconds=max_age,
                 )
 
+            enriched = self._apply_enriched_access_token(auth_result=auth_result, user=user)
             return create_success_response(
                 data=self._token_response_from_cognito_auth(
-                    auth_result=auth_result,
+                    auth_result=enriched,
                     requires_password_set=requires_password_set,
                     omit_refresh_in_body=False,
                     remember_me_cookie=False,
@@ -637,9 +673,10 @@ class AuthService:
                 user.profile is not None and user.profile.password_set_at is None
             )
 
+            enriched = self._apply_enriched_access_token(auth_result=auth_result, user=user)
             return create_success_response(
                 data=self._token_response_from_cognito_auth(
-                    auth_result=auth_result,
+                    auth_result=enriched,
                     requires_password_set=requires_password_set,
                     omit_refresh_in_body=False,
                     remember_me_cookie=False,
@@ -741,9 +778,10 @@ class AuthService:
         )
         self._repo.commit()
         max_age = self._remaining_remember_me_seconds(expires_at=row.expires_at, now=now)
+        enriched = self._apply_enriched_access_token(auth_result=auth_result, user=user2)
         return create_success_response(
             data=self._token_response_from_cognito_auth(
-                auth_result=auth_result,
+                auth_result=enriched,
                 requires_password_set=requires_password_set,
                 omit_refresh_in_body=True,
                 remember_me_cookie=True,
@@ -779,7 +817,9 @@ class AuthService:
         self._remember_me_repo.revoke_all_for_user(user.id, revoked_at=now)
         self._repo.commit()
         try:
-            cognito_service.logout(auth.credentials)
+            # API-issued access tokens are not valid for Cognito global_sign_out.
+            if not decode_auth_access_token(auth.credentials):
+                cognito_service.logout(auth.credentials)
             api_logger.info(
                 format_log_message(LogMessages.Auth.LOGOUT_SUCCESS, email=user.email)
             )
@@ -960,13 +1000,12 @@ class AuthService:
             # Sync verified flags during explicit social auth flow.
             self._sync_verified_flags_from_token_payload(user=user, payload=payload)
 
+            enriched = self._apply_enriched_access_token(auth_result=auth_result, user=user)
             return create_success_response(
-                data=TokenResponse(
-                    access_token=auth_result["access_token"],
-                    refresh_token=auth_result.get("refresh_token"),
-                    id_token=auth_result.get("id_token"),
-                    expires_in=auth_result["expires_in"],
+                data=self._token_response_from_cognito_auth(
+                    auth_result=enriched,
                     requires_password_set=False,
+                    omit_refresh_in_body=False,
                     remember_me_cookie=False,
                 ),
                 message=SuccessMessages.SOCIAL_LOGIN_SUCCESSFUL,

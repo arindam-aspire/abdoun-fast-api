@@ -6,6 +6,7 @@ from app.models.owner import *  # noqa: F401
 from app.models.property_listing_submission import *  # noqa: F401
 from app.models.recently_viewed_property import *  # noqa: F401
 from app.models.user import *  # noqa: F401
+from app.models.agency import *  # noqa: F401
 from app.models.notification import *  # noqa: F401
 from app.models.notification_preference import *  # noqa: F401
 from app.models.user_profile_change_challenge import *  # noqa: F401

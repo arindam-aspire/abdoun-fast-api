@@ -282,6 +282,16 @@ class Settings(BaseModel):
         ),
     )
 
+    # Local JWTs for agency password login. Existing Cognito flows continue to use Cognito JWTs.
+    agency_jwt_secret: str = os.getenv("AGENCY_JWT_SECRET") or _get_env_str(
+        "PROFILE_OTP_PEPPER",
+        default=ConfigDefaults.PROFILE_OTP_PEPPER_DEFAULT,
+    )
+    agency_jwt_access_token_minutes: int = max(
+        1,
+        int(os.getenv("AGENCY_JWT_ACCESS_TOKEN_MINUTES", "60")),
+    )
+
     # -----------------------------------------------------------------------
     # Observability (opt-in / env-driven)
     # -----------------------------------------------------------------------

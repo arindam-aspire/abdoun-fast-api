@@ -26,6 +26,9 @@ class ErrorMessages:
     
     # Auth Errors
     USER_EXISTS = "User with this email or phone number already exists"
+    AGENCY_EXISTS = "Agency with this email or phone number already exists"
+    AGENCY_NOT_FOUND = "Agency not found"
+    AGENCY_ACCESS_DENIED = "You are not authorized to manage this agency"
     INVALID_CREDENTIALS = "Invalid email/phone or password"
     INVALID_OTP = "Invalid or expired OTP"
     OTP_NOT_CONFIGURED = "OTP login is not configured. Configure Cognito custom auth Lambda triggers (Define Auth Challenge, Create Auth Challenge, Verify Auth Challenge) for this user pool, or use password login: POST /api/v1/auth/login/password"
@@ -183,6 +186,10 @@ class SuccessMessages:
     
     # Auth Success
     USER_REGISTERED = "User registered successfully"
+    AGENCY_REGISTERED = "Agency registered successfully"
+    AGENCY_UPDATED = "Agency updated successfully"
+    AGENCY_DELETED = "Agency deleted successfully"
+    AGENCY_DOCUMENT_UPLOAD_READY = "Agency legal document upload URL generated"
     LOGIN_SUCCESSFUL = "Login successful"
     LOGOUT_SUCCESSFUL = "Logged out successfully"
     PASSWORD_RESET_SUCCESS = "Password reset successfully"
@@ -431,6 +438,7 @@ class ApiRoutes:
     LEADS_PREFIX = "/leads"
     NOTIFICATIONS_PREFIX = "/notifications"
     NOTIFICATION_SETTINGS_PREFIX = "/notification-settings"
+    AGENCY_PREFIX = "/agency"
 
     AUTH_TAG = "auth"
     AGENT_TAG = "agent"
@@ -451,6 +459,7 @@ class ApiRoutes:
     SEARCH_TAG = "search"
     LOCATIONS_TAG = "locations"
     TAXONOMY_TAG = "taxonomy"
+    AGENCY_TAG = "agency"
 
 
 class RememberMeConstants:
@@ -628,6 +637,7 @@ class PropertyExclusiveFilter:
 
 # RBAC Roles
 class UserRoles:
+    SUPER_ADMIN = "super_admin"
     ADMIN = "admin"
     AGENT = "agent"
     REGISTERED_USER = "registered_user"
