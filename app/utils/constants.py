@@ -37,6 +37,7 @@ class ErrorMessages:
     USER_NOT_FOUND = "User not found"
     USER_NOT_CONFIRMED = "User is not confirmed. Please verify your account using the confirmation code."
     USER_INACTIVE = "User account is inactive"
+    ROLE_MISMATCHED = "Role mismatched"
     USER_ACCOUNT_DELETED = "User account has been deleted"
     USER_ALREADY_SOFT_DELETED = "User has already been deleted"
     MISSING_PERMISSION = "Missing required permission: {permission}"

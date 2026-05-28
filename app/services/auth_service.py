@@ -31,7 +31,13 @@ from app.services.cognito import cognito_service
 from app.services.media_url_signer import MediaUrlSigner
 from app.services.remember_me_crypto import decrypt_refresh_token, encrypt_refresh_token
 from app.services.remember_me_http_effect import RememberMeHttpEffect
-from app.utils.auth_access_token import create_auth_access_token, decode_auth_access_token
+from app.utils.auth_access_token import (
+    cognito_refresh_username,
+    cognito_sub_from_payload,
+    create_auth_access_token,
+    decode_auth_access_token,
+    parse_user_id_from_payload,
+)
 from app.services.remember_me_tokens import generate_opaque_remember_me_token, hash_remember_me_opaque_token
 from app.utils.constants import (
     CognitoConstants,
@@ -184,33 +190,48 @@ class AuthService:
         auth_result: dict,
         fallback_username: str,
     ) -> str:
-        """Return username value to use for Cognito SECRET_HASH during refresh.
+        """Return Cognito USERNAME for SECRET_HASH on refresh (same as login: user email)."""
+        _ = auth_result  # enrichment may replace access token; identity comes from user record
+        email = cognito_refresh_username(user)
+        if email:
+            return email
+        return (fallback_username or "").strip().lower()
 
-        Prefer stable Cognito ``sub`` from the Cognito access token (before enrichment).
-        """
-        access_token = auth_result.get("AccessToken") or auth_result.get("access_token")
-        if access_token:
-            payload = cognito_service.verify_token(access_token)
-            if payload:
-                sub = (payload.get("sub") or "").strip()
-                if sub:
-                    return sub
-        user_sub = (getattr(user, "cognito_sub", None) or "").strip()
-        if user_sub:
-            return user_sub
-        return fallback_username
+    def _resolve_cognito_username_for_refresh(self, username: str) -> str:
+        """Map refresh ``username`` (email, Cognito sub, or legacy DB UUID) to Cognito refresh username."""
+        value = (username or "").strip()
+        if not value:
+            return value
+        if "@" in value:
+            user = self._repo.get_user_by_email_or_phone_with_profile(value.lower())
+            if user:
+                return cognito_refresh_username(user)
+            return value.lower()
+        try:
+            user_id = uuid.UUID(value)
+            user = self._repo.get_user_by_id_with_profile(user_id)
+            if user:
+                return cognito_refresh_username(user)
+        except (ValueError, TypeError):
+            pass
+        user = self._repo.get_user_by_cognito_sub_with_profile(value)
+        if user:
+            return cognito_refresh_username(user)
+        return value
 
     def _resolve_user_for_refresh_access_token(self, *, access_token: str) -> tuple[User, dict]:
         api_payload = decode_auth_access_token(access_token)
         if api_payload:
-            try:
-                user_id = uuid.UUID(str(api_payload["sub"]))
-            except (ValueError, TypeError):
-                raise HTTPException(
-                    status_code=HTTPStatus.UNAUTHORIZED,
-                    detail=ErrorMessages.INVALID_TOKEN,
-                )
-            user = self._repo.get_user_by_id_with_profile(user_id)
+            user = None
+            user_id = parse_user_id_from_payload(api_payload)
+            if user_id is not None:
+                user = self._repo.get_user_by_id_with_profile(user_id)
+            if user is None:
+                cognito_sub = cognito_sub_from_payload(api_payload) or (api_payload.get("sub") or "").strip()
+                if cognito_sub:
+                    user = self._repo.get_user_by_cognito_sub_with_profile(cognito_sub)
+            if user is None and api_payload.get("email"):
+                user = self._repo.get_user_by_email_or_phone_with_profile(str(api_payload["email"]))
             if not user:
                 raise HTTPException(
                     status_code=HTTPStatus.UNAUTHORIZED,
@@ -265,6 +286,31 @@ class AuthService:
         full_name = payload.get("name", Defaults.SOCIAL_USER_DEFAULT_NAME)
         return payload, email, cognito_sub, full_name
 
+    def _normalize_requested_login_role(self, role: str) -> str:
+        """Normalize optional login role hint to internal DB role names."""
+        value = (role or "").strip().lower()
+        # Frontend-friendly alias for agency admin login.
+        if value == "agency_admin":
+            return UserRoles.ADMIN
+        return value
+
+    def _validate_optional_login_role(self, *, user: User, requested_role: str | None) -> None:
+        """Validate optional role hint before Cognito auth; no-op when role is omitted."""
+        if requested_role is None or not requested_role.strip():
+            return
+        normalized = self._normalize_requested_login_role(requested_role)
+        user_with_roles = self._repo.get_user_by_id_with_roles(user.id) or user
+        assigned_roles = {
+            (getattr(role, "name", "") or "").strip().lower()
+            for role in (getattr(user_with_roles, "roles", None) or [])
+            if getattr(role, "name", None)
+        }
+        if normalized not in assigned_roles:
+            raise HTTPException(
+                status_code=HTTPStatus.FORBIDDEN,
+                detail=ErrorMessages.ROLE_MISMATCHED,
+            )
+
     # Signup flows --------------------------------------------------------
 
     def signup(self, user_in: UserCreate) -> StandardResponse[UserResponse]:
@@ -281,6 +327,17 @@ class AuthService:
                 status_code=HTTPStatus.CONFLICT,
                 detail=ErrorMessages.USER_EXISTS,
             )
+
+        requested_role = (user_in.role or "").strip()
+        registration_role = None
+        if requested_role:
+            normalized_role = self._normalize_requested_login_role(requested_role)
+            registration_role = self._repo.get_role_by_name(normalized_role)
+            if registration_role is None:
+                raise HTTPException(
+                    status_code=HTTPStatus.BAD_REQUEST,
+                    detail=ErrorMessages.ROLE_NOT_FOUND,
+                )
 
         try:
             cognito_response = cognito_service.signup(
@@ -299,7 +356,7 @@ class AuthService:
                 is_active=True,
             )
 
-            role = self._repo.get_role_by_name(UserRoles.REGISTERED_USER)
+            role = registration_role or self._repo.get_role_by_name(UserRoles.REGISTERED_USER)
             if role:
                 db_user.roles.append(role)
 
@@ -428,6 +485,7 @@ class AuthService:
                 detail=ErrorMessages.INVALID_LOGIN_CREDENTIALS_UNIFIED,
             )
 
+        self._validate_optional_login_role(user=user, requested_role=login_in.role)
         self._ensure_user_login_allowed(user)
         user = self._repo.acquire_user_for_password_login_security(user.id)
         if user.password_login_locked_until is not None and user.password_login_locked_until > now:
@@ -657,12 +715,14 @@ class AuthService:
                 detail=ErrorMessages.REFRESH_USERNAME_REQUIRED,
             )
         try:
+            cognito_username = self._resolve_cognito_username_for_refresh(
+                (body.username or "").strip()
+            )
             auth_result = cognito_service.refresh_token(
                 body.refresh_token or "",
-                (body.username or "").strip(),
+                cognito_username,
             )
             access_token = auth_result["AccessToken"]
-
             user, payload = self._resolve_user_for_refresh_access_token(access_token=access_token)
             self._ensure_user_login_allowed(user)
 
@@ -729,9 +789,9 @@ class AuthService:
                 row.cognito_username,
             )
         except ClientError:
-            # Backward-compatible recovery for sessions created with email username:
-            # retry with user.cognito_sub (preferred Cognito refresh identity for secret hash).
-            retry_username = (getattr(user, "cognito_sub", None) or "").strip()
+            # Backward-compatible recovery for sessions created with a stale username value:
+            # retry using the same login identity used by USER_PASSWORD_AUTH (email).
+            retry_username = (getattr(user, "email", None) or "").strip().lower()
             if retry_username and retry_username != row.cognito_username:
                 try:
                     auth_result = cognito_service.refresh_token(
@@ -940,6 +1000,8 @@ class AuthService:
 
     def get_current_user_profile(self, current_user: User) -> StandardResponse[UserResponse]:
         self._repo.ensure_agent_profile_loaded(current_user)
+        # Ensure lazy relationship is resolved while session is active for /auth/me payload.
+        _ = getattr(current_user, "agency", None)
 
         requires_password_set = False
         if current_user.profile:

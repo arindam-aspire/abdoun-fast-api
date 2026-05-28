@@ -11,6 +11,7 @@ from app.models.user import User
 from app.repositories.property_repository import PropertyRepository
 from app.repositories.property_submission_repository import PropertySubmissionRepository
 from app.schemas.agent_properties import (
+    AgentPropertyAgencyInfo,
     AgentDraftSubmissionItem,
     AgentDraftSubmissionListResponse,
     AgentPropertyListItem,
@@ -109,6 +110,11 @@ class AgentPropertyService:
                 status_slug = getattr(status_obj, "slug", None)
                 if status_slug in {"verified", "active"}:
                     wf = "approved"
+            agency_obj = getattr(p, "agency", None) or getattr(getattr(p, "agent_user", None), "agency", None) or getattr(
+                getattr(p, "created_by_user", None),
+                "agency",
+                None,
+            )
             items.append(
                 AgentPropertyListItem(
                     property_id=p.id,
@@ -134,6 +140,18 @@ class AgentPropertyService:
                     submission_workflow_label=_submission_workflow_label(wf),
                     can_edit_submission=_can_edit_submission(wf),
                     can_delete_submission=_can_delete_submission(wf),
+                    agency=(
+                        AgentPropertyAgencyInfo(
+                            agency_id=str(getattr(agency_obj, "id")),
+                            agency_name=getattr(agency_obj, "agency_name", None),
+                            agency_trade_name=getattr(agency_obj, "agency_trade_name", None),
+                            email=getattr(agency_obj, "email", None),
+                            phone=getattr(agency_obj, "phone", None),
+                            website=getattr(agency_obj, "website", None),
+                        )
+                        if agency_obj is not None and getattr(agency_obj, "id", None) is not None
+                        else None
+                    ),
                 )
             )
 

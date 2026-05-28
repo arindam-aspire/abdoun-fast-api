@@ -9,6 +9,15 @@ from decimal import Decimal
 from pydantic import BaseModel, Field
 
 
+class AgentPropertyAgencyInfo(BaseModel):
+    agency_id: str
+    agency_name: str | None = None
+    agency_trade_name: str | None = None
+    email: str | None = None
+    phone: str | None = None
+    website: str | None = None
+
+
 class AgentPropertyListItem(BaseModel):
     """One row for manage-listings table (normalized property)."""
 
@@ -44,6 +53,7 @@ class AgentPropertyListItem(BaseModel):
     )
     can_edit_submission: bool = False
     can_delete_submission: bool = False
+    agency: AgentPropertyAgencyInfo | None = None
 
 
 class AgentDraftSubmissionItem(BaseModel):

@@ -20,7 +20,11 @@ from app.db.session import get_db
 from app.services.cognito import cognito_service
 from app.models.user import User
 from app.utils.agency_security import decode_agency_access_token
-from app.utils.auth_access_token import decode_auth_access_token
+from app.utils.auth_access_token import (
+    cognito_sub_from_payload,
+    decode_auth_access_token,
+    parse_user_id_from_payload,
+)
 from app.utils.constants import ErrorMessages
 from app.utils.log_messages import LogMessages, format_log_message
 from app.utils.status_codes import HTTPStatus
@@ -49,14 +53,21 @@ async def get_current_user_from_token(*, token: str, db: Session) -> User:
 def _resolve_user_from_token(*, token: str, db: Session) -> User:
     api_payload = decode_auth_access_token(token)
     if api_payload:
-        try:
-            user_id = uuid.UUID(str(api_payload["sub"]))
-        except (ValueError, TypeError):
-            user_id = None
         user = None
+        user_id = parse_user_id_from_payload(api_payload)
         if user_id is not None:
             user = db.execute(
                 select(User).where(User.id == user_id, User.deleted_at.is_(None))
+            ).scalar_one_or_none()
+        if user is None:
+            cognito_sub = cognito_sub_from_payload(api_payload) or (api_payload.get("sub") or "").strip()
+            if cognito_sub:
+                user = db.execute(
+                    select(User).where(User.cognito_sub == cognito_sub, User.deleted_at.is_(None))
+                ).scalar_one_or_none()
+        if user is None and api_payload.get("email"):
+            user = db.execute(
+                select(User).where(User.email == api_payload["email"], User.deleted_at.is_(None))
             ).scalar_one_or_none()
         if user and user.is_active:
             return user

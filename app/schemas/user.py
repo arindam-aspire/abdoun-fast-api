@@ -78,6 +78,10 @@ class UserCreate(UserBase):
     """Request body for user registration (email, full_name, phone, password)."""
     phone_number: str = Field(..., description="Required for registration")
     password: str = Field(..., min_length=Defaults.PASSWORD_MIN_LENGTH)
+    role: Optional[str] = Field(
+        default=None,
+        description="Optional role for registration (e.g. AGENCY_ADMIN/admin).",
+    )
 
     @field_validator("password")
     @classmethod
@@ -103,6 +107,20 @@ class AccountUserStatus(str, Enum):
     DELETED = "DELETED"
 
 
+class UserAgencyResponse(BaseModel):
+    agency_id: uuid.UUID = Field(
+        ...,
+        validation_alias=AliasChoices("agency_id", "id"),
+    )
+    agency_name: Optional[str] = None
+    agency_trade_name: Optional[str] = None
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    website: Optional[str] = None
+
+    model_config = {"from_attributes": True}
+
+
 class UserResponse(UserBase):
     """User profile response with roles and verification flags."""
     id: uuid.UUID
@@ -110,6 +128,7 @@ class UserResponse(UserBase):
     is_email_verified: bool
     is_phone_verified: bool
     profile_picture_url: Optional[str] = None
+    agency: Optional[UserAgencyResponse] = None
     roles: List[RoleResponse] = []
     created_at: datetime
     requires_password_set: bool = Field(False, description="True if user must set a password (e.g. agent who signed in via OTP and has not set one)")
@@ -182,8 +201,16 @@ class TokenResponse(BaseModel):
 
 class LoginRequest(BaseModel):
     """Login request (username = email or phone, password)."""
-    username: str  # email or phone
+    username: str = Field(
+        ...,
+        validation_alias=AliasChoices("username", "email"),
+        description="Email or phone. 'email' is accepted as an alias for backward compatibility.",
+    )
     password: str
+    role: Optional[str] = Field(
+        default=None,
+        description="Optional role hint for login guard (e.g. AGENCY_ADMIN/admin).",
+    )
     remember_me: bool = Field(
         default=False,
         validation_alias=AliasChoices("remember_me", "rememberMe"),

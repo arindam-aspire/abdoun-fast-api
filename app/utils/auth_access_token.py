@@ -42,12 +42,28 @@ def role_claim(role: Role | None) -> dict[str, str] | None:
     return {"role_id": str(role.id), "role_name": role.name}
 
 
+def jwt_subject(user: User) -> str:
+    """JWT ``sub`` claim: Cognito user id when present, else DB id (legacy fallback)."""
+    cognito_sub = (getattr(user, "cognito_sub", None) or "").strip()
+    return cognito_sub or str(user.id)
+
+
+def cognito_refresh_username(user: User) -> str:
+    """Cognito USERNAME for refresh SECRET_HASH (for this client: Cognito ``sub``)."""
+    cognito_sub = (getattr(user, "cognito_sub", None) or "").strip()
+    if cognito_sub:
+        return cognito_sub
+    # Defensive fallback for malformed rows; refresh will still fail if Cognito expects sub.
+    return str(user.email).strip().lower()
+
+
 def build_access_token_payload(*, user: User, expires_in: int) -> dict[str, Any]:
     """Build JWT claims for login/refresh ``access_token`` (not returned as extra API fields)."""
     now = datetime.now(timezone.utc)
     role = role_claim(primary_role(user))
     payload: dict[str, Any] = {
-        "sub": str(user.id),
+        "sub": jwt_subject(user),
+        "user_id": str(user.id),
         "email": user.email,
         "token_use": "access",
         "auth_provider": AUTH_ACCESS_PROVIDER,
@@ -102,3 +118,32 @@ def role_from_token_payload(payload: dict[str, Any]) -> dict[str, str] | None:
 
 def is_auth_access_token(token: str) -> bool:
     return decode_auth_access_token(token) is not None
+
+
+def parse_user_id_from_payload(payload: dict[str, Any]) -> UUID | None:
+    """Resolve DB user id from API token (``user_id`` claim, then legacy ``sub`` as UUID)."""
+    raw_user_id = payload.get("user_id")
+    if raw_user_id:
+        try:
+            return UUID(str(raw_user_id))
+        except (ValueError, TypeError):
+            pass
+    raw_sub = payload.get("sub")
+    if not raw_sub:
+        return None
+    try:
+        return UUID(str(raw_sub))
+    except (ValueError, TypeError):
+        return None
+
+
+def cognito_sub_from_payload(payload: dict[str, Any]) -> str | None:
+    """Cognito subject from ``sub`` when it is not a DB UUID (used after refresh username mapping)."""
+    raw_sub = (payload.get("sub") or "").strip()
+    if not raw_sub:
+        return None
+    try:
+        UUID(raw_sub)
+        return None
+    except (ValueError, TypeError):
+        return raw_sub

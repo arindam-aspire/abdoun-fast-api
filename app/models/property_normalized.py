@@ -27,6 +27,7 @@ FK_PROPERTY_CATEGORIES_ID = "property_categories.id"
 FK_FEATURES_ID = "features.id"
 FK_PROPERTIES_NORMALIZED_ID = "properties_normalized.id"
 FK_USERS_ID = "users.id"
+FK_AGENCY_MASTER_ID = "agency_master.id"
 ONDELETE_SET_NULL = "SET NULL"
 CASCADE_DELETE_ORPHAN = "all, delete-orphan"
 
@@ -271,6 +272,12 @@ class PropertyNormalized(Base):
     maintenance_fee = Column(Numeric(15, 2), nullable=True)
     youtube_url = Column(Text, nullable=True)
     created_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True, index=True)
+    agency_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey(FK_AGENCY_MASTER_ID, ondelete=ONDELETE_SET_NULL),
+        nullable=True,
+        index=True,
+    )
 
     # Store images as JSON array for now (can be normalized later)
     images = Column(String)  # JSON array of image URLs
@@ -302,6 +309,7 @@ class PropertyNormalized(Base):
     # - For agent-created properties, created_by_user will typically be that agent.
     created_by_user = relationship("User", foreign_keys=[created_by], lazy="selectin")
     agent_user = relationship("User", foreign_keys=[agent_user_id], lazy="selectin")
+    agency = relationship("Agency", foreign_keys=[agency_id], lazy="selectin")
     
     features = relationship(
         "PropertyFeature",

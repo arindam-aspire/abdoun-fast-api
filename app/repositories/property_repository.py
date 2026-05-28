@@ -284,6 +284,9 @@ class PropertyRepository:
             joinedload(Property.area_rel),
             joinedload(Property.property_status),
             joinedload(Property.translations),
+            joinedload(Property.agency),
+            joinedload(Property.agent_user).joinedload(User.agency),
+            joinedload(Property.created_by_user).joinedload(User.agency),
         )
 
         stmt = stmt.join(PropertyCategory, Property.category_id == PropertyCategory.id)
@@ -318,6 +321,9 @@ class PropertyRepository:
             joinedload(Property.city),
             joinedload(Property.area_rel),
             joinedload(Property.translations),
+            joinedload(Property.agency),
+            joinedload(Property.agent_user).joinedload(User.agency),
+            joinedload(Property.created_by_user).joinedload(User.agency),
         )
         stmt = stmt.join(PropertyCategory, Property.category_id == PropertyCategory.id)
         stmt = stmt.join(City, Property.city_id == City.id)
@@ -396,10 +402,13 @@ class PropertyRepository:
             joinedload(Property.property_status),
             joinedload(Property.translations),
             joinedload(Property.features).joinedload(PropertyFeature.feature),
+            joinedload(Property.agency),
             joinedload(Property.agent_user).joinedload(User.profile),
             joinedload(Property.agent_user).selectinload(User.roles),
+            joinedload(Property.agent_user).joinedload(User.agency),
             joinedload(Property.created_by_user).joinedload(User.profile),
             joinedload(Property.created_by_user).selectinload(User.roles),
+            joinedload(Property.created_by_user).joinedload(User.agency),
         ]
         return self.load_property_with_options(property_uuid=property_uuid, options=options)
 
@@ -416,6 +425,9 @@ class PropertyRepository:
             joinedload(Property.type),
             joinedload(Property.city),
             joinedload(Property.area_rel),
+            joinedload(Property.agency),
+            joinedload(Property.agent_user).joinedload(User.agency),
+            joinedload(Property.created_by_user).joinedload(User.agency),
         )
         stmt = stmt.where(Property.deleted_at.is_(None))
         if bounds is not None:
@@ -489,6 +501,9 @@ class PropertyRepository:
                 joinedload(Property.category),
                 joinedload(Property.type),
                 joinedload(Property.property_status),
+                joinedload(Property.agency),
+                joinedload(Property.agent_user).joinedload(User.agency),
+                joinedload(Property.created_by_user).joinedload(User.agency),
             )
             .where(filters)
             .order_by(func.coalesce(Property.updated_at, Property.created_at).desc())

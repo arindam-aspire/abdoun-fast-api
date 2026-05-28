@@ -259,6 +259,15 @@ class PropertyCreatedByMock(BaseModel):
     role: str
 
 
+class PropertyAgencyInfo(BaseModel):
+    agency_id: str
+    agency_name: Optional[str] = None
+    agency_trade_name: Optional[str] = None
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    website: Optional[str] = None
+
+
 def get_mock_agent() -> PropertyAgentMock:
     return PropertyAgentMock(
         id=3,
@@ -347,6 +356,45 @@ def _resolve_created_by_for_property(obj: Property) -> Optional[PropertyCreatedB
     if created_by_user is None or getattr(created_by_user, "id", None) is None:
         return None
     return _user_to_created_by_payload(created_by_user)
+
+
+def _user_to_agency_payload(user_obj: Any) -> Optional[PropertyAgencyInfo]:
+    agency = getattr(user_obj, "agency", None)
+    if agency is None or getattr(agency, "id", None) is None:
+        return None
+    return PropertyAgencyInfo(
+        agency_id=str(getattr(agency, "id")),
+        agency_name=getattr(agency, "agency_name", None),
+        agency_trade_name=getattr(agency, "agency_trade_name", None),
+        email=getattr(agency, "email", None),
+        phone=getattr(agency, "phone", None),
+        website=getattr(agency, "website", None),
+    )
+
+
+def _resolve_agency_for_property(obj: Property) -> Optional[PropertyAgencyInfo]:
+    """Resolve property agency from direct mapping, else assignment/creator linkage."""
+    direct_agency = getattr(obj, "agency", None)
+    if direct_agency is not None and getattr(direct_agency, "id", None) is not None:
+        return PropertyAgencyInfo(
+            agency_id=str(getattr(direct_agency, "id")),
+            agency_name=getattr(direct_agency, "agency_name", None),
+            agency_trade_name=getattr(direct_agency, "agency_trade_name", None),
+            email=getattr(direct_agency, "email", None),
+            phone=getattr(direct_agency, "phone", None),
+            website=getattr(direct_agency, "website", None),
+        )
+
+    agent_user = getattr(obj, "agent_user", None)
+    if agent_user is not None:
+        agency = _user_to_agency_payload(agent_user)
+        if agency is not None:
+            return agency
+
+    created_by_user = getattr(obj, "created_by_user", None)
+    if created_by_user is not None:
+        return _user_to_agency_payload(created_by_user)
+    return None
 
 
 def _determine_listing_type(obj: Property) -> str:
@@ -1117,6 +1165,7 @@ class PropertySearchResultExtended(BaseModel):
     validatedDate: Optional[str] = None
     brokerName: Optional[str] = None
     brokerLogo: Optional[str] = None
+    agency: Optional[PropertyAgencyInfo] = None
     owners: list[PropertyOwnerDetails] = Field(default_factory=list)
     is_exclusive: Optional[bool] = None  # From DB; None if not available
     location: Optional[PropertyLocationDetail] = None  # Preferred key per response guide
@@ -1196,6 +1245,7 @@ class PropertySearchResultExtended(BaseModel):
             validatedDate=validated_date_str,
             brokerName=Defaults.DEFAULT_BROKER_NAME,
             brokerLogo=None,  # Not available in current data model
+            agency=_resolve_agency_for_property(obj),
             owners=[PropertyOwnerDetails(**owner) for owner in (owner_details or [])],
             is_exclusive=getattr(obj, "is_exclusive", None),
             location_detail=location_detail,
@@ -1325,6 +1375,7 @@ class PropertyDetail(BaseModel):
     agent: Optional[PropertyAgentMock] = None
     owner: Optional[PropertyOwnerMock] = None
     created_by: Optional[PropertyCreatedByMock] = None
+    agency: Optional[PropertyAgencyInfo] = None
 
     @classmethod
     def from_orm_obj(cls, obj: Property, lang: Optional[str] = None) -> "PropertyDetail":
@@ -1398,6 +1449,7 @@ class PropertyDetail(BaseModel):
             agent=_resolve_agent_for_property(obj),
             owner=get_mock_owner(),
             created_by=_resolve_created_by_for_property(obj),
+            agency=_resolve_agency_for_property(obj),
         )
 
 
