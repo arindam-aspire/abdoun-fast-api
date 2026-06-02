@@ -17,7 +17,7 @@
 Send `multipart/form-data` fields:
 
 - `email`
-- `phone`
+- `phone_number` (legacy alias `phone` still accepted)
 - `agency_name`
 - `agency_trade_name`
 - `password`

@@ -6,7 +6,7 @@ search contract, plus property detail and "similar properties" lookups.
 
 from typing import Annotated, Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.api.v1.deps.properties import get_property_search_service
 from app.api.v1.deps.recent_views import get_recent_view_service
@@ -23,8 +23,55 @@ from app.services.recent_view_service import RecentViewService
 from app.utils.constants import ApiDocs, Defaults
 from app.utils.logger import api_logger
 from app.utils.responses import StandardResponse, create_success_response
+from app.utils.status_codes import HTTPStatus
 
 router = APIRouter()
+
+
+def _build_property_search_params(
+    *,
+    status: Optional[str],
+    category: Optional[str],
+    type_slug: Optional[str],
+    city: Optional[str],
+    locations: Optional[str],
+    search: Optional[str],
+    lat: Optional[float],
+    lng: Optional[float],
+    radius: Optional[float],
+    budget_min: Optional[str],
+    budget_max: Optional[str],
+    min_price: Optional[str],
+    max_price: Optional[str],
+    exclusive: Optional[str],
+    page: int,
+    page_size: int,
+    lang: Optional[str],
+) -> PropertySearchParams:
+    if (lat is None) != (lng is None):
+        raise HTTPException(
+            status_code=HTTPStatus.BAD_REQUEST,
+            detail="Both lat and lng are required when using GPS coordinates.",
+        )
+    return PropertySearchParams(
+        status=status,
+        category=category,
+        type_slug=type_slug,
+        city=city,
+        locations=locations,
+        search=search,
+        lat=lat,
+        lng=lng,
+        radius=radius,
+        budget_min=budget_min,
+        budget_max=budget_max,
+        min_price=min_price,
+        max_price=max_price,
+        exclusive=exclusive,
+        page=page,
+        page_size=page_size,
+        lang=lang,
+    )
 
 
 def get_property_search_params(
@@ -33,6 +80,15 @@ def get_property_search_params(
     type_slug: Optional[str] = Query(None, alias="type", description=ApiDocs.PROPERTY_TYPE_SLUG),
     city: Optional[str] = Query(None, description=ApiDocs.CITY_NAME_LOWERCASE),
     locations: Optional[str] = Query(None, description=ApiDocs.LOCATIONS_CSV_LOWERCASE),
+    search: Optional[str] = Query(None, description=ApiDocs.PROPERTY_SEARCH_TEXT),
+    lat: Optional[float] = Query(None, description=ApiDocs.PROPERTY_SEARCH_LAT),
+    lng: Optional[float] = Query(None, description=ApiDocs.PROPERTY_SEARCH_LNG),
+    radius: Optional[float] = Query(
+        None,
+        ge=0.1,
+        le=500,
+        description=ApiDocs.PROPERTY_SEARCH_RADIUS_KM,
+    ),
     budget_min: Optional[str] = Query(None, alias="budgetMin", description=ApiDocs.BUDGET_MIN_JD_NUMERIC_STRING),
     budget_max: Optional[str] = Query(None, alias="budgetMax", description=ApiDocs.BUDGET_MAX_JD_NUMERIC_STRING),
     min_price: Optional[str] = Query(None, alias="minPrice", description=ApiDocs.MIN_PRICE_ALIAS),
@@ -47,12 +103,16 @@ def get_property_search_params(
     Returns:
         `PropertySearchParams` instance suitable for `PropertySearchService.search()`.
     """
-    return PropertySearchParams(
+    return _build_property_search_params(
         status=status,
         category=category,
         type_slug=type_slug,
         city=city,
         locations=locations,
+        search=search,
+        lat=lat,
+        lng=lng,
+        radius=radius,
         budget_min=budget_min,
         budget_max=budget_max,
         min_price=min_price,
@@ -70,6 +130,15 @@ def get_exclusive_property_search_params(
     type_slug: Optional[str] = Query(None, alias="type", description=ApiDocs.PROPERTY_TYPE_SLUG),
     city: Optional[str] = Query(None, description=ApiDocs.CITY_NAME_LOWERCASE),
     locations: Optional[str] = Query(None, description=ApiDocs.LOCATIONS_CSV_LOWERCASE),
+    search: Optional[str] = Query(None, description=ApiDocs.PROPERTY_SEARCH_TEXT),
+    lat: Optional[float] = Query(None, description=ApiDocs.PROPERTY_SEARCH_LAT),
+    lng: Optional[float] = Query(None, description=ApiDocs.PROPERTY_SEARCH_LNG),
+    radius: Optional[float] = Query(
+        None,
+        ge=0.1,
+        le=500,
+        description=ApiDocs.PROPERTY_SEARCH_RADIUS_KM,
+    ),
     budget_min: Optional[str] = Query(None, alias="budgetMin", description=ApiDocs.BUDGET_MIN_JD_NUMERIC_STRING),
     budget_max: Optional[str] = Query(None, alias="budgetMax", description=ApiDocs.BUDGET_MAX_JD_NUMERIC_STRING),
     min_price: Optional[str] = Query(None, alias="minPrice", description=ApiDocs.MIN_PRICE_ALIAS),
@@ -83,12 +152,16 @@ def get_exclusive_property_search_params(
     Returns:
         PropertySearchParams with exclusive fixed to "true".
     """
-    return PropertySearchParams(
+    return _build_property_search_params(
         status=status,
         category=category,
         type_slug=type_slug,
         city=city,
         locations=locations,
+        search=search,
+        lat=lat,
+        lng=lng,
+        radius=radius,
         budget_min=budget_min,
         budget_max=budget_max,
         min_price=min_price,

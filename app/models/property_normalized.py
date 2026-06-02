@@ -47,6 +47,7 @@ class PropertyCategory(Base):
     updated_at = Column(TIMESTAMP, server_default=func.now(), onupdate=func.now())
 
     property_types = relationship("PropertyType", back_populates="category")
+    features = relationship("Feature", back_populates="category")
 
 
 # ==============================
@@ -66,6 +67,7 @@ class PropertyType(Base):
     updated_at = Column(TIMESTAMP, server_default=func.now(), onupdate=func.now())
 
     category = relationship("PropertyCategory", back_populates="property_types")
+    features = relationship("Feature", back_populates="property_type")
 
 
 # ==============================
@@ -146,9 +148,16 @@ class Feature(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(100), nullable=False)
     slug = Column(String(100), unique=True, nullable=False)
+    category_id = Column(Integer, ForeignKey(FK_PROPERTY_CATEGORIES_ID), nullable=True, index=True)
+    property_type_id = Column(Integer, ForeignKey("property_types.id"), nullable=True, index=True)
+    feature_group = Column(String(50), nullable=False, server_default="FEATURE", index=True)
+    display_order = Column(Integer, nullable=False, server_default="0")
     is_active = Column(Boolean, default=True)
     created_at = Column(TIMESTAMP, server_default=func.now())
     updated_at = Column(TIMESTAMP, server_default=func.now(), onupdate=func.now())
+
+    category = relationship("PropertyCategory", back_populates="features")
+    property_type = relationship("PropertyType", back_populates="features")
 
 
 # ==============================

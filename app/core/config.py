@@ -316,6 +316,11 @@ class Settings(BaseModel):
         "00:10",
     )
 
+    # Location-aware property search (PostgreSQL + Haversine)
+    property_search_default_radius_km: float = float(
+        os.getenv("PROPERTY_SEARCH_DEFAULT_RADIUS_KM", "10")
+    )
+
     # Interactive OpenAPI (Swagger UI / ReDoc). Overridable via OPENAPI_DOCS_ENABLED.
     openapi_docs_enabled: bool = os.getenv("OPENAPI_DOCS_ENABLED", "").lower() == "true"
 

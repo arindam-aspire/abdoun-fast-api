@@ -12,6 +12,7 @@ from app.schemas.property import (
     PropertySearchResponse,
     PropertySearchResultExtended,
 )
+from app.services.property_location_search_service import PropertyLocationSearchService
 from app.services.media_url_signer import MediaUrlSigner
 from app.utils.constants import ErrorMessages
 from app.utils.status_codes import STATUS_NOT_FOUND
@@ -41,8 +42,64 @@ class PropertySearchService:
             self._media_url_signer.sign_property_detail(detail)
         return detail
 
+    def _build_search_items(
+        self,
+        properties: list[Any],
+        *,
+        lang: Optional[str],
+    ) -> List[PropertySearchResultExtended]:
+        owner_map: dict = {}
+        try:
+            property_ids = [p.id for p in properties if isinstance(getattr(p, "id", None), uuid.UUID)]
+            owner_map = self._repo.get_owner_details_by_property_ids(property_ids)
+        except Exception:
+            owner_map = {}
+
+        return [
+            self._sign_extended(
+                PropertySearchResultExtended.from_orm_obj(
+                    p,
+                    lang=lang,
+                    owner_details=owner_map.get(getattr(p, "id", None), []),
+                )
+            )
+            for p in properties
+        ]
+
+    def _search_with_location(self, params: PropertySearchParams) -> PropertySearchResponse:
+        """Location-aware search (PostgreSQL + Haversine); same response shape as legacy search."""
+        location_search = PropertyLocationSearchService(self._db, media_url_signer=None)
+        properties, _, total = location_search.fetch_properties(
+            search=params.search,
+            lat=params.lat,
+            lng=params.lng,
+            radius=params.radius,
+            status=params.status,
+            category=params.category,
+            type_slug=params.type_slug,
+            exclusive=params.exclusive,
+            budget_min=params.budget_min,
+            budget_max=params.budget_max,
+            min_price=params.min_price,
+            max_price=params.max_price,
+            city=params.city,
+            locations=params.locations,
+            page=params.page,
+            page_size=params.page_size,
+        )
+        items = self._build_search_items(properties, lang=params.lang)
+        return PropertySearchResponse(
+            items=items,
+            total=total,
+            page=params.page,
+            pageSize=params.page_size,
+        )
+
     def search(self, params: PropertySearchParams) -> PropertySearchResponse:
         """Search properties with filters and pagination; returns extended list response."""
+        if params.uses_location_search():
+            return self._search_with_location(params)
+
         filters = self._repo.build_property_filters(
             status=params.status,
             category=params.category,
@@ -65,24 +122,7 @@ class PropertySearchService:
             page_size=params.page_size,
             requires_joins=requires_joins,
         )
-        owner_map = {}
-        try:
-            property_ids = [p.id for p in properties if isinstance(getattr(p, "id", None), uuid.UUID)]
-            owner_map = self._repo.get_owner_details_by_property_ids(property_ids)
-        except Exception:
-            # Owner mapping must not break property listing endpoint.
-            owner_map = {}
-
-        items: List[PropertySearchResultExtended] = [
-            self._sign_extended(
-                PropertySearchResultExtended.from_orm_obj(
-                    p,
-                    lang=params.lang,
-                    owner_details=owner_map.get(getattr(p, "id", None), []),
-                )
-            )
-            for p in properties
-        ]
+        items = self._build_search_items(properties, lang=params.lang)
         return PropertySearchResponse(
             items=items, total=total, page=params.page, pageSize=params.page_size
         )

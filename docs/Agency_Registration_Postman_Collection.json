@@ -14,7 +14,7 @@
           "mode": "formdata",
           "formdata": [
             {"key": "email", "value": "agency@example.com", "type": "text"},
-            {"key": "phone", "value": "+962790000001", "type": "text"},
+            {"key": "phone_number", "value": "+962790000001", "type": "text"},
             {"key": "agency_name", "value": "Example Agency LLC", "type": "text"},
             {"key": "agency_trade_name", "value": "Example Agency", "type": "text"},
             {"key": "password", "value": "AgencyPass1!", "type": "text"},

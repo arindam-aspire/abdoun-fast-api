@@ -31,7 +31,10 @@ def _validate_password_strength(value: str) -> str:
 
 class AgencyBase(BaseModel):
     email: EmailStr
-    phone: str
+    phone_number: str = Field(
+        ...,
+        validation_alias=AliasChoices("phone_number", "phone"),
+    )
     agency_name: str = Field(..., min_length=1, max_length=255)
     agency_trade_name: str = Field(..., min_length=1, max_length=255)
     address: Optional[str] = None
@@ -45,9 +48,9 @@ class AgencyBase(BaseModel):
     )
     website: Optional[HttpUrl] = None
 
-    @field_validator("phone")
+    @field_validator("phone_number")
     @classmethod
-    def validate_phone(cls, value: str) -> str:
+    def validate_phone_number(cls, value: str) -> str:
         phone = value.strip()
         if not re.match(PHONE_E164_REGEX, phone):
             raise ValueError(ValidationMessages.PHONE_E164)

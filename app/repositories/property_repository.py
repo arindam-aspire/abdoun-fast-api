@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session, joinedload, selectinload
 from app.models.property_normalized import (
     Area,
     City,
+    Feature,
     PropertyCategory,
     PropertyFeature,
     PropertyNormalized as Property,
@@ -401,7 +402,12 @@ class PropertyRepository:
             joinedload(Property.area_rel),
             joinedload(Property.property_status),
             joinedload(Property.translations),
-            joinedload(Property.features).joinedload(PropertyFeature.feature),
+            joinedload(Property.features)
+            .joinedload(PropertyFeature.feature)
+            .joinedload(Feature.category),
+            joinedload(Property.features)
+            .joinedload(PropertyFeature.feature)
+            .joinedload(Feature.property_type),
             joinedload(Property.agency),
             joinedload(Property.agent_user).joinedload(User.profile),
             joinedload(Property.agent_user).selectinload(User.roles),
@@ -655,4 +661,110 @@ class PropertyRepository:
         offset = max(page - 1, 0) * page_size
         rows = self._db.execute(stmt.offset(offset).limit(page_size)).unique().scalars().all()
         return list(rows), total
+
+  # Location search -------------------------------------------------------
+
+    def search_local_locations(self, *, query: str, limit: int = 5) -> list[dict[str, str]]:
+        """Match active cities and areas for autocomplete (local DB suggestions)."""
+        q = f"%{query.strip().lower()}%"
+        city_stmt = (
+            select(City.name)
+            .where(City.is_active.is_(True))
+            .where(func.lower(City.name).like(q))
+            .limit(limit)
+        )
+        area_stmt = (
+            select(Area.name, City.name)
+            .join(City, Area.city_id == City.id)
+            .where(Area.is_active.is_(True))
+            .where(City.is_active.is_(True))
+            .where(func.lower(Area.name).like(q))
+            .limit(limit)
+        )
+        results: list[dict[str, str]] = []
+        for name in self._db.execute(city_stmt).scalars().all():
+            if name:
+                results.append({"name": name, "city": name, "area": ""})
+        for area_name, city_name in self._db.execute(area_stmt).all():
+            if area_name:
+                label = f"{area_name}, {city_name}" if city_name else area_name
+                results.append({"name": label, "city": city_name or "", "area": area_name})
+        return results[:limit]
+
+    def get_properties_by_hashes(
+        self, property_hashes: list[int]
+    ) -> list[Property]:
+        if not property_hashes:
+            return []
+        stmt = (
+            select(Property)
+            .options(
+                joinedload(Property.category),
+                joinedload(Property.type),
+                joinedload(Property.city),
+                joinedload(Property.area_rel),
+                joinedload(Property.property_status),
+                joinedload(Property.translations),
+                joinedload(Property.agency),
+                joinedload(Property.agent_user).joinedload(User.agency),
+                joinedload(Property.created_by_user).joinedload(User.agency),
+            )
+            .where(Property.property_hash.in_(property_hashes))
+            .where(Property.deleted_at.is_(None))
+        )
+        rows = list(self._db.execute(stmt).unique().scalars().all())
+        order = {h: i for i, h in enumerate(property_hashes)}
+        rows.sort(key=lambda p: order.get(p.property_hash, 10**9))
+        return rows
+
+    def search_properties_with_text_and_geo(
+        self,
+        *,
+        filters: list[Any],
+        search_text: Optional[str],
+        center_lat: Optional[float],
+        center_lng: Optional[float],
+        radius_km: float,
+        page: int,
+        page_size: int,
+    ) -> tuple[list[tuple[Property, Optional[float]]], int]:
+        """SQL fallback: filter properties and compute Haversine distance in Python."""
+        from app.utils.geo import haversine_km
+
+        properties, total = self.search_properties(
+            filters=filters,
+            page=1,
+            page_size=10000,
+            requires_joins=True,
+        )
+        search_lower = (search_text or "").strip().lower()
+        scored: list[tuple[Property, Optional[float]]] = []
+        for prop in properties:
+            if search_lower:
+                city_name = getattr(getattr(prop, "city", None), "name", "") or ""
+                area_name = getattr(getattr(prop, "area_rel", None), "name", "") or ""
+                blob = f"{prop.title} {city_name} {area_name} {prop.location_name or ''}".lower()
+                if search_lower not in blob:
+                    continue
+            distance: Optional[float] = None
+            plat = getattr(prop, "latitude", None)
+            plon = getattr(prop, "longitude", None)
+            if center_lat is not None and center_lng is not None and plat is not None and plon is not None:
+                distance = round(
+                    haversine_km(center_lat, center_lng, float(plat), float(plon)),
+                    2,
+                )
+                if distance > radius_km:
+                    continue
+            scored.append((prop, distance))
+
+        if center_lat is not None and center_lng is not None:
+            scored.sort(key=lambda row: row[1] if row[1] is not None else 10**9)
+        else:
+            scored.sort(key=lambda row: row[0].created_at, reverse=True)
+
+        total_matches = len(scored)
+        offset = (page - 1) * page_size
+        page_rows = scored[offset : offset + page_size]
+        return page_rows, total_matches
 

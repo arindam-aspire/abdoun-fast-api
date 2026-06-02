@@ -144,6 +144,21 @@ class PropertyDetailsStructured(BaseModel):
     store_rooms: Optional[int] = None
 
 
+class PropertyFeatureListItem(BaseModel):
+    """Single feature attached to a property (from property_features + features taxonomy)."""
+
+    id: int
+    name: str
+    slug: str
+    value: Optional[str] = None
+    feature_group: Optional[str] = None
+    category_id: Optional[int] = None
+    property_type_id: Optional[int] = None
+    display_order: int = 0
+    category: Optional[str] = None
+    property_type: Optional[str] = None
+
+
 class PropertyFeaturesStructured(BaseModel):
     """
     Structured features object for detail response. Only keys with a value are
@@ -789,6 +804,37 @@ def _is_view_amenity(amenity_slug: str, view_type: list[str]) -> bool:
     return True
 
 
+def _build_features_list(obj: Property) -> list[PropertyFeatureListItem]:
+    """Build flat feature rows for property detail (property_features + taxonomy metadata)."""
+    if not hasattr(obj, "features") or not obj.features:
+        return []
+
+    items: list[PropertyFeatureListItem] = []
+    for pf in obj.features:
+        feature = getattr(pf, "feature", None)
+        if not feature:
+            continue
+        category = getattr(feature, "category", None)
+        prop_type = getattr(feature, "property_type", None)
+        items.append(
+            PropertyFeatureListItem(
+                id=int(feature.id),
+                name=(getattr(feature, "name", None) or "").strip(),
+                slug=(getattr(feature, "slug", None) or "").strip(),
+                value=(getattr(pf, "value", None) or None),
+                feature_group=getattr(feature, "feature_group", None),
+                category_id=getattr(feature, "category_id", None),
+                property_type_id=getattr(feature, "property_type_id", None),
+                display_order=int(getattr(feature, "display_order", 0) or 0),
+                category=getattr(category, "name", None) if category else None,
+                property_type=getattr(prop_type, "name", None) if prop_type else None,
+            )
+        )
+
+    items.sort(key=lambda row: (row.display_order, row.name.lower()))
+    return items
+
+
 def _collect_amenities_and_views(features: list[Any]) -> tuple[list[str], Optional[bool], list[str]]:
     amenities: list[str] = []
     has_view: Optional[bool] = None
@@ -1365,6 +1411,7 @@ class PropertyDetail(BaseModel):
     general: Optional[PropertyGeneralStructured] = None
     details: Optional[PropertyDetailsStructured] = None
     features: Optional[PropertyFeaturesStructured] = None
+    features_list: list[PropertyFeatureListItem] = Field(default_factory=list)
     pricing: Optional[PropertyPricingStructured] = None  # listing_type, annual_rent, selling_price, currency, etc.
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
@@ -1439,6 +1486,7 @@ class PropertyDetail(BaseModel):
             general=general_block,
             details=details_block,
             features=features_structured,
+            features_list=_build_features_list(obj),
             pricing=pricing_block,
             created_at=getattr(obj, "created_at", None),
             updated_at=getattr(obj, "updated_at", None),
@@ -1548,6 +1596,10 @@ class PropertySearchParams(BaseModel):
     type_slug: Optional[str] = None
     city: Optional[str] = None
     locations: Optional[str] = None
+    search: Optional[str] = None
+    lat: Optional[float] = None
+    lng: Optional[float] = None
+    radius: Optional[float] = None
     budget_min: Optional[str] = None
     budget_max: Optional[str] = None
     min_price: Optional[str] = None
@@ -1558,6 +1610,12 @@ class PropertySearchParams(BaseModel):
     lang: Optional[str] = None
 
     model_config = {"extra": "ignore"}
+
+    def uses_location_search(self) -> bool:
+        """True when geo/text location search should run (PostgreSQL + Haversine)."""
+        if self.search and self.search.strip():
+            return True
+        return self.lat is not None and self.lng is not None
 
 
 class PropertySearchResponse(BaseModel):

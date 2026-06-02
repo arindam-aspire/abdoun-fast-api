@@ -25,11 +25,13 @@ from app.api.v1.routes import (
     properties,
     property_submissions,
     property_taxonomy,
+    features,
     recent_views,
     notifications,
     notification_settings,
     saved_searches,
     search,
+    property_location_search,
     uploads,
     users,
 )
@@ -212,3 +214,15 @@ else:
 
 if not settings.use_refactored_taxonomy:
     api_router.include_router(property_taxonomy.router, tags=[ApiRoutes.TAXONOMY_TAG])
+
+api_router.include_router(
+    features.router,
+    prefix=ApiRoutes.FEATURES_PREFIX,
+    tags=[ApiRoutes.FEATURES_TAG],
+)
+
+api_router.include_router(
+    property_location_search.router,
+    prefix=ApiRoutes.PROPERTY_LOCATION_SEARCH_PREFIX,
+    tags=[ApiRoutes.PROPERTY_LOCATION_SEARCH_TAG],
+)

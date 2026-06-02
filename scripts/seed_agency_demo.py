@@ -18,7 +18,7 @@ def seed_agency_demo() -> None:
         service.register(
             AgencyRegisterRequest(
                 email="demo-agency@example.com",
-                phone="+962790000001",
+                phone_number="+962790000001",
                 agency_name="Demo Agency LLC",
                 agency_trade_name="Demo Agency",
                 password="AgencyPass1!",

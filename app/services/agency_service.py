@@ -72,7 +72,7 @@ class AgencyService:
         legal_document_content_type: str | None = None,
     ) -> StandardResponse[AgencyRegisterResponse]:
         email = str(body.email).lower()
-        if self._repo.agency_exists_by_email_or_phone(email=email, phone=body.phone):
+        if self._repo.agency_exists_by_email_or_phone(email=email, phone=body.phone_number):
             raise HTTPException(status_code=HTTPStatus.CONFLICT, detail=ErrorMessages.AGENCY_EXISTS)
         if self._repo.user_exists_by_email(email):
             raise HTTPException(status_code=HTTPStatus.CONFLICT, detail=ErrorMessages.USER_EXISTS)
@@ -83,7 +83,7 @@ class AgencyService:
                 email=email,
                 password=body.password,
                 full_name=body.agency_trade_name or body.agency_name,
-                phone_number=body.phone,
+                phone_number=body.phone_number,
             )
             cognito_sub = cognito_response.get(CognitoConstants.USER_SUB)
             if not cognito_sub:
@@ -96,7 +96,7 @@ class AgencyService:
                 agency_trade_name=body.agency_trade_name,
                 legal_document_s3_link=legal_document_s3_link or "__pending_legal_document_upload__",
                 email=email,
-                phone=body.phone,
+                phone=body.phone_number,
                 website=str(body.website) if body.website else None,
                 address=body.address,
                 city=body.city,
@@ -110,7 +110,7 @@ class AgencyService:
                 email=email,
                 cognito_sub=cognito_sub,
                 full_name=body.agency_trade_name or body.agency_name,
-                phone_number=body.phone,
+                phone_number=body.phone_number,
                 agency_id=agency.id,
                 password_hash=hash_password(body.password),
                 is_active=True,

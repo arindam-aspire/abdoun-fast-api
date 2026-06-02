@@ -67,6 +67,14 @@ class ErrorMessages:
     AGENT_NOT_PENDING = "Agent is not pending approval"
     ASSIGNMENT_NOT_FOUND = "Active assignment not found"
     ROLE_NOT_FOUND = "Role not found"
+    FEATURE_NOT_FOUND = "Feature not found"
+    FEATURE_GROUP_INVALID = "feature_group must be FEATURE or AMENITY"
+    FEATURE_AMENITY_REQUIRES_CATEGORY = "AMENITY requires category_id and property_type_id must be null"
+    FEATURE_REQUIRES_CATEGORY_AND_TYPE = "FEATURE requires category_id and property_type_id"
+    FEATURE_DUPLICATE_NAME = "A feature with this name already exists for the given category, property type, and group"
+    FEATURE_CATEGORY_NOT_FOUND = "Property category not found"
+    FEATURE_PROPERTY_TYPE_NOT_FOUND = "Property type not found"
+    FEATURE_TYPE_CATEGORY_MISMATCH = "property_type_id does not belong to category_id"
     USER_ALREADY_HAS_ROLE = "User already has this role"
     USER_DOES_NOT_HAVE_ROLE = "User does not have this role"
     CANNOT_DEACTIVATE_SELF = "Cannot deactivate your own account"
@@ -302,6 +310,8 @@ class RateLimits:
     PROFILE_OTP_REQUEST = LOGIN_OTP_REQUEST
     PROFILE_OTP_VERIFY = LOGIN_OTP_VERIFY
     PROFILE_UPDATE_REQUEST = "10/minute"
+    SEARCH_AUTOCOMPLETE = "60/minute"
+    SEARCH_PROPERTIES = "120/minute"
 
 
 class ApiDocs:
@@ -350,6 +360,12 @@ class ApiDocs:
     ITEMS_PER_PAGE = "Items per page"
     MAX_SIMILAR_PROPERTIES = "Maximum number of similar properties to return"
     GEOCODE_MISSING_QUERY = "If True, geocode locations that don't have coordinates (slower, rate-limited)"
+    PROPERTY_SEARCH_TEXT = (
+        "Free-text location or area (e.g. Abdoun, Amman). Geocoded; overrides GPS for distance center."
+    )
+    PROPERTY_SEARCH_LAT = "Latitude (GPS or from geocoded search text)"
+    PROPERTY_SEARCH_LNG = "Longitude (GPS or from geocoded search text)"
+    PROPERTY_SEARCH_RADIUS_KM = "Search radius in km when lat/lng or geocoded search is used"
 
     # Users
     FILTER_BY_ROLE = "Filter by role (admin, agent, registered_user)"
@@ -458,9 +474,21 @@ class ApiRoutes:
     NOTIFICATIONS_TAG = "notifications"
     NOTIFICATION_SETTINGS_TAG = "notification-settings"
     SEARCH_TAG = "search"
+    PROPERTY_LOCATION_SEARCH_PREFIX = "/search"
+    PROPERTY_LOCATION_SEARCH_TAG = "property-location-search"
     LOCATIONS_TAG = "locations"
     TAXONOMY_TAG = "taxonomy"
+    FEATURES_PREFIX = "/features"
+    FEATURES_TAG = "features"
     AGENCY_TAG = "agency"
+
+
+class FeatureGroup:
+    """Feature taxonomy group: category amenities vs type-specific features."""
+
+    FEATURE = "FEATURE"
+    AMENITY = "AMENITY"
+    ALLOWED = frozenset({FEATURE, AMENITY})
 
 
 class RememberMeConstants:
