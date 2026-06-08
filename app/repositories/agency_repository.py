@@ -30,9 +30,22 @@ class AgencyRepository:
         stmt: Select = select(Agency.id).where(or_(Agency.email == email, Agency.phone == phone))
         return self._db.execute(stmt).first() is not None
 
+    def agency_email_exists_excluding(self, *, email: str, exclude_agency_id: uuid.UUID) -> bool:
+        stmt: Select = select(Agency.id).where(
+            Agency.email == email, Agency.id != exclude_agency_id
+        )
+        return self._db.execute(stmt).first() is not None
+
     def agency_phone_exists_excluding(self, *, phone: str, exclude_agency_id: uuid.UUID) -> bool:
         stmt: Select = select(Agency.id).where(Agency.phone == phone, Agency.id != exclude_agency_id)
         return self._db.execute(stmt).first() is not None
+
+    def list_users_by_agency_id(self, agency_id: uuid.UUID) -> list[User]:
+        stmt: Select = select(User).where(
+            User.agency_id == agency_id,
+            User.deleted_at.is_(None),
+        )
+        return list(self._db.execute(stmt).scalars().all())
 
     def user_exists_by_email(self, email: str) -> bool:
         stmt: Select = select(User.id).where(User.email == email, User.deleted_at.is_(None))
@@ -49,6 +62,31 @@ class AgencyRepository:
     def list_agencies(self, *, skip: int, limit: int) -> list[Agency]:
         stmt: Select = select(Agency).order_by(Agency.created_at.desc()).offset(skip).limit(limit)
         return list(self._db.execute(stmt).scalars().all())
+
+    def get_profile_picture_map_for_agencies(
+        self, agency_ids: list[uuid.UUID]
+    ) -> dict[uuid.UUID, str]:
+        """Return latest non-empty user profile picture URL per agency."""
+        if not agency_ids:
+            return {}
+        stmt = (
+            select(User.agency_id, User.profile_picture_url)
+            .where(
+                User.agency_id.in_(agency_ids),
+                User.deleted_at.is_(None),
+                User.profile_picture_url.is_not(None),
+                User.profile_picture_url != "",
+            )
+            .order_by(User.updated_at.desc())
+        )
+        mapping: dict[uuid.UUID, str] = {}
+        for agency_id, profile_picture_url in self._db.execute(stmt).all():
+            if agency_id is None or not profile_picture_url:
+                continue
+            # First hit wins because rows are ordered by latest update.
+            if agency_id not in mapping:
+                mapping[agency_id] = profile_picture_url
+        return mapping
 
     def create_agency(self, **values) -> Agency:
         agency = Agency(**values)

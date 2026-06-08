@@ -851,6 +851,80 @@ class AuthService:
             cookie_max_age_seconds=max_age,
         )
 
+    def _refresh_via_username_session(
+        self,
+        *,
+        username: str,
+        settings: Settings,
+    ) -> StandardResponse[TokenResponse]:
+        """Refresh using latest active remember-me session resolved from username."""
+        identity = (username or "").strip()
+        if not identity:
+            raise HTTPException(
+                status_code=HTTPStatus.BAD_REQUEST,
+                detail=ErrorMessages.REMEMBER_ME_REFRESH_OR_COOKIE_REQUIRED,
+            )
+
+        user = self._repo.get_user_by_email_or_phone_with_profile(identity)
+        if user is None:
+            try:
+                user_id = uuid.UUID(identity)
+                user = self._repo.get_user_by_id_with_profile(user_id)
+            except (ValueError, TypeError):
+                user = self._repo.get_user_by_cognito_sub_with_profile(identity)
+        if not user:
+            raise HTTPException(
+                status_code=HTTPStatus.UNAUTHORIZED,
+                detail=ErrorMessages.INVALID_TOKEN,
+            )
+        self._ensure_user_login_allowed(user)
+
+        row = self._remember_me_repo.get_latest_active_for_user(user.id)
+        if not row:
+            raise HTTPException(
+                status_code=HTTPStatus.UNAUTHORIZED,
+                detail=ErrorMessages.REMEMBER_ME_SESSION_INVALID,
+            )
+
+        cognito_rt = decrypt_refresh_token(settings, row.cognito_refresh_encrypted)
+        if not cognito_rt:
+            self._remember_me_repo.revoke_by_id(row.id, revoked_at=datetime.now(timezone.utc))
+            self._repo.commit()
+            raise HTTPException(
+                status_code=HTTPStatus.UNAUTHORIZED,
+                detail=ErrorMessages.REMEMBER_ME_SESSION_INVALID,
+            )
+
+        try:
+            auth_result = cognito_service.refresh_token(cognito_rt, row.cognito_username)
+        except Exception:
+            raise HTTPException(
+                status_code=HTTPStatus.UNAUTHORIZED,
+                detail=ErrorMessages.INVALID_TOKEN,
+            )
+
+        access_token = auth_result["AccessToken"]
+        resolved_user, payload = self._resolve_user_for_refresh_access_token(access_token=access_token)
+        if resolved_user.id != user.id:
+            raise HTTPException(
+                status_code=HTTPStatus.UNAUTHORIZED,
+                detail=ErrorMessages.INVALID_TOKEN,
+            )
+        self._sync_verified_flags_from_token_payload(user=resolved_user, payload=payload)
+
+        requires_password_set = bool(
+            resolved_user.profile is not None and resolved_user.profile.password_set_at is None
+        )
+        enriched = self._apply_enriched_access_token(auth_result=auth_result, user=resolved_user)
+        return create_success_response(
+            data=self._token_response_from_cognito_auth(
+                auth_result=enriched,
+                requires_password_set=requires_password_set,
+                omit_refresh_in_body=False,
+                remember_me_cookie=False,
+            ),
+        )
+
     def refresh_token(
         self,
         body: RefreshRequest,
@@ -861,6 +935,9 @@ class AuthService:
         body_rt = (body.refresh_token or "").strip()
         if body_rt:
             return self._refresh_via_body(body, settings=settings), RememberMeHttpEffect()
+        body_username = (body.username or "").strip()
+        if body_username:
+            return self._refresh_via_username_session(username=body_username, settings=settings), RememberMeHttpEffect()
         if request is not None:
             return self._refresh_via_remember_me_cookie(request=request, settings=settings)
         raise HTTPException(
@@ -928,6 +1005,37 @@ class AuthService:
                 detail=server_error,
             )
 
+    def _cognito_pool_username(self, user: User) -> str:
+        email = (user.email or "").strip().lower()
+        if email:
+            return email
+        cognito_sub = (getattr(user, "cognito_sub", None) or "").strip()
+        if cognito_sub:
+            return cognito_sub
+        raise HTTPException(
+            status_code=HTTPStatus.BAD_REQUEST,
+            detail=ErrorMessages.INVALID_TOKEN,
+        )
+
+    def _set_password_via_cognito_admin(
+        self,
+        *,
+        user: User,
+        new_password: str,
+        previous_password: str | None,
+    ) -> None:
+        """Set password when Bearer token is API-issued (login returns enriched JWT)."""
+        username = self._cognito_pool_username(user)
+        if previous_password:
+            cognito_service.login_password(username, previous_password)
+        cognito_service.admin_set_user_password(username, new_password, permanent=True)
+
+    def _uses_admin_password_flow(self, access_token: str) -> bool:
+        """API JWT cannot be passed to Cognito ChangePassword."""
+        if decode_auth_access_token(access_token):
+            return True
+        return cognito_service.verify_token(access_token) is None
+
     def set_password(
         self,
         password_req: SetPasswordRequest,
@@ -936,13 +1044,20 @@ class AuthService:
     ) -> StandardResponse[bool]:
         try:
             access_token = auth.credentials
-            previous_password = password_req.previous_password or ""
+            previous_password = (password_req.previous_password or "").strip()
 
-            cognito_service.change_password(
-                access_token=access_token,
-                previous_password=previous_password,
-                proposed_password=password_req.password,
-            )
+            if self._uses_admin_password_flow(access_token):
+                self._set_password_via_cognito_admin(
+                    user=current_user,
+                    new_password=password_req.password,
+                    previous_password=previous_password or None,
+                )
+            else:
+                cognito_service.change_password(
+                    access_token=access_token,
+                    previous_password=previous_password,
+                    proposed_password=password_req.password,
+                )
 
             if hasattr(current_user, "profile") and current_user.profile:
                 from datetime import datetime

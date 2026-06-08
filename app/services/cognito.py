@@ -12,6 +12,7 @@ from botocore.exceptions import BotoCoreError, ClientError, NoCredentialsError
 from jose import jwt
 
 from app.core.config import get_settings
+from app.utils.auth_access_token import decode_auth_access_token
 from app.utils.constants import CognitoConstants, ErrorMessages
 from app.utils.log_messages import LogMessages, format_log_message
 from app.utils.logger import api_logger
@@ -378,6 +379,53 @@ class CognitoService:
             api_logger.error(format_log_message(LogMessages.Auth.PASSWORD_RESET_FAILED, email=email, error=str(e)))
             raise e
 
+    def admin_set_user_password(self, username: str, password: str, *, permanent: bool = True) -> bool:
+        """Set password via Cognito admin API (no user access token required)."""
+        try:
+            self.client.admin_set_user_password(
+                UserPoolId=self.user_pool_id,
+                Username=username,
+                Password=password,
+                Permanent=permanent,
+            )
+            return True
+        except ClientError as e:
+            api_logger.error(
+                format_log_message(
+                    LogMessages.Auth.PASSWORD_RESET_FAILED,
+                    email=username,
+                    error=str(e),
+                )
+            )
+            raise e
+
+    def _resolve_username_for_admin_password(
+        self, access_token: str, *, fallback_email: str | None = None
+    ) -> str:
+        """Resolve Cognito pool username from API JWT, Cognito JWT, or caller fallback."""
+        api_payload = decode_auth_access_token(access_token)
+        if api_payload:
+            email = (api_payload.get("email") or fallback_email or "").strip().lower()
+            if email:
+                return email
+            sub = (api_payload.get("sub") or "").strip()
+            if sub:
+                return sub
+
+        payload = self.verify_token(access_token)
+        if payload:
+            username = (payload.get("sub") or payload.get("username") or "").strip()
+            if username:
+                return username
+            email = (payload.get("email") or fallback_email or "").strip().lower()
+            if email:
+                return email
+
+        if fallback_email:
+            return fallback_email.strip().lower()
+
+        raise ValueError(ErrorMessages.CANNOT_EXTRACT_USERNAME_FROM_ACCESS_TOKEN)
+
     def change_password(self, access_token: str, previous_password: str, proposed_password: str) -> bool:
         """
         Change password for an authenticated user.
@@ -407,26 +455,10 @@ class CognitoService:
                     AccessToken=access_token
                 )
             else:
-                # For users without password, use admin_set_user_password
+                # First-time set / OTP-only users: admin API (works with API-issued access JWT too).
                 try:
-                    # Verify token signature before extracting username/sub
-                    payload = self.verify_token(access_token)
-                    if not payload:
-                        raise ValueError(ErrorMessages.TOKEN_VERIFICATION_FAILED_INTERNAL)
-                    # The 'sub' field in the token is the Cognito username
-                    username = payload.get("sub") or payload.get("username")
-                    
-                    if not username:
-                        raise ValueError(
-                            ErrorMessages.CANNOT_EXTRACT_USERNAME_FROM_ACCESS_TOKEN
-                        )
-                    
-                    self.client.admin_set_user_password(
-                        UserPoolId=self.user_pool_id,
-                        Username=username,
-                        Password=proposed_password,
-                        Permanent=True
-                    )
+                    username = self._resolve_username_for_admin_password(access_token)
+                    self.admin_set_user_password(username, proposed_password, permanent=True)
                 except (ValueError, KeyError, Exception) as decode_error:
                     api_logger.error(
                         format_log_message(

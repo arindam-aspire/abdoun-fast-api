@@ -29,6 +29,7 @@ class ErrorMessages:
     AGENCY_EXISTS = "Agency with this email or phone number already exists"
     AGENCY_NOT_FOUND = "Agency not found"
     AGENCY_ACCESS_DENIED = "You are not authorized to manage this agency"
+    AGENCY_LOGO_NOT_FOUND = "Agency logo not found"
     INVALID_CREDENTIALS = "Invalid email/phone or password"
     INVALID_OTP = "Invalid or expired OTP"
     OTP_NOT_CONFIGURED = "OTP login is not configured. Configure Cognito custom auth Lambda triggers (Define Auth Challenge, Create Auth Challenge, Verify Auth Challenge) for this user pool, or use password login: POST /api/v1/auth/login/password"
@@ -199,6 +200,8 @@ class SuccessMessages:
     AGENCY_UPDATED = "Agency updated successfully"
     AGENCY_DELETED = "Agency deleted successfully"
     AGENCY_DOCUMENT_UPLOAD_READY = "Agency legal document upload URL generated"
+    AGENCY_LOGO_UPLOADED = "Agency logo upload URL generated"
+    AGENCY_LOGO_DELETED = "Agency logo deleted successfully"
     LOGIN_SUCCESSFUL = "Login successful"
     LOGOUT_SUCCESSFUL = "Logged out successfully"
     PASSWORD_RESET_SUCCESS = "Password reset successfully"
@@ -292,6 +295,7 @@ class Defaults:
     DEFAULT_COUNTRY_ID = 1
     DEFAULT_CURRENCY = "JOD"
     DEFAULT_CURRENCY_DISPLAY = "JD"
+    DEFAULT_MEASUREMENT_UNIT = "sqm"
     MAP_EMBED_URL_TEMPLATE = "https://maps.google.com/?q={lat},{lng}"
     DEFAULT_BROKER_NAME = "Abdoun Real Estate"
     AGENT_LEADERBOARD_TOP_N = 3

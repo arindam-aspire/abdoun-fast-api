@@ -112,3 +112,13 @@ def user_profile_picture_prefix(user_id: uuid.UUID) -> str:
 def user_profile_picture_key(user_id: uuid.UUID, filename: str) -> str:
     """Object key for a user's profile picture (S3 path under users/profile/...)."""
     return f"{user_profile_picture_prefix(user_id)}{sanitize_filename(filename)}"
+
+
+def agency_logo_prefix(agency_id: uuid.UUID) -> str:
+    """Prefix for agency logo uploads under the agency profile_doc tree."""
+    return f"{agency_id}/profile_doc/logo/"
+
+
+def agency_logo_key(agency_id: uuid.UUID, filename: str) -> str:
+    """Object key for an agency logo: ``{agency_id}/profile_doc/logo/{filename}``."""
+    return f"{agency_logo_prefix(agency_id)}{sanitize_filename(filename)}"

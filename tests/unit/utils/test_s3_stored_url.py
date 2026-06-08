@@ -26,6 +26,33 @@ def test_extract_raw_key() -> None:
     assert extract_s3_object_key("users/profile/u1/profile_pic/a.png", _settings()) == "users/profile/u1/profile_pic/a.png"
 
 
+def test_extract_agency_profile_doc_raw_key() -> None:
+    agency_id = "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+    key = f"{agency_id}/profile_doc/license.pdf"
+    assert extract_s3_object_key(key, _settings()) == key
+
+
+def test_extract_agency_logo_raw_key() -> None:
+    agency_id = "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+    key = f"{agency_id}/profile_doc/logo/brand.png"
+    assert extract_s3_object_key(key, _settings()) == key
+
+
+def test_extract_agency_logo_legacy_path() -> None:
+    agency_id = "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+    key = f"{agency_id}/logo/brand.png"
+    assert extract_s3_object_key(key, _settings()) == key
+
+
+def test_extract_agency_profile_doc_virtual_host() -> None:
+    agency_id = "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+    url = (
+        f"https://abdoun-dev-assets-usw2.s3.us-west-2.amazonaws.com/"
+        f"{agency_id}/profile_doc/license.pdf"
+    )
+    assert extract_s3_object_key(url, _settings()) == f"{agency_id}/profile_doc/license.pdf"
+
+
 def test_extract_public_base_url_prefix() -> None:
     s = _settings()
     s.aws_s3_public_base_url = "https://cdn.example.com/assets"

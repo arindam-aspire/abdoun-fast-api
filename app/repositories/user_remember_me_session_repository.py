@@ -24,6 +24,22 @@ class UserRememberMeSessionRepository:
         )
         return self._db.execute(stmt).scalar_one_or_none()
 
+    def get_latest_active_for_user(self, user_id: uuid.UUID) -> Optional[UserRememberMeSession]:
+        now = datetime.now(timezone.utc)
+        stmt = (
+            select(UserRememberMeSession)
+            .where(
+                UserRememberMeSession.user_id == user_id,
+                UserRememberMeSession.revoked_at.is_(None),
+                UserRememberMeSession.expires_at > now,
+            )
+            .order_by(
+                UserRememberMeSession.last_used_at.desc().nullslast(),
+                UserRememberMeSession.created_at.desc(),
+            )
+        )
+        return self._db.execute(stmt).scalars().first()
+
     def create(
         self,
         *,

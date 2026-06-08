@@ -16,6 +16,8 @@ class AgentPropertyAgencyInfo(BaseModel):
     email: str | None = None
     phone: str | None = None
     website: str | None = None
+    currency: str | None = None
+    measurement_unit: str | None = None
 
 
 class AgentPropertyListItem(BaseModel):

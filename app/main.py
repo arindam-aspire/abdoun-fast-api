@@ -1,6 +1,7 @@
 import asyncio
 from contextlib import asynccontextmanager, suppress
 
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi import FastAPI, Response
 from fastapi.responses import JSONResponse
@@ -15,7 +16,19 @@ from app.middleware.security import SecurityHeadersMiddleware
 from app.api.v1.router import api_router
 from app.websockets.notification_websocket import router as notifications_ws_router
 from app.utils.constants import SystemMessages
-from app.utils.status_codes import STATUS_OK
+from app.utils.status_codes import HTTPStatus, STATUS_OK
+from app.utils.validation_errors import sanitize_validation_errors
+
+
+async def _request_validation_exception_handler(
+    _request,
+    exc: RequestValidationError,
+) -> JSONResponse:
+    """Avoid 500 when validation ``input`` contains binary (e.g. PDF on a JSON-only route)."""
+    return JSONResponse(
+        status_code=HTTPStatus.UNPROCESSABLE_ENTITY,
+        content={"detail": sanitize_validation_errors(exc.errors())},
+    )
 
 
 def create_app() -> FastAPI:
@@ -55,6 +68,7 @@ def create_app() -> FastAPI:
 
     app.state.limiter = limiter
     app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+    app.add_exception_handler(RequestValidationError, _request_validation_exception_handler)
 
     if settings.otel_enabled:
         from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor

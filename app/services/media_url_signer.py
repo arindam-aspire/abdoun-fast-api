@@ -4,11 +4,20 @@ from __future__ import annotations
 
 from app.core.config import Settings, get_settings
 from app.schemas.property import PropertyDetail, PropertyMediaStructured, PropertySearchResult, PropertySearchResultExtended
+from app.schemas.agency import (
+    AgencyDocumentUploadResponse,
+    AgencyLegalDocumentUploadData,
+    AgencyLogoUploadResponse,
+    AgencyResponse,
+)
 from app.schemas.user import ProfilePictureUploadData, UserResponse
 from app.services.s3_service import S3Service
 from app.utils.log_messages import LogMessages, format_log_message
 from app.utils.logger import api_logger
 from app.utils.s3_stored_url import extract_s3_object_key, looks_like_existing_aws_presigned_url
+
+
+_PENDING_LEGAL_DOCUMENT = "__pending_legal_document_upload__"
 
 
 class MediaUrlSigner:
@@ -58,6 +67,36 @@ class MediaUrlSigner:
         orig = data.profile_picture_url
         signed = self.sign_optional_url(orig)
         data.profile_picture_url = signed if signed is not None else orig
+
+    def apply_agency_response(self, agency: AgencyResponse) -> None:
+        """Replace stored public S3 URLs with presigned GET for private bucket downloads."""
+        link = (agency.legal_document_s3_link or "").strip()
+        if link and link != _PENDING_LEGAL_DOCUMENT:
+            signed = self.sign_optional_url(link)
+            if signed is not None:
+                agency.legal_document_s3_link = signed
+        if agency.logo_url:
+            signed_logo = self.sign_optional_url(agency.logo_url)
+            if signed_logo is not None:
+                agency.logo_url = signed_logo
+
+    def apply_agency_logo_upload_response(self, data: AgencyLogoUploadResponse) -> None:
+        """Sign stored public URL only; leave presigned PUT ``upload_url`` unchanged."""
+        orig = data.logo_url
+        signed = self.sign_optional_url(orig)
+        data.logo_url = signed if signed is not None else orig
+
+    def apply_agency_legal_document_upload_data(self, data: AgencyLegalDocumentUploadData) -> None:
+        """Sign stored public URL only; leave presigned PUT ``upload_url`` unchanged."""
+        orig = data.legal_document_s3_link
+        signed = self.sign_optional_url(orig)
+        data.legal_document_s3_link = signed if signed is not None else orig
+
+    def apply_agency_document_upload_response(self, data: AgencyDocumentUploadResponse) -> None:
+        """Same as profile-picture upload: sign canonical URL, not the PUT presign."""
+        orig = data.legal_document_s3_link
+        signed = self.sign_optional_url(orig)
+        data.legal_document_s3_link = signed if signed is not None else orig
 
     def sign_media_structured(self, media: PropertyMediaStructured | None) -> None:
         if media is None:

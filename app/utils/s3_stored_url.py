@@ -2,9 +2,28 @@
 
 from __future__ import annotations
 
+import re
 from urllib.parse import urlparse, unquote
 
 from app.core.config import Settings
+
+_AGENCY_OBJECT_KEY = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/(?:profile_doc/|logo/)",
+    re.IGNORECASE,
+)
+
+
+def _normalize_raw_object_key(raw: str) -> str | None:
+    """Return stripped key if *raw* is a known non-URL object key for this app."""
+    key = raw.lstrip("/")
+    if not key:
+        return None
+    for prefix in ("users/", "properties/", "drafts/"):
+        if key.startswith(prefix):
+            return key
+    if _AGENCY_OBJECT_KEY.match(key):
+        return key
+    return None
 
 
 def looks_like_existing_aws_presigned_url(url: str) -> bool:
@@ -24,7 +43,7 @@ def extract_s3_object_key(stored: str, settings: Settings) -> str | None:
     """Return S3 object key if *stored* is a URL/key we own; otherwise None (external / unknown).
 
     Supports:
-    - Raw keys: ``users/...``, ``properties/...``, ``drafts/...``
+    - Raw keys: ``users/...``, ``properties/...``, ``drafts/...``, ``{agency_id}/profile_doc/...``
     - ``AWS_S3_PUBLIC_BASE_URL`` + key
     - Virtual-hosted: ``https://{bucket}.s3.{region}.amazonaws.com/{key}``
     - Legacy: ``https://{bucket}.s3.amazonaws.com/{key}``
@@ -39,10 +58,7 @@ def extract_s3_object_key(stored: str, settings: Settings) -> str | None:
         return None
 
     if not raw.lower().startswith(("http://", "https://")):
-        for prefix in ("users/", "properties/", "drafts/"):
-            if raw.startswith(prefix) or raw.startswith("/" + prefix):
-                return raw.lstrip("/")
-        return None
+        return _normalize_raw_object_key(raw)
 
     parsed = urlparse(raw)
     path = unquote(parsed.path or "").lstrip("/")

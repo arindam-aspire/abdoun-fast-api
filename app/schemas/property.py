@@ -281,6 +281,18 @@ class PropertyAgencyInfo(BaseModel):
     email: Optional[str] = None
     phone: Optional[str] = None
     website: Optional[str] = None
+    profile_picture_url: Optional[str] = None
+    currency: Optional[str] = None
+    measurement_unit: Optional[str] = None
+
+
+def _agency_config_from_orm(agency: Any) -> tuple[str, str]:
+    """Read currency and measurement_unit from agency_master (defaults when absent)."""
+    from app.utils.constants import Defaults
+
+    currency = getattr(agency, "currency", None) or Defaults.DEFAULT_CURRENCY
+    measurement_unit = getattr(agency, "measurement_unit", None) or Defaults.DEFAULT_MEASUREMENT_UNIT
+    return str(currency), str(measurement_unit)
 
 
 def get_mock_agent() -> PropertyAgentMock:
@@ -377,6 +389,7 @@ def _user_to_agency_payload(user_obj: Any) -> Optional[PropertyAgencyInfo]:
     agency = getattr(user_obj, "agency", None)
     if agency is None or getattr(agency, "id", None) is None:
         return None
+    currency, measurement_unit = _agency_config_from_orm(agency)
     return PropertyAgencyInfo(
         agency_id=str(getattr(agency, "id")),
         agency_name=getattr(agency, "agency_name", None),
@@ -384,6 +397,9 @@ def _user_to_agency_payload(user_obj: Any) -> Optional[PropertyAgencyInfo]:
         email=getattr(agency, "email", None),
         phone=getattr(agency, "phone", None),
         website=getattr(agency, "website", None),
+        profile_picture_url=getattr(user_obj, "profile_picture_url", None),
+        currency=currency,
+        measurement_unit=measurement_unit,
     )
 
 
@@ -391,6 +407,7 @@ def _resolve_agency_for_property(obj: Property) -> Optional[PropertyAgencyInfo]:
     """Resolve property agency from direct mapping, else assignment/creator linkage."""
     direct_agency = getattr(obj, "agency", None)
     if direct_agency is not None and getattr(direct_agency, "id", None) is not None:
+        currency, measurement_unit = _agency_config_from_orm(direct_agency)
         return PropertyAgencyInfo(
             agency_id=str(getattr(direct_agency, "id")),
             agency_name=getattr(direct_agency, "agency_name", None),
@@ -398,6 +415,9 @@ def _resolve_agency_for_property(obj: Property) -> Optional[PropertyAgencyInfo]:
             email=getattr(direct_agency, "email", None),
             phone=getattr(direct_agency, "phone", None),
             website=getattr(direct_agency, "website", None),
+            profile_picture_url=None,
+            currency=currency,
+            measurement_unit=measurement_unit,
         )
 
     agent_user = getattr(obj, "agent_user", None)

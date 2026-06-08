@@ -10,6 +10,7 @@ from app.models.property_listing_submission import PropertyListingSubmission
 from app.models.user import User
 from app.repositories.property_repository import PropertyRepository
 from app.repositories.property_submission_repository import PropertySubmissionRepository
+from app.utils.constants import Defaults
 from app.schemas.agent_properties import (
     AgentPropertyAgencyInfo,
     AgentDraftSubmissionItem,
@@ -148,6 +149,10 @@ class AgentPropertyService:
                             email=getattr(agency_obj, "email", None),
                             phone=getattr(agency_obj, "phone", None),
                             website=getattr(agency_obj, "website", None),
+                            currency=getattr(agency_obj, "currency", None)
+                            or Defaults.DEFAULT_CURRENCY,
+                            measurement_unit=getattr(agency_obj, "measurement_unit", None)
+                            or Defaults.DEFAULT_MEASUREMENT_UNIT,
                         )
                         if agency_obj is not None and getattr(agency_obj, "id", None) is not None
                         else None

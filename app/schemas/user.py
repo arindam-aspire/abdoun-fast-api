@@ -117,6 +117,8 @@ class UserAgencyResponse(BaseModel):
     email: Optional[str] = None
     phone: Optional[str] = None
     website: Optional[str] = None
+    currency: Optional[str] = None
+    measurement_unit: Optional[str] = None
 
     model_config = {"from_attributes": True}
 
@@ -726,6 +728,14 @@ class ProfileUpdateRequestResponse(BaseModel):
     dev_phone_otp: Optional[str] = Field(
         default=None,
         description="Phone OTP for verify step until SMS is integrated; omitted if PROFILE_OTP_HIDE_PHONE_CODE_IN_RESPONSE=true.",
+    )
+    dev_email_otp: Optional[str] = Field(
+        default=None,
+        description="Email OTP returned in API for staging/agency when outbound email is unavailable.",
+    )
+    otp: Optional[str] = Field(
+        default=None,
+        description="Convenience copy of pending OTP (dev_email_otp if present, else dev_phone_otp).",
     )
 
 
