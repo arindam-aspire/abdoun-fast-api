@@ -15,6 +15,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
 from app.models.property import Base
+from app.models.social_account import SocialAccount
 from app.utils.constants import AgentStatus
 
 # Centralized FK target to avoid duplicated literals ("users.id")
@@ -151,6 +152,11 @@ class User(Base):
     )
     recent_views: Mapped[List[RecentlyViewedProperty]] = relationship(
         "RecentlyViewedProperty",
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
+    social_accounts: Mapped[List[SocialAccount]] = relationship(
+        "SocialAccount",
         back_populates="user",
         cascade="all, delete-orphan",
     )

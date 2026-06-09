@@ -4,6 +4,11 @@
 class ErrorMessages:
     """Error messages returned to API clients"""
     PROPERTY_NOT_FOUND = "Property not found"
+    MY_LISTINGS_ACCESS_DENIED = "Only agents and admins can access my listings"
+    INVALID_MY_LISTING_STATUS_FILTER = (
+        "Invalid status filter. Allowed: draft, pending, active, rejected, inactive"
+    )
+    RECENT_VIEW_PROPERTY_IDENTIFIER_REQUIRED = "Provide property_id or property_hash_id"
     RECENT_VIEWS_UPDATE_FAILED = "Failed to update recent views"
     RECENT_VIEWS_CLEAR_FAILED = "Failed to clear recent views"
     GEOCODING_SERVICE_UNAVAILABLE = "Geocoding service not available, skipping geocoding"
@@ -61,6 +66,22 @@ class ErrorMessages:
     INVALID_INVITE = "Invalid or expired invitation"
     MISSING_SUB = "Token payload is missing 'sub' claim"
     SOCIAL_AUTH_FAILED = "Social authentication failed"
+    SOCIAL_MISSING_IDENTITIES = (
+        "Identity provider did not return federated identity information (identities claim). "
+        "Ensure Google/Facebook sign-in uses Cognito Hosted UI with a supported IdP."
+    )
+    SOCIAL_UNSUPPORTED_PROVIDER = "Unsupported social provider. Use google or facebook."
+    SOCIAL_EMAIL_REQUIRED_FOR_NEW_ACCOUNT = (
+        "Email is required from the identity provider to register a new account."
+    )
+    SOCIAL_EMAIL_ACCOUNT_CONFLICT = (
+        "An account with this email already exists. Sign in with your existing method, "
+        "or complete email verification with your social provider before linking."
+    )
+    SOCIAL_IDENTITY_CONFLICT = "This social account is already linked to another user."
+    PHONE_LOGIN_NOT_AVAILABLE = (
+        "Phone login is not available for this account. Add and verify a phone number first."
+    )
     REVOCATION_FAILED = "Failed to revoke agent privileges"
     UNAUTHORIZED_ACCESS = "You are not authorized to perform this action"
     AGENT_REJECT_FAILED = "Failed to reject agent"
@@ -136,6 +157,10 @@ class ErrorMessages:
     # Admin dashboard
     INVALID_ADMIN_DASHBOARD_MONTH = "month must be a valid calendar month in the form YYYY-MM (e.g. 2026-04), range 2000-2100."
     INVALID_ADMIN_DASHBOARD_TRENDS_MONTHS = "months must be between 1 and 24."
+
+     # Lead dashboard
+    INVALID_LEAD_DASHBOARD_RANGE = "range must be one of: day, week, month, quarter, year."
+
 
     # Generic / HTTP (exception handlers, fallbacks)
     REQUEST_FAILED = "Request failed"
@@ -241,6 +266,9 @@ class SuccessMessages:
     PROFILE_UPDATED_SUCCESS = "Profile updated successfully"
     PROFILE_VERIFICATION_REQUIRED = "Verification required for profile update"
 
+    LEAD_DASHBOARD_SUMMARY_FETCHED = "Lead dashboard summary fetched successfully"
+    LEAD_COMPLIANCE_REPORT_FETCHED = "Lead compliance report fetched successfully"
+
 
 # Info Messages
 class InfoMessages:
@@ -287,7 +315,7 @@ class Defaults:
     LANG_QUERY_DESCRIPTION = "Language code for title/description: en, ar, esp, fr"
     AGENT_DECLINE_REASON_ADMIN = "Application rejected by admin"
     DEFAULT_PHONE_PREFIX_10_DIGIT = "+91"
-    DEFAULT_SOCIAL_PROVIDER = "Google"
+    DEFAULT_SOCIAL_PROVIDER = "google"
     ROLE_PERMISSION_PREFIX = "role:"
     PASSWORD_MIN_LENGTH = 8
     TOKEN_TYPE_BEARER = "Bearer"
@@ -299,6 +327,15 @@ class Defaults:
     MAP_EMBED_URL_TEMPLATE = "https://maps.google.com/?q={lat},{lng}"
     DEFAULT_BROKER_NAME = "Abdoun Real Estate"
     AGENT_LEADERBOARD_TOP_N = 3
+
+
+class SocialAuth:
+    """Canonical provider keys (DB) and Cognito Hosted UI `identity_provider` values."""
+
+    PROVIDER_GOOGLE = "google"
+    PROVIDER_FACEBOOK = "facebook"
+    COGNITO_IDP_GOOGLE = "Google"
+    COGNITO_IDP_FACEBOOK = "Facebook"
 
 
 class RateLimits:
@@ -342,6 +379,7 @@ class ApiDocs:
         "Soft-deleted users are never listed."
     )
     FILTER_AREAS_BY_CITY_NAME = "Filter areas by city name (case-insensitive)"
+    SOCIAL_LOGIN_PROVIDER = "Social provider: google or facebook (case-insensitive)."
 
     # Properties search
     LISTING_TYPE_BUY_RENT = "Listing type: buy or rent"
@@ -704,6 +742,70 @@ class AgentAssignmentStatus:
     ACTIVE = "ACTIVE"
     INACTIVE_REVOKED = "INACTIVE/REVOKED"
 
+
+
+class LeadDashboardConstants:
+    """Lead analytics dashboard configuration: ranges, SLA, funnel mapping, aging buckets.
+
+    Funnel stages map onto the existing ``leads.status`` lifecycle
+    (NEW -> IN_PROGRESS -> REQUEST_FOR_CLOSE -> CLOSED):
+      - newLeads          -> NEW
+      - mql               -> IN_PROGRESS              (engaged / being worked)
+      - sql               -> REQUEST_FOR_CLOSE        (qualified, close requested)
+      - opportunities     -> IN_PROGRESS + REQUEST_FOR_CLOSE (open pipeline)
+      - convertedCustomers-> CLOSED                   (won)
+    """
+
+    RANGE_DAY = "day"
+    RANGE_WEEK = "week"
+    RANGE_MONTH = "month"
+    RANGE_QUARTER = "quarter"
+    RANGE_YEAR = "year"
+    DEFAULT_RANGE = RANGE_MONTH
+    ALLOWED_RANGES = (RANGE_DAY, RANGE_WEEK, RANGE_MONTH, RANGE_QUARTER, RANGE_YEAR)
+    RANGE_QUERY_PATTERN = "^(day|week|month|quarter|year)$"
+    RANGE_QUERY_DESC = "Aggregation window: day, week, month, quarter, or year"
+
+    # Lead status lifecycle values (mirror leads.status enum).
+    STATUS_NEW = "NEW"
+    STATUS_IN_PROGRESS = "IN_PROGRESS"
+    STATUS_REQUEST_FOR_CLOSE = "REQUEST_FOR_CLOSE"
+    STATUS_CLOSED = "CLOSED"
+
+    # Ordered funnel definition: (key, label, [contributing statuses]).
+    FUNNEL_STAGES = (
+        ("new", "New", (STATUS_NEW,)),
+        ("mql", "MQL", (STATUS_IN_PROGRESS,)),
+        ("sql", "SQL", (STATUS_REQUEST_FOR_CLOSE,)),
+        ("opportunities", "Opportunities", (STATUS_IN_PROGRESS, STATUS_REQUEST_FOR_CLOSE)),
+        ("converted", "Converted", (STATUS_CLOSED,)),
+    )
+
+    # First-response SLA: a lead is breached when no handler reply occurs within this window.
+    SLA_FIRST_RESPONSE_HOURS = 24
+
+    # Follow-up cadence: an active (non-closed) lead is compliant when it had activity
+    # (``last_activity_at``) within this window.
+    FOLLOW_UP_CADENCE_HOURS = 72
+
+    # Compliance report metric mapping onto the existing schema:
+    #   - missingSourceCount     -> leads with NULL/blank ``source``
+    #   - duplicateCount         -> extra leads sharing the existing dedup signature
+    #                               (contact = user_id | normalized phone, property = id | external name),
+    #                               counted over active (non-closed) leads
+    #   - missingLostReasonCount -> CLOSED leads with no recorded reason on their
+    #                               CLOSED transition in ``lead_status_history``
+
+    # Ordered open-lead aging buckets (upper bound in days inclusive; None = open-ended).
+    AGING_BUCKETS = (
+        ("0-1 days", 1),
+        ("2-3 days", 3),
+        ("4-7 days", 7),
+        ("8-14 days", 14),
+        ("15-30 days", 30),
+        ("31+ days", None),
+    )
+    
 
 # RBAC Permissions
 class UserPermissions:

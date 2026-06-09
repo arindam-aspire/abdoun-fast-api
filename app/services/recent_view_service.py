@@ -9,7 +9,7 @@ from app.models.recently_viewed_property import RecentlyViewedProperty
 from app.repositories.recent_view_repository import RecentViewRepository
 from app.schemas.property import PropertySearchResultExtended
 from app.services.media_url_signer import MediaUrlSigner
-from app.schemas.recent_view import RecentViewItem, RecentViewsListResponse
+from app.schemas.recent_view import RecentViewItem, RecentViewsListResponse, RecentViewUpsertRequest
 from app.utils.constants import ErrorMessages
 from app.utils.status_codes import HTTPStatus
 
@@ -28,6 +28,24 @@ class RecentViewService:
         if self._media_url_signer is not None:
             self._media_url_signer.sign_search_result_extended(row)
         return row
+
+    def add_or_refresh_from_request(self, *, user_id: uuid.UUID, body: RecentViewUpsertRequest) -> None:
+        """Resolve property identifier from request and upsert recent view."""
+        property_id = self._repo.resolve_property_id(
+            property_id=body.property_id,
+            property_hash_id=body.property_hash_id,
+        )
+        if property_id is None:
+            if body.property_hash_id is not None and body.property_id is None:
+                raise HTTPException(
+                    status_code=HTTPStatus.NOT_FOUND,
+                    detail=ErrorMessages.PROPERTY_NOT_FOUND,
+                )
+            raise HTTPException(
+                status_code=HTTPStatus.BAD_REQUEST,
+                detail=ErrorMessages.RECENT_VIEW_PROPERTY_IDENTIFIER_REQUIRED,
+            )
+        self.add_or_refresh(user_id=user_id, property_id=property_id)
 
     def add_or_refresh(self, *, user_id: uuid.UUID, property_id: uuid.UUID) -> None:
         """Add property to recent views or refresh timestamp if already exists."""

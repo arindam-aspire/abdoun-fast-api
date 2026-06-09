@@ -215,3 +215,66 @@ class LeadHistoryItemResponse(BaseModel):
 
 class LeadHistoryResponse(BaseModel):
     items: list[LeadHistoryItemResponse]
+
+
+class LeadFunnelStageResponse(BaseModel):
+    """Single funnel stage derived from lead statuses."""
+
+    stage: str
+    label: str
+    count: int = 0
+
+
+class LeadSourcePerformanceResponse(BaseModel):
+    """Lead volume and conversion grouped by acquisition source."""
+
+    source: str
+    totalLeads: int = 0
+    converted: int = 0
+    conversionRate: float = 0.0
+
+
+class LeadAgingBucketResponse(BaseModel):
+    """Count of open leads grouped by age bucket."""
+
+    bucket: str
+    count: int = 0
+
+
+class LeadTrendPointResponse(BaseModel):
+    """Lead volume for a single point on the selected range's timeline."""
+
+    period: str
+    totalLeads: int = 0
+    converted: int = 0
+
+
+class LeadDashboardSummaryResponse(BaseModel):
+    """Aggregated lead analytics for the authenticated scope and selected range."""
+
+    totalLeads: int = 0
+    newLeads: int = 0
+    mql: int = 0
+    sql: int = 0
+    opportunities: int = 0
+    convertedCustomers: int = 0
+    averageLeadAgingDays: float = 0.0
+    slaBreachCount: int = 0
+    conversionRate: float = 0.0
+    averageResponseTimeHours: float = 0.0
+    funnel: list[LeadFunnelStageResponse] = Field(default_factory=list)
+    sourcePerformance: list[LeadSourcePerformanceResponse] = Field(default_factory=list)
+    agingBuckets: list[LeadAgingBucketResponse] = Field(default_factory=list)
+    trend: list[LeadTrendPointResponse] = Field(default_factory=list)
+
+
+class LeadComplianceReportResponse(BaseModel):
+    """Lead data-quality and SLA compliance metrics for the authenticated scope."""
+
+    slaBreachCount: int = 0
+    slaComplianceRate: float = 0.0
+    averageResponseTimeHours: float = 0.0
+    followUpComplianceRate: float = 0.0
+    missingSourceCount: int = 0
+    duplicateCount: int = 0
+    missingLostReasonCount: int = 0

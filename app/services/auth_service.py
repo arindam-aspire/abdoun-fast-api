@@ -5,8 +5,12 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException, Request
-from fastapi.security import HTTPAuthorizationCredentials
+import json
+from typing import NamedTuple
+
 from botocore.exceptions import ClientError
+from fastapi.security import HTTPAuthorizationCredentials
+from sqlalchemy.exc import IntegrityError
 
 from app.core.config import Settings, get_settings
 from app.models.user import User
@@ -44,6 +48,7 @@ from app.utils.constants import (
     Defaults,
     ErrorMessages,
     RememberMeConstants,
+    SocialAuth,
     SuccessMessages,
     UserRoles,
 )
@@ -52,6 +57,58 @@ from app.utils.logger import api_logger
 from app.utils.responses import StandardResponse, create_success_response
 from app.utils.status_codes import HTTPStatus
 from app.api.v1.deps.security import get_user_permissions
+
+
+class SocialTokenClaims(NamedTuple):
+    """Verified Cognito ID token fields used for federated login and account linking."""
+
+    payload: dict
+    cognito_sub: str
+    provider: str
+    provider_user_id: str
+    email: str | None
+    email_verified: bool
+    full_name: str
+
+
+def _normalize_social_query_provider(raw: str) -> str:
+    return (raw or "").strip().lower()
+
+
+def _canonical_provider_for_id_token(provider_name: str) -> str | None:
+    key = (provider_name or "").strip().lower()
+    if key == SocialAuth.PROVIDER_GOOGLE:
+        return SocialAuth.PROVIDER_GOOGLE
+    if key == SocialAuth.PROVIDER_FACEBOOK:
+        return SocialAuth.PROVIDER_FACEBOOK
+    return None
+
+
+def _coerce_email_verified(raw: object) -> bool:
+    if raw is True:
+        return True
+    if isinstance(raw, str):
+        return raw.lower() in ("true", "1", "yes")
+    return False
+
+
+def _identities_from_payload(payload: dict) -> list[dict]:
+    raw = payload.get("identities")
+    if raw is None:
+        return []
+    if isinstance(raw, str):
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError:
+            return []
+        return parsed if isinstance(parsed, list) else []
+    if isinstance(raw, list):
+        return raw
+    return []
+
+
+def _is_phone_login_identifier(identifier: str) -> bool:
+    return "@" not in (identifier or "")
 
 
 class AuthService:
@@ -98,6 +155,16 @@ class AuthService:
             updated = True
         if updated:
             self._repo.commit()
+
+    def _ensure_phone_login_ready(self, *, user: User, login_identifier: str) -> None:
+        """Require local phone data when a login attempt is explicitly phone-based."""
+        if not _is_phone_login_identifier(login_identifier):
+            return
+        if not getattr(user, "phone_number", None):
+            raise HTTPException(
+                status_code=HTTPStatus.BAD_REQUEST,
+                detail=ErrorMessages.PHONE_LOGIN_NOT_AVAILABLE,
+            )
 
     def _requires_password_set(self, user: User) -> bool:
         return bool(user.profile is not None and user.profile.password_set_at is None)
@@ -261,7 +328,7 @@ class AuthService:
             )
         return user, payload
 
-    def _extract_social_identity(self, *, auth_result: dict) -> tuple[dict, str, str, str]:
+    def _parse_social_id_token_claims(self, auth_result: dict) -> SocialTokenClaims:
         id_token = auth_result.get("id_token")
         if not id_token:
             raise HTTPException(
@@ -269,22 +336,185 @@ class AuthService:
                 detail=ErrorMessages.SOCIAL_AUTH_FAILED,
             )
 
-        payload = cognito_service.verify_token(id_token)
+        payload = cognito_service.verify_token(
+            id_token,
+            access_token=auth_result.get("access_token"),
+        )
         if not payload:
             raise HTTPException(
                 status_code=HTTPStatus.UNAUTHORIZED,
                 detail=ErrorMessages.SOCIAL_AUTH_FAILED,
             )
 
-        email = payload.get("email")
         cognito_sub = payload.get("sub")
-        if not email or not cognito_sub:
+        if not cognito_sub:
             raise HTTPException(
                 status_code=HTTPStatus.UNAUTHORIZED,
                 detail=ErrorMessages.SOCIAL_AUTH_FAILED,
             )
-        full_name = payload.get("name", Defaults.SOCIAL_USER_DEFAULT_NAME)
-        return payload, email, cognito_sub, full_name
+
+        identities = _identities_from_payload(payload)
+        if not identities:
+            raise HTTPException(
+                status_code=HTTPStatus.BAD_REQUEST,
+                detail=ErrorMessages.SOCIAL_MISSING_IDENTITIES,
+            )
+
+        first = identities[0]
+        provider_name = first.get("providerName") or first.get("providerType") or ""
+        provider_user_id = first.get("userId") or first.get("providerUserId") or ""
+        if not provider_name or not provider_user_id:
+            raise HTTPException(
+                status_code=HTTPStatus.BAD_REQUEST,
+                detail=ErrorMessages.SOCIAL_MISSING_IDENTITIES,
+            )
+
+        canonical = _canonical_provider_for_id_token(str(provider_name))
+        if not canonical:
+            raise HTTPException(
+                status_code=HTTPStatus.BAD_REQUEST,
+                detail=ErrorMessages.SOCIAL_UNSUPPORTED_PROVIDER,
+            )
+
+        email_raw = payload.get("email")
+        email = str(email_raw).strip() if email_raw else None
+        if email == "":
+            email = None
+
+        full_name = payload.get("name") or Defaults.SOCIAL_USER_DEFAULT_NAME
+        if isinstance(full_name, str):
+            full_name = full_name.strip() or Defaults.SOCIAL_USER_DEFAULT_NAME
+
+        return SocialTokenClaims(
+            payload=payload,
+            cognito_sub=str(cognito_sub),
+            provider=canonical,
+            provider_user_id=str(provider_user_id),
+            email=email,
+            email_verified=_coerce_email_verified(payload.get("email_verified")),
+            full_name=str(full_name),
+        )
+
+    def _resolve_user_for_social_login(self, claims: SocialTokenClaims) -> User | None:
+        by_sub_any = self._repo.get_user_by_cognito_sub_including_deleted(claims.cognito_sub)
+        if by_sub_any is not None:
+            self._ensure_user_login_allowed(by_sub_any)
+            return by_sub_any
+
+        sa = self._repo.get_social_account(
+            provider=claims.provider,
+            provider_user_id=claims.provider_user_id,
+        )
+        if sa is not None and sa.user is not None:
+            self._ensure_user_login_allowed(sa.user)
+            return sa.user
+
+        if claims.email and claims.email_verified:
+            by_email = self._repo.get_user_by_email(claims.email)
+            if by_email is not None:
+                self._ensure_user_login_allowed(by_email)
+                return by_email
+
+        return None
+
+    def _link_social_account(self, user: User, provider: str, provider_user_id: str) -> None:
+        existing = self._repo.get_social_account(provider=provider, provider_user_id=provider_user_id)
+        if existing is not None:
+            if existing.user_id != user.id:
+                raise HTTPException(
+                    status_code=HTTPStatus.CONFLICT,
+                    detail=ErrorMessages.SOCIAL_IDENTITY_CONFLICT,
+                )
+            return
+        self._repo.create_social_account(
+            user_id=user.id,
+            provider=provider,
+            provider_user_id=provider_user_id,
+        )
+
+    def _finalize_social_session(self, user: User, claims: SocialTokenClaims) -> None:
+        if not user.cognito_sub:
+            user.cognito_sub = claims.cognito_sub
+        self._sync_verified_flags_from_token_payload(user=user, payload=claims.payload)
+        self._link_social_account(user, claims.provider, claims.provider_user_id)
+        self._repo.commit()
+        self._repo.refresh(user)
+
+    def _create_new_social_user(self, claims: SocialTokenClaims) -> User:
+        if not claims.email or not claims.email.strip():
+            raise HTTPException(
+                status_code=HTTPStatus.BAD_REQUEST,
+                detail=ErrorMessages.SOCIAL_EMAIL_REQUIRED_FOR_NEW_ACCOUNT,
+            )
+        email = claims.email.strip()
+        existing_user = self._repo.get_user_by_email(email)
+        if existing_user is not None:
+            api_logger.error(
+                format_log_message(
+                    LogMessages.Auth.SOCIAL_AUTH_FAILED_LOG,
+                    email=email,
+                    error=(
+                        "Social create blocked: existing active user found for callback email "
+                        f"(user_id={getattr(existing_user, 'id', None)}, email_verified_claim={claims.email_verified})"
+                    ),
+                )
+            )
+            raise HTTPException(
+                status_code=HTTPStatus.CONFLICT,
+                detail=ErrorMessages.SOCIAL_EMAIL_ACCOUNT_CONFLICT,
+            )
+
+        user = self._repo.create_user(
+            email=email,
+            full_name=claims.full_name,
+            phone_number=None,
+            cognito_sub=claims.cognito_sub,
+            is_active=True,
+        )
+        # Ensure user.id is materialized before inserting dependent social_accounts row.
+        self._repo.flush()
+        user.is_email_verified = bool(claims.email_verified)
+        role = self._repo.get_role_by_name(UserRoles.REGISTERED_USER)
+        if role:
+            user.roles.append(role)
+        self._repo.create_social_account(
+            user_id=user.id,
+            provider=claims.provider,
+            provider_user_id=claims.provider_user_id,
+        )
+        try:
+            self._repo.commit()
+            self._repo.refresh(user)
+        except IntegrityError as e:
+            self._repo.rollback()
+            api_logger.error(
+                format_log_message(
+                    LogMessages.Auth.SOCIAL_AUTH_FAILED_LOG,
+                    email=claims.email or LogMessages.Auth.UNKNOWN_EMAIL,
+                    error=f"Social user create integrity error: {str(e.orig) if getattr(e, 'orig', None) else str(e)}",
+                )
+            )
+            raise HTTPException(
+                status_code=HTTPStatus.CONFLICT,
+                detail=ErrorMessages.SOCIAL_EMAIL_ACCOUNT_CONFLICT,
+            ) from None
+
+        api_logger.info(
+            format_log_message(LogMessages.Auth.SOCIAL_LOGIN_SUCCESS, email=email),
+        )
+        return user
+
+    def _social_tokens_success(self, auth_result: dict) -> StandardResponse[TokenResponse]:
+        return create_success_response(
+            data=TokenResponse(
+                access_token=auth_result["access_token"],
+                refresh_token=auth_result.get("refresh_token"),
+                id_token=auth_result.get("id_token"),
+                expires_in=auth_result["expires_in"],
+                requires_password_set=False,
+            ),
+            message=SuccessMessages.SOCIAL_LOGIN_SUCCESSFUL,
+        )
 
     def _normalize_requested_login_role(self, role: str) -> str:
         """Normalize optional login role hint to internal DB role names."""
@@ -486,6 +716,7 @@ class AuthService:
             )
 
         self._validate_optional_login_role(user=user, requested_role=login_in.role)
+        self._ensure_phone_login_ready(user=user, login_identifier=login_in.username)
         self._ensure_user_login_allowed(user)
         user = self._repo.acquire_user_for_password_login_security(user.id)
         if user.password_login_locked_until is not None and user.password_login_locked_until > now:
@@ -596,6 +827,7 @@ class AuthService:
                 status_code=HTTPStatus.NOT_FOUND,
                 detail=ErrorMessages.USER_NOT_FOUND,
             )
+        self._ensure_phone_login_ready(user=user, login_identifier=otp_req.username)
         self._ensure_user_login_allowed(user)
         cognito_username = user.email
         try:
@@ -643,6 +875,7 @@ class AuthService:
                 status_code=HTTPStatus.NOT_FOUND,
                 detail=ErrorMessages.USER_NOT_FOUND,
             )
+        self._ensure_phone_login_ready(user=user, login_identifier=otp_ver.username)
         self._ensure_user_login_allowed(user)
         cognito_username = user.email
         try:
@@ -1109,8 +1342,19 @@ class AuthService:
 
     # Social login / profile endpoints -----------------------------------
 
-    def social_login(self, provider: str = "Google") -> StandardResponse[dict]:
-        login_url = cognito_service.get_social_login_url(provider)
+    def social_login(self, provider: str) -> StandardResponse[dict]:
+        canon = _normalize_social_query_provider(provider)
+        if canon not in (SocialAuth.PROVIDER_GOOGLE, SocialAuth.PROVIDER_FACEBOOK):
+            raise HTTPException(
+                status_code=HTTPStatus.BAD_REQUEST,
+                detail=ErrorMessages.SOCIAL_UNSUPPORTED_PROVIDER,
+            )
+        cognito_idp = (
+            SocialAuth.COGNITO_IDP_GOOGLE
+            if canon == SocialAuth.PROVIDER_GOOGLE
+            else SocialAuth.COGNITO_IDP_FACEBOOK
+        )
+        login_url = cognito_service.get_social_login_url(cognito_idp)
         return create_success_response(data={"url": login_url})
 
     def get_current_user_profile(self, current_user: User) -> StandardResponse[UserResponse]:
@@ -1141,41 +1385,21 @@ class AuthService:
     def social_callback(self, code: str) -> StandardResponse[TokenResponse]:
         try:
             auth_result = cognito_service.exchange_code_for_tokens(code)
-            payload, email, cognito_sub, full_name = self._extract_social_identity(
-                auth_result=auth_result
+            claims = self._parse_social_id_token_claims(auth_result)
+            api_logger.info(
+                format_log_message(
+                    LogMessages.Auth.SOCIAL_LOGIN_SUCCESS,
+                    email=claims.email or LogMessages.Auth.UNKNOWN_EMAIL,
+                )
+                + f" | social_claims provider={claims.provider}, email_verified={claims.email_verified}, "
+                + f"sub={claims.cognito_sub}, provider_user_id={claims.provider_user_id}"
             )
 
-            user = self._repo.get_user_by_cognito_or_email_including_deleted(
-                cognito_sub=cognito_sub,
-                email=email,
-            )
-
-            if not user:
-                user = self._repo.create_user(
-                    email=email,
-                    full_name=full_name,
-                    phone_number=f"social_{cognito_sub[:10]}",
-                    cognito_sub=cognito_sub,
-                    is_active=True,
-                )
-                role = self._repo.get_role_by_name(UserRoles.REGISTERED_USER)
-                if role:
-                    user.roles.append(role)
-                self._repo.commit()
-                self._repo.refresh(user)
-                api_logger.info(
-                    format_log_message(
-                        LogMessages.Auth.SOCIAL_LOGIN_SUCCESS, email=email
-                    )
-                )
+            user = self._resolve_user_for_social_login(claims)
+            if user is None:
+                user = self._create_new_social_user(claims)
             else:
-                self._ensure_user_login_allowed(user)
-                if not user.cognito_sub:
-                    user.cognito_sub = cognito_sub
-                    self._repo.commit()
-                    self._repo.refresh(user)
-            # Sync verified flags during explicit social auth flow.
-            self._sync_verified_flags_from_token_payload(user=user, payload=payload)
+                self._finalize_social_session(user, claims)
 
             enriched = self._apply_enriched_access_token(auth_result=auth_result, user=user)
             return create_success_response(
@@ -1187,9 +1411,22 @@ class AuthService:
                 ),
                 message=SuccessMessages.SOCIAL_LOGIN_SUCCESSFUL,
             )
+            return self._social_tokens_success(auth_result)
         except HTTPException:
-            # Preserve explicit auth errors (inactive/deleted, etc.)
             raise
+        except IntegrityError as e:
+            self._repo.rollback()
+            api_logger.error(
+                format_log_message(
+                    LogMessages.Auth.SOCIAL_AUTH_FAILED_LOG,
+                    email=LogMessages.Auth.UNKNOWN_EMAIL,
+                    error=f"Social callback integrity error: {str(e.orig) if getattr(e, 'orig', None) else str(e)}",
+                )
+            )
+            raise HTTPException(
+                status_code=HTTPStatus.CONFLICT,
+                detail=ErrorMessages.SOCIAL_EMAIL_ACCOUNT_CONFLICT,
+            ) from None
         except Exception as e:  # pragma: no cover - defensive
             api_logger.error(
                 format_log_message(

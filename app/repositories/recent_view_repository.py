@@ -92,6 +92,19 @@ class RecentViewRepository:
         stmt = select(PropertyNormalized.id).where(PropertyNormalized.property_hash == property_hash)
         return self._db.execute(stmt).scalar_one_or_none()
 
+    def resolve_property_id(
+        self,
+        *,
+        property_id: uuid.UUID | None,
+        property_hash_id: int | None,
+    ) -> uuid.UUID | None:
+        """Return canonical property UUID; ``property_id`` takes precedence when both are set."""
+        if property_id is not None:
+            return property_id
+        if property_hash_id is not None:
+            return self.find_property_uuid_by_hash(property_hash=property_hash_id)
+        return None
+
     def delete_recent_view_by_property_id(self, *, user_id: uuid.UUID, property_id: uuid.UUID) -> int:
         """Delete one recent view entry for a user/property pair."""
         stmt = delete(RecentlyViewedProperty).where(

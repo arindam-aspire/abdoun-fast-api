@@ -14,7 +14,7 @@ from functools import lru_cache
 from typing import Optional
 
 from dotenv import load_dotenv
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 # Load environment variables from .env file
 # load_dotenv() automatically searches current directory and parent directories
@@ -75,6 +75,21 @@ def _get_env_str(
         if value:
             return value
     return default if default is not None else ""
+
+
+def _normalize_host_domain(value: str) -> str:
+    """Strip URL scheme and trailing slash from a host/domain env value.
+
+    ``COGNITO_DOMAIN`` must be host-only (e.g. ``prefix.auth.region.amazoncognito.com``),
+    but operators sometimes paste a full URL; callers prepend ``https://`` themselves.
+    """
+    v = (value or "").strip()
+    lower = v.lower()
+    if lower.startswith("https://"):
+        v = v[8:]
+    elif lower.startswith("http://"):
+        v = v[7:]
+    return v.strip().rstrip("/")
 
 
 def _get_env_optional_str(primary: str, fallback_key: Optional[str] = None) -> Optional[str]:
@@ -158,12 +173,17 @@ class Settings(BaseModel):
     cognito_client_id: str = _get_env_str("COGNITO_APP_CLIENT_ID", "COGNITO_CLIENT_ID")
     cognito_client_secret: Optional[str] = _get_env_optional_str("COGNITO_APP_CLIENT_SECRET", "COGNITO_CLIENT_SECRET")
     cognito_region: str = _get_env_str("COGNITO_REGION", default="us-east-1")
-    cognito_domain: str = _get_env_str("COGNITO_DOMAIN")
+    cognito_domain: str = _normalize_host_domain(_get_env_str("COGNITO_DOMAIN"))
     social_redirect_uri: str = os.getenv(
         "SOCIAL_REDIRECT_URI",
         ConfigDefaults.SOCIAL_REDIRECT_URI,
     )
-    
+
+    @field_validator("cognito_domain", mode="before")
+    @classmethod
+    def _validate_cognito_domain(cls, value: object) -> str:
+        return _normalize_host_domain(str(value or ""))
+
     # AWS Credentials (optional - boto3 will also check environment variables and ~/.aws/credentials)
     aws_access_key_id: Optional[str] = _get_env_optional_str("AWS_ACCESS_KEY_ID")
     aws_secret_access_key: Optional[str] = _get_env_optional_str("AWS_SECRET_ACCESS_KEY")

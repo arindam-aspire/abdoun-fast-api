@@ -15,10 +15,25 @@ from app.core.config import (
     _get_database_url,
     _get_env_optional_str,
     _get_env_str,
+    _normalize_host_domain,
     _parse_csv_env,
     get_settings,
 )
 from app.utils.constants import ConfigDefaults
+
+
+def test_normalize_host_domain_strips_scheme_and_trailing_slash() -> None:
+    assert (
+        _normalize_host_domain("https://prefix.auth.us-east-1.amazoncognito.com/")
+        == "prefix.auth.us-east-1.amazoncognito.com"
+    )
+    assert _normalize_host_domain("http://example.com") == "example.com"
+    assert _normalize_host_domain("example.com") == "example.com"
+
+
+def test_settings_cognito_domain_normalized() -> None:
+    settings = Settings(cognito_domain="https://my.auth.us-west-2.amazoncognito.com/")
+    assert settings.cognito_domain == "my.auth.us-west-2.amazoncognito.com"
 
 
 def test_watermark_defaults_defined_in_config_defaults() -> None:

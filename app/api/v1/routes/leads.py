@@ -8,12 +8,14 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Path, Query
 
 from app.core.auth import get_current_user
-from app.api.v1.deps.leads import get_lead_service
+from app.api.v1.deps.leads import get_lead_dashboard_service, get_lead_service
 from app.core.permissions import require_role
 from app.models.user import User
 from app.schemas.lead import (
     AdminManualLeadCreateRequest,
     ContactFormLeadCreateRequest,
+    LeadComplianceReportResponse,
+    LeadDashboardSummaryResponse,
     LeadItemResponse,
     LeadListResponse,
     LeadNoteCreateRequest,
@@ -29,13 +31,53 @@ from app.schemas.lead import (
     OfflineLeadCreateRequest,
     LeadStatusUpdateRequest,
 )
+from app.services.lead_dashboard_service import LeadDashboardService
 from app.services.lead_service import LeadService
-from app.utils.constants import SuccessMessages, UserRoles
+from app.utils.constants import LeadDashboardConstants, SuccessMessages, UserRoles
 from app.utils.responses import StandardResponse, create_success_response
 
 public_router = APIRouter()
 agent_router = APIRouter()
 admin_router = APIRouter()
+
+
+@public_router.get("/leads/dashboard/summary")
+def get_lead_dashboard_summary(
+    current_user: Annotated[User, Depends(get_current_user)],
+    service: Annotated[LeadDashboardService, Depends(get_lead_dashboard_service)],
+    range: Annotated[
+        str,
+        Query(
+            pattern=LeadDashboardConstants.RANGE_QUERY_PATTERN,
+            description=LeadDashboardConstants.RANGE_QUERY_DESC,
+        ),
+    ] = LeadDashboardConstants.DEFAULT_RANGE,
+) -> StandardResponse[LeadDashboardSummaryResponse]:
+    """Aggregated lead funnel, source, aging, SLA and trend metrics for the caller's scope.
+
+    Scope is role-derived: admins see all leads, agents see their assigned leads.
+    """
+    data = service.get_dashboard_summary(actor=current_user, range_key=range)
+    return create_success_response(
+        data=LeadDashboardSummaryResponse(**data),
+        message=SuccessMessages.LEAD_DASHBOARD_SUMMARY_FETCHED,
+    )
+
+
+@public_router.get("/leads/reports/compliance")
+def get_lead_compliance_report(
+    current_user: Annotated[User, Depends(get_current_user)],
+    service: Annotated[LeadDashboardService, Depends(get_lead_dashboard_service)],
+) -> StandardResponse[LeadComplianceReportResponse]:
+    """Lead data-quality and SLA compliance report for the caller's scope.
+
+    Scope is role-derived: admins see all leads, agents see their assigned leads.
+    """
+    data = service.get_compliance_report(actor=current_user)
+    return create_success_response(
+        data=LeadComplianceReportResponse(**data),
+        message=SuccessMessages.LEAD_COMPLIANCE_REPORT_FETCHED,
+    )
 
 
 @public_router.post("/leads/contact-form")

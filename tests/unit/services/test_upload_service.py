@@ -60,26 +60,35 @@ def test_presigned_url_generation_for_each_context() -> None:
         assert out.upload_completed is False
 
 
-def test_json_presigned_rejects_property_media_image() -> None:
+def test_json_presigned_property_media_image_returns_watermark_finalize() -> None:
     user = SimpleNamespace(id=uuid.uuid4())
     repo = MagicMock()
     s3 = MagicMock()
     submission = _submission(user.id)
     repo.get_submission_by_id.return_value = submission
+    s3.generate_presigned_upload_url.return_value = "https://presigned-original"
+    s3.build_public_url.side_effect = lambda key: f"https://public/{key}"
     service = UploadService(repository=repo, s3_service=s3, settings=_settings())
 
-    with pytest.raises(HTTPException) as exc_info:
-        service.generate_presigned_upload(
-            body=PresignedUploadRequest(
-                submission_id=submission.id,
-                context="property_media_image",
-                file_name="front.jpg",
-                content_type="image/jpeg",
-                file_size=1024,
-            ),
-            user=user,
-        )
-    assert exc_info.value.status_code == 400
+    out = service.generate_presigned_upload(
+        body=PresignedUploadRequest(
+            submission_id=submission.id,
+            context="property_media_image",
+            file_name="download (3).jpeg",
+            content_type="image/jpeg",
+            file_size=7166,
+        ),
+        user=user,
+    )
+    assert out.upload_url == "https://presigned-original"
+    assert out.requires_watermark_finalize is True
+    assert out.upload_completed is False
+    assert out.original_url is not None
+    assert "/original/" in out.original_url
+    assert "/watermarked/" in out.url
+    key = s3.generate_presigned_upload_url.call_args.kwargs["key"]
+    assert "/original/" in key
+    assert "download" in key
 
 
 def test_extension_allowed_with_or_without_dot_in_env() -> None:
@@ -182,6 +191,31 @@ def test_rejects_file_size_above_limit() -> None:
             user=user,
         )
     assert exc_info.value.status_code == 400
+
+
+def test_json_presigned_property_media_image_accepts_draft_client_id() -> None:
+    user = SimpleNamespace(id=uuid.uuid4())
+    repo = MagicMock()
+    s3 = MagicMock()
+    client_id = uuid.uuid4()
+    s3.generate_presigned_upload_url.return_value = "https://presigned"
+    s3.build_public_url.return_value = "https://public/object"
+    service = UploadService(repository=repo, s3_service=s3, settings=_settings())
+
+    out = service.generate_presigned_upload(
+        body=PresignedUploadRequest(
+            draft_client_id=client_id,
+            context="property_media_image",
+            file_name="front.jpg",
+            content_type="image/jpeg",
+            file_size=1024,
+        ),
+        user=user,
+    )
+    assert not repo.get_submission_by_id.called
+    assert out.requires_watermark_finalize is True
+    key = s3.generate_presigned_upload_url.call_args.kwargs["key"]
+    assert str(client_id) in key
 
 
 def test_presigned_uses_draft_client_id_without_submission_row() -> None:

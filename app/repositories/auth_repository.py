@@ -9,6 +9,7 @@ from sqlalchemy import Select, or_, select, update
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.config import Settings, get_settings
+from app.models.social_account import SocialAccount
 from app.models.user import AgentProfile, Role, User
 
 
@@ -41,6 +42,10 @@ class AuthRepository:
     def refresh(self, instance: object) -> None:
         """Refresh instance from the DB."""
         self._db.refresh(instance)
+
+    def flush(self) -> None:
+        """Flush pending SQL so DB-generated/default PKs are available."""
+        self._db.flush()
 
     # User lookups --------------------------------------------------------
 
@@ -167,6 +172,52 @@ class AuthRepository:
         )
         return self._db.execute(stmt).scalar_one_or_none()
 
+    def get_user_by_cognito_sub(self, cognito_sub: str) -> Optional[User]:
+        """Get active (non-deleted) user by Cognito sub."""
+        stmt: Select = select(User).where(
+            User.cognito_sub == cognito_sub,
+            User.deleted_at.is_(None),
+        )
+        return self._db.execute(stmt).scalar_one_or_none()
+
+    def get_user_by_cognito_sub_including_deleted(self, cognito_sub: str) -> Optional[User]:
+        """Get user by Cognito sub regardless of soft-delete (for auth guard checks)."""
+        stmt: Select = select(User).where(User.cognito_sub == cognito_sub)
+        return self._db.execute(stmt).scalar_one_or_none()
+
+    def get_social_account(
+        self,
+        *,
+        provider: str,
+        provider_user_id: str,
+    ) -> Optional[SocialAccount]:
+        """Look up a linked social identity; loads the related User for caller checks."""
+        stmt: Select = (
+            select(SocialAccount)
+            .options(selectinload(SocialAccount.user))
+            .where(
+                SocialAccount.provider == provider,
+                SocialAccount.provider_user_id == provider_user_id,
+            )
+        )
+        return self._db.execute(stmt).scalar_one_or_none()
+
+    def create_social_account(
+        self,
+        *,
+        user_id: uuid.UUID,
+        provider: str,
+        provider_user_id: str,
+    ) -> SocialAccount:
+        """Persist a new social account row (caller commits)."""
+        row = SocialAccount(
+            user_id=user_id,
+            provider=provider,
+            provider_user_id=provider_user_id,
+        )
+        self._db.add(row)
+        return row
+
     def get_user_by_cognito_or_email(
         self,
         *,
@@ -201,7 +252,7 @@ class AuthRepository:
         *,
         email: str,
         full_name: str,
-        phone_number: str,
+        phone_number: Optional[str] = None,
         cognito_sub: Optional[str],
         is_active: bool,
     ) -> User:

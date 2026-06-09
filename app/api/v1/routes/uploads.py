@@ -7,6 +7,7 @@ import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
+from pydantic import ValidationError
 from fastapi.responses import JSONResponse
 
 from app.api.v1.deps.security import get_current_user
@@ -55,11 +56,14 @@ async def get_presigned_upload_url(
 ):
     """Presigned URL for videos/documents (JSON). Property images: multipart with ``file`` — watermark + S3 in one call.
 
-    **Property images** — ``multipart/form-data`` on this same path (one request, no S3 PUT from browser):
-    ``file``, ``context=property_media_image``, ``submission_id`` *or* ``draft_client_id``,
-    optional ``file_name``, ``content_type``, ``file_size``. Max file size: ``PROPERTY_IMAGE_MAX_SIZE_MB`` (default 5).
+    **Property images** — either:
 
-    **Videos/documents** — ``application/json`` body (unchanged); client PUTs to ``upload_url`` after.
+    - ``application/json``: presigned PUT to ``upload_url``, then
+      ``POST /uploads/property-images/finalize`` when ``requires_watermark_finalize`` is true; or
+    - ``multipart/form-data`` on this path: ``file``, ``context=property_media_image``,
+      ``submission_id`` *or* ``draft_client_id`` (server watermarks in one request).
+
+    **Videos/documents** — ``application/json``; client PUTs to ``upload_url`` after presign.
     """
     content_type = (request.headers.get("content-type") or "").lower()
 
@@ -72,21 +76,51 @@ async def get_presigned_upload_url(
         )
 
     try:
-        body = PresignedUploadRequest.model_validate(await request.json())
+        raw = await request.json()
     except Exception as exc:
+        logger.warning("[presigned-url] invalid JSON body user_id=%s", current_user.id)
         raise HTTPException(status_code=HTTPStatus.BAD_REQUEST, detail="Invalid JSON body") from exc
 
-    if body.context == "property_media_image":
-        raise HTTPException(
-            status_code=HTTPStatus.BAD_REQUEST,
-            detail=(
-                "Property images must be sent as multipart/form-data on POST /uploads/presigned-url "
-                "with the image file included. The server watermarks and uploads to S3 in that single request. "
-                "Do not send JSON without a file and do not PUT to S3 from the browser."
-            ),
+    try:
+        body = PresignedUploadRequest.model_validate(raw)
+    except ValidationError as exc:
+        logger.warning(
+            "[presigned-url] validation failed user_id=%s body=%s errors=%s",
+            current_user.id,
+            raw,
+            exc.errors(),
         )
+        raise HTTPException(status_code=HTTPStatus.BAD_REQUEST, detail=exc.errors()) from exc
 
-    data = upload_service.generate_presigned_upload(body=body, user=current_user)
+    logger.info(
+        "[presigned-url] json user_id=%s context=%s submission_id=%s draft_client_id=%s file_name=%s content_type=%s file_size=%s",
+        current_user.id,
+        body.context,
+        body.submission_id,
+        body.draft_client_id,
+        body.file_name,
+        body.content_type,
+        body.file_size,
+    )
+
+    try:
+        data = upload_service.generate_presigned_upload(body=body, user=current_user)
+    except HTTPException:
+        logger.warning(
+            "[presigned-url] rejected user_id=%s context=%s submission_id=%s draft_client_id=%s",
+            current_user.id,
+            body.context,
+            body.submission_id,
+            body.draft_client_id,
+        )
+        raise
+    except Exception:
+        logger.exception(
+            "[presigned-url] unexpected error user_id=%s context=%s",
+            current_user.id,
+            body.context,
+        )
+        raise
     return create_success_response(data=data, message=None)
 
 

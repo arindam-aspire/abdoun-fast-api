@@ -14,8 +14,11 @@ from app.services.s3_service import S3Service
 from app.utils.status_codes import HTTPStatus
 from app.utils.storage_paths import (
     draft_document_key,
+    draft_image_original_key,
+    draft_image_watermarked_key,
     draft_owner_document_key,
     draft_video_key,
+    sanitize_filename,
 )
 
 
@@ -38,7 +41,8 @@ class UploadService:
     ``submission_id`` targets a persisted draft; ``draft_client_id`` (with the same path layout) is for uploads
     before a submission row exists. The route always requires an authenticated user.
 
-    Property images use multipart ``POST /uploads/presigned-url`` (handled in the route, not here).
+    Property images support JSON presigned PUT (then ``POST /uploads/property-images/finalize``)
+    or multipart ``POST /uploads/presigned-url`` with ``file`` (handled in the route).
     """
 
     def __init__(
@@ -94,21 +98,30 @@ class UploadService:
         self._validate_content_type(context=body.context, content_type=body.content_type)
         self._validate_file_size(context=body.context, file_size=body.file_size)
 
-        if body.context == "property_media_image":
-            raise HTTPException(
-                status_code=HTTPStatus.BAD_REQUEST,
-                detail=(
-                    "Property images must use multipart/form-data on POST /uploads/presigned-url "
-                    "with the file field. Server watermarks and uploads in one request."
-                ),
-            )
-
         expiry = self._settings.aws_s3_presigned_expiry
+        sanitized_name = sanitize_filename(cleaned_name)
+
+        if body.context == "property_media_image":
+            original_key = draft_image_original_key(path_id, sanitized_name)
+            watermarked_key = draft_image_watermarked_key(path_id, sanitized_name)
+            upload_url = self._s3.generate_presigned_upload_url(
+                key=original_key,
+                content_type=body.content_type,
+                expires_in=expiry,
+            )
+            return PresignedUploadData(
+                upload_url=upload_url,
+                url=self._s3.build_public_url(watermarked_key),
+                original_url=self._s3.build_public_url(original_key),
+                expires_in=expiry,
+                requires_watermark_finalize=True,
+                upload_completed=False,
+            )
 
         key = self._build_draft_key(
             context=body.context,
             path_id=path_id,
-            filename=cleaned_name,
+            filename=sanitized_name,
         )
         upload_url = self._s3.generate_presigned_upload_url(
             key=key,

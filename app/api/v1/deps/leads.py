@@ -5,8 +5,10 @@ from sqlalchemy.orm import Session
 
 from app.api.v1.deps.notifications import get_notification_event_emitter
 from app.db.session import get_db
+from app.repositories.lead_dashboard_repository import LeadDashboardRepository
 from app.repositories.lead_repository import LeadRepository
 from app.services.lead_audit_service import LeadAuditService
+from app.services.lead_dashboard_service import LeadDashboardService
 from app.services.lead_notification_service import LeadNotificationService
 from app.services.lead_permission_service import LeadPermissionService
 from app.services.lead_service import LeadService
@@ -34,3 +36,13 @@ def get_lead_service(
         notifications=notifications,
         notification_emitter=notification_emitter,
     )
+
+
+def get_lead_dashboard_repository(db: Session = Depends(get_db)) -> LeadDashboardRepository:
+    return LeadDashboardRepository(db)
+
+
+def get_lead_dashboard_service(
+    repo: LeadDashboardRepository = Depends(get_lead_dashboard_repository),
+) -> LeadDashboardService:
+    return LeadDashboardService(repo)

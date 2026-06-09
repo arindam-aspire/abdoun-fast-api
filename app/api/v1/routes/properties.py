@@ -8,16 +8,19 @@ from typing import Annotated, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
+from app.api.v1.deps.my_listings import MyListingsAuth, get_my_listings_service, require_agent_or_admin
 from app.api.v1.deps.properties import get_property_search_service
 from app.api.v1.deps.recent_views import get_recent_view_service
 from app.api.v1.deps.security import get_current_user_optional
 from app.domains.shared.pagination import calculate_pagination
 from app.models.user import User
+from app.schemas.my_listings import MyListingsResponse
 from app.schemas.property import (
     PropertyDetail,
     PropertySearchParams,
     PropertySearchResponse,
 )
+from app.services.my_listings_service import MyListingsService
 from app.services.property_search_service import PropertySearchService
 from app.services.recent_view_service import RecentViewService
 from app.utils.constants import ApiDocs, Defaults
@@ -182,6 +185,41 @@ def list_properties(
     result = service.search(params)
     meta = calculate_pagination(page=result.page, page_size=result.pageSize, total=result.total)
     return create_success_response(data=result, message=None, pagination=meta)
+
+
+@router.get("/my-listings", response_model=StandardResponse[MyListingsResponse])
+def list_my_listings(
+    auth: Annotated[MyListingsAuth, Depends(require_agent_or_admin)],
+    service: Annotated[MyListingsService, Depends(get_my_listings_service)],
+    page: int = Query(default=1, ge=1, description="1-based page number"),
+    page_size: int = Query(default=20, ge=1, le=200, alias="pageSize", description="Items per page"),
+    status: Optional[str] = Query(
+        default=None,
+        description="Filter by listing status: draft, pending, active, rejected, inactive",
+    ),
+    property_type: Optional[str] = Query(
+        default=None,
+        alias="propertyType",
+        description="Filter by property type slug",
+    ),
+    search: Optional[str] = Query(default=None, description="Search title, reference, or type"),
+) -> StandardResponse[MyListingsResponse]:
+    """List properties for the logged-in agent or admin.
+
+    - **Agent**: properties created by the current user.
+    - **Admin**: all properties, including assigned agent details (``agent`` null when unassigned).
+    """
+    data = service.list_my_listings(
+        scope=auth.scope,
+        user_id=auth.user.id,
+        page=page,
+        page_size=page_size,
+        status=status,
+        property_type=property_type,
+        search=search,
+    )
+    pm = calculate_pagination(page=data.page, page_size=data.page_size, total=data.total_count)
+    return create_success_response(data=data, message=None, pagination=pm)
 
 
 @router.get("/exclusive")

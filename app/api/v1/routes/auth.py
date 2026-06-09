@@ -7,7 +7,7 @@ to `AuthService`.
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, Query
 from fastapi.security import HTTPAuthorizationCredentials
 
 from app.api.v1.deps.auth import get_auth_service, get_profile_update_service
@@ -17,7 +17,7 @@ from app.api.v1.deps.security import get_current_user, require_role, security
 from app.core.config import get_settings
 from app.core.limiter import limiter
 from app.models.user import User
-from app.utils.constants import Defaults, RateLimits, SuccessMessages, UserRoles
+from app.utils.constants import ApiDocs, Defaults, RateLimits, SuccessMessages, UserRoles
 from app.schemas.user import (
     ConfirmSignupRequest,
     ForgotPasswordConfirm,
@@ -214,9 +214,12 @@ def change_password(
 @router.get("/social-login")
 def social_login(
     service: Annotated[AuthService, Depends(get_auth_service)],
-    provider: str = Defaults.DEFAULT_SOCIAL_PROVIDER,
+    provider: str = Query(
+        Defaults.DEFAULT_SOCIAL_PROVIDER,
+        description=ApiDocs.SOCIAL_LOGIN_PROVIDER,
+    ),
 ) -> StandardResponse[dict]:
-    """Get the social login URL for a specific provider."""
+    """Get the Cognito Hosted UI URL for Google or Facebook sign-in."""
     return service.social_login(provider)
 
 

@@ -4,6 +4,7 @@ import hashlib
 import hmac
 import secrets
 from typing import Any, Dict, List, Optional
+from urllib.parse import urlencode
 
 import boto3
 import requests
@@ -506,10 +507,9 @@ class CognitoService:
             "client_id": self.client_id,
             "redirect_uri": settings.social_redirect_uri,
             "identity_provider": provider,
-            "scope": "email openid profile"
+            "scope": "openid email profile",
         }
-        query_str = "&".join([f"{k}={v}" for k, v in params.items()])
-        return f"{base_url}?{query_str}"
+        return f"{base_url}?{urlencode(params)}"
 
     def exchange_code_for_tokens(self, code: str) -> Dict[str, Any]:
         """
@@ -522,9 +522,27 @@ class CognitoService:
             "code": code,
             "redirect_uri": settings.social_redirect_uri,
         }
+        auth = None
+        if self.client_secret:
+            # Confidential Cognito app clients require client authentication at /oauth2/token.
+            auth = (self.client_id, self.client_secret)
+
         @retry(cfg=RetryConfig(max_attempts=4), is_retryable=is_retryable_http_error)
         def _post() -> Dict[str, Any]:
-            response = requests.post(token_url, data=data, timeout=10)
+            response = requests.post(
+                token_url,
+                data=data,
+                auth=auth,
+                timeout=10,
+            )
+            if response.status_code >= 400:
+                api_logger.error(
+                    format_log_message(
+                        LogMessages.Auth.SOCIAL_AUTH_FAILED_LOG,
+                        email=LogMessages.Auth.UNKNOWN_EMAIL,
+                        error=f"Token endpoint {response.status_code}: {response.text}",
+                    )
+                )
             response.raise_for_status()
             return response.json()
 
@@ -585,7 +603,7 @@ class CognitoService:
             )
             raise e
 
-    def verify_token(self, token: str) -> Optional[Dict[str, Any]]:
+    def verify_token(self, token: str, access_token: Optional[str] = None) -> Optional[Dict[str, Any]]:
         try:
             headers = jwt.get_unverified_header(token)
             kid = headers["kid"]
@@ -597,13 +615,15 @@ class CognitoService:
                 api_logger.warning(format_log_message(LogMessages.Auth.JWKS_KEY_NOT_FOUND, kid=kid))
                 return None
                 
-            payload = jwt.decode(
-                token,
-                key,
-                algorithms=["RS256"],
-                audience=self.client_id,
-                issuer=f"https://cognito-idp.{settings.cognito_region}.amazonaws.com/{self.user_pool_id}"
-            )
+            decode_kwargs: Dict[str, Any] = {
+                "algorithms": ["RS256"],
+                "audience": self.client_id,
+                "issuer": f"https://cognito-idp.{settings.cognito_region}.amazonaws.com/{self.user_pool_id}",
+            }
+            # Some ID tokens include at_hash; jose validates it when access_token is provided.
+            if access_token:
+                decode_kwargs["access_token"] = access_token
+            payload = jwt.decode(token, key, **decode_kwargs)
             return payload
         except Exception as e:
             api_logger.error(format_log_message(LogMessages.Auth.TOKEN_VERIFICATION_FAILED, error=str(e)))

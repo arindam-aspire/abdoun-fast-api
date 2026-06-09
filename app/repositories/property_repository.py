@@ -662,6 +662,124 @@ class PropertyRepository:
         rows = self._db.execute(stmt.offset(offset).limit(page_size)).unique().scalars().all()
         return list(rows), total
 
+    def list_my_listings(
+        self,
+        *,
+        scope: str,
+        agent_user_id: uuid.UUID | None,
+        page: int,
+        page_size: int,
+        status: str | None = None,
+        property_type: str | None = None,
+        search: str | None = None,
+    ) -> Tuple[List[Property], int, dict[uuid.UUID, str | None]]:
+        """Paginated listings for GET /properties/my-listings.
+
+        Admin scope: all non-deleted properties.
+        Agent scope: properties where ``created_by`` equals the agent.
+
+        Returns properties, total count, and latest submission status per property id.
+        """
+        from app.utils.my_listing_status import my_listing_status_sql_filter
+
+        status_norm = (status or "").strip().lower()
+        type_norm = (property_type or "").strip().lower()
+        search_norm = (search or "").strip()
+
+        ranked_submissions = (
+            select(
+                PropertyListingSubmission.property_id.label("property_id"),
+                PropertyListingSubmission.status.label("submission_status"),
+                func.row_number()
+                .over(
+                    partition_by=PropertyListingSubmission.property_id,
+                    order_by=PropertyListingSubmission.updated_at.desc(),
+                )
+                .label("rn"),
+            )
+            .where(
+                PropertyListingSubmission.property_id.is_not(None),
+                PropertyListingSubmission.deleted_at.is_(None),
+            )
+            .subquery("my_listings_submissions")
+        )
+
+        stmt = (
+            select(Property)
+            .options(
+                joinedload(Property.type),
+                joinedload(Property.property_status),
+                joinedload(Property.agent_user),
+            )
+            .outerjoin(PropertyType, Property.type_id == PropertyType.id)
+            .outerjoin(PropertyStatus, Property.property_status_id == PropertyStatus.id)
+            .outerjoin(
+                ranked_submissions,
+                and_(
+                    ranked_submissions.c.property_id == Property.id,
+                    ranked_submissions.c.rn == 1,
+                ),
+            )
+        )
+
+        base_filters = [Property.deleted_at.is_(None)]
+        if scope == "agent":
+            if agent_user_id is None:
+                base_filters.append(false())
+            else:
+                base_filters.append(Property.created_by == agent_user_id)
+
+        if search_norm:
+            term = search_norm.lower()
+            base_filters.append(
+                or_(
+                    func.lower(Property.title).contains(term),
+                    func.lower(func.coalesce(Property.reference_number, "")).contains(term),
+                    func.lower(func.coalesce(PropertyType.name, "")).contains(term),
+                    func.lower(func.coalesce(PropertyType.slug, "")).contains(term),
+                )
+            )
+
+        if type_norm:
+            base_filters.append(func.lower(PropertyType.slug) == type_norm)
+
+        if status_norm:
+            catalog_slug = PropertyStatus.slug
+            latest_wf = ranked_submissions.c.submission_status
+            base_filters.append(my_listing_status_sql_filter(status_norm, latest_wf=latest_wf, catalog_slug=catalog_slug))
+
+        stmt = stmt.where(and_(*base_filters))
+
+        default_sort = func.coalesce(Property.updated_at, Property.created_at).desc()
+        stmt = stmt.order_by(default_sort)
+
+        count_stmt = stmt.with_only_columns(func.count(Property.id)).order_by(None)
+        total = int(self._db.execute(count_stmt).scalar() or 0)
+
+        offset = max(page - 1, 0) * page_size
+        rows = list(self._db.execute(stmt.offset(offset).limit(page_size)).unique().scalars().all())
+
+        submission_status_by_property: dict[uuid.UUID, str | None] = {}
+        if rows:
+            pid_list = [p.id for p in rows]
+            sub_stmt = (
+                select(
+                    PropertyListingSubmission.property_id,
+                    PropertyListingSubmission.status,
+                )
+                .where(
+                    PropertyListingSubmission.property_id.in_(pid_list),
+                    PropertyListingSubmission.deleted_at.is_(None),
+                )
+                .order_by(PropertyListingSubmission.updated_at.desc())
+            )
+            for sub_row in self._db.execute(sub_stmt).all():
+                pid = sub_row.property_id
+                if pid is not None and pid not in submission_status_by_property:
+                    submission_status_by_property[pid] = sub_row.status
+
+        return rows, total, submission_status_by_property
+
   # Location search -------------------------------------------------------
 
     def search_local_locations(self, *, query: str, limit: int = 5) -> list[dict[str, str]]:

@@ -31,7 +31,7 @@ def add_recent_view(
     service: Annotated[RecentViewService, Depends(get_recent_view_service)],
 ):
     """Add or refresh a recent property for the current user."""
-    service.add_or_refresh(user_id=current_user.id, property_id=body.property_id)
+    service.add_or_refresh_from_request(user_id=current_user.id, body=body)
     return create_success_response(data=True, message=SuccessMessages.RECENT_VIEW_UPDATED)
 
 
