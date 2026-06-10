@@ -107,6 +107,18 @@ class AccountUserStatus(str, Enum):
     DELETED = "DELETED"
 
 
+class OwnerAgencyLinkRequest(BaseModel):
+    """Link an existing agency to the authenticated owner account."""
+
+    agency_id: uuid.UUID = Field(
+        ...,
+        validation_alias=AliasChoices("agency_id", "agencyId"),
+        description="UUID of the agency to link to the owner account.",
+    )
+
+    model_config = {"populate_by_name": True}
+
+
 class UserAgencyResponse(BaseModel):
     agency_id: uuid.UUID = Field(
         ...,
@@ -131,6 +143,13 @@ class UserResponse(UserBase):
     is_phone_verified: bool
     profile_picture_url: Optional[str] = None
     agency: Optional[UserAgencyResponse] = None
+    has_agency: bool = Field(
+        default=False,
+        description=(
+            "True when the user is linked to an agency account "
+            "(``users.agency_id`` is set and the agency record exists)."
+        ),
+    )
     roles: List[RoleResponse] = []
     created_at: datetime
     requires_password_set: bool = Field(False, description="True if user must set a password (e.g. agent who signed in via OTP and has not set one)")

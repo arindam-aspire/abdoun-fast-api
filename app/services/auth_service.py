@@ -132,6 +132,15 @@ class AuthService:
             self._media_url_signer.apply_user_response(user_response)
         return user_response
 
+    @staticmethod
+    def _user_has_linked_agency(user: User, *, agency: object | None = None) -> bool:
+        """True when ``users.agency_id`` is set and the related agency row is present."""
+        agency_id = getattr(user, "agency_id", None)
+        if agency_id is None:
+            return False
+        resolved_agency = agency if agency is not None else getattr(user, "agency", None)
+        return resolved_agency is not None
+
     def _ensure_user_login_allowed(self, user: User) -> None:
         """Block token issuance for inactive or deleted users (defense-in-depth)."""
         if getattr(user, "deleted_at", None) is not None:
@@ -1359,8 +1368,8 @@ class AuthService:
 
     def get_current_user_profile(self, current_user: User) -> StandardResponse[UserResponse]:
         self._repo.ensure_agent_profile_loaded(current_user)
-        # Ensure lazy relationship is resolved while session is active for /auth/me payload.
-        _ = getattr(current_user, "agency", None)
+        # Resolve agency while the session is active (reused for ``agency`` + ``has_agency``).
+        agency = getattr(current_user, "agency", None)
 
         requires_password_set = False
         if current_user.profile:
@@ -1369,6 +1378,7 @@ class AuthService:
 
         user_response = UserResponse.model_validate(current_user)
         user_response.requires_password_set = requires_password_set
+        user_response.has_agency = self._user_has_linked_agency(current_user, agency=agency)
         self._sign_user_response(user_response)
 
         return create_success_response(data=user_response, message=None)

@@ -227,6 +227,8 @@ class SuccessMessages:
     AGENCY_DOCUMENT_UPLOAD_READY = "Agency legal document upload URL generated"
     AGENCY_LOGO_UPLOADED = "Agency logo upload URL generated"
     AGENCY_LOGO_DELETED = "Agency logo deleted successfully"
+    AGENCY_ALREADY_LINKED_TO_OWNER = "Agency already linked to this owner"
+    AGENCY_LINKED_SUCCESSFULLY = "Agency linked successfully"
     LOGIN_SUCCESSFUL = "Login successful"
     LOGOUT_SUCCESSFUL = "Logged out successfully"
     PASSWORD_RESET_SUCCESS = "Password reset successfully"
@@ -711,6 +713,7 @@ class UserRoles:
     SUPER_ADMIN = "super_admin"
     ADMIN = "admin"
     AGENT = "agent"
+    OWNER = "owner"
     REGISTERED_USER = "registered_user"
 
 

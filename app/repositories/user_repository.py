@@ -123,6 +123,10 @@ class UserRepository:
         user.deleted_at = datetime.now(timezone.utc)
         user.deleted_by = deleted_by_id
 
+    def set_user_agency_id(self, *, user: User, agency_id: uuid.UUID) -> None:
+        """Set ``users.agency_id`` for the given user (caller commits)."""
+        user.agency_id = agency_id
+
     # Roles and permissions
 
     def list_roles_with_permissions(self) -> List[Role]:

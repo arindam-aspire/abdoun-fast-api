@@ -9,11 +9,14 @@ from typing import Annotated, List, Optional
 from fastapi import APIRouter, Depends, Query
 
 from app.api.v1.deps.media_urls import get_media_url_signer
-from app.api.v1.deps.security import get_current_user, require_permission
+from app.api.v1.deps.owner_agency_link import get_owner_agency_link_service
+from app.api.v1.deps.security import get_current_user, require_permission, require_role
 from app.api.v1.deps.users import get_user_service
 from app.domains.shared.pagination import calculate_pagination
 from app.models.user import User
+from app.schemas.agency import AgencyResponse
 from app.schemas.user import (
+    OwnerAgencyLinkRequest,
     RoleAssignmentRequest,
     RoleResponse,
     UserResponse,
@@ -22,11 +25,35 @@ from app.schemas.user import (
     UsersListPaginatedResponse,
 )
 from app.services.media_url_signer import MediaUrlSigner
+from app.services.owner_agency_link_service import OwnerAgencyLinkService
 from app.services.user_service import UserService
-from app.utils.constants import ApiDocs, SuccessMessages, UserPermissions
+from app.utils.constants import ApiDocs, SuccessMessages, UserPermissions, UserRoles
 from app.utils.responses import StandardResponse, create_success_response
 
 router = APIRouter()
+
+
+@router.patch(
+    "/agency",
+    response_model=StandardResponse[AgencyResponse],
+    summary="Link agency to owner account",
+    description=(
+        "Authenticated owners link an existing agency to their user account. "
+        "When an agency is already linked, the request is idempotent and returns "
+        "the existing agency without changing ``agency_id``."
+    ),
+)
+def link_owner_agency(
+    body: OwnerAgencyLinkRequest,
+    current_user: Annotated[User, require_role(UserRoles.OWNER)],
+    service: Annotated[OwnerAgencyLinkService, Depends(get_owner_agency_link_service)],
+    media_signer: Annotated[MediaUrlSigner, Depends(get_media_url_signer)],
+) -> StandardResponse[AgencyResponse]:
+    """Link an agency to the authenticated owner (``owner`` role required)."""
+    response = service.link_agency(current_user=current_user, agency_id=body.agency_id)
+    if response.data is not None:
+        media_signer.apply_agency_response(response.data)
+    return response
 
 
 @router.get(

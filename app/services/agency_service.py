@@ -271,7 +271,11 @@ class AgencyService:
 
     def list_agencies(self, *, current_user: User, skip: int, limit: int) -> StandardResponse[list[AgencyResponse]]:
         roles = {role.name for role in current_user.roles}
-        if UserRoles.SUPER_ADMIN in roles or (UserRoles.ADMIN in roles and current_user.agency_id is None):
+        if (
+            UserRoles.SUPER_ADMIN in roles
+            or UserRoles.OWNER in roles
+            or (UserRoles.ADMIN in roles and current_user.agency_id is None)
+        ):
             agencies = self._repo.list_agencies(skip=skip, limit=limit)
         elif UserRoles.ADMIN in roles and current_user.agency_id:
             agency = self._repo.get_by_id(current_user.agency_id)
