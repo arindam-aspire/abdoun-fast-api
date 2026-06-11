@@ -20,6 +20,7 @@ from app.schemas.property_submission import (
     PropertySubmissionSubmitResponse,
 )
 from app.services.property_submission_service import PropertySubmissionService
+from app.utils.constants import SuccessMessages
 from app.utils.responses import StandardResponse, create_success_response
 
 router = APIRouter()
@@ -36,7 +37,7 @@ def create_submission(
     Empty or omitted body remains supported for backward compatibility (older clients that created a row on entry).
     """
     data = service.create_submission(user=current_user, body=body)
-    return create_success_response(data=data, message=None)
+    return create_success_response(data=data, message=SuccessMessages.PROPERTY_SUBMISSION_DRAFT_CREATED)
 
 
 @router.post(
@@ -50,7 +51,7 @@ def create_and_submit(
 ):
     """Create a submission, validate, and submit in one atomic flow (e.g. Redux-first with no prior ``submission_id``)."""
     data = service.create_and_submit_submission(user=current_user, body=body)
-    return create_success_response(data=data, message=None)
+    return create_success_response(data=data, message=SuccessMessages.PROPERTY_SUBMISSION_SUBMITTED)
 
 
 @router.get("/{submission_id}", response_model=StandardResponse[PropertySubmissionDetailResponse])
@@ -61,7 +62,7 @@ def get_submission(
 ):
     """Get one submission by id for current owner user."""
     data = service.get_submission(submission_id=submission_id, user=current_user)
-    return create_success_response(data=data, message=None)
+    return create_success_response(data=data, message=SuccessMessages.PROPERTY_SUBMISSION_FETCHED)
 
 
 @router.patch("/{submission_id}", response_model=StandardResponse[PropertySubmissionPatchResponse])
@@ -73,7 +74,7 @@ def patch_submission(
 ):
     """Save progress: per-step (``step`` + ``data``) or full form (``payload`` + ``action=save_draft`` + ``current_step``)."""
     data = service.patch_submission(submission_id=submission_id, body=body, user=current_user)
-    return create_success_response(data=data, message=None)
+    return create_success_response(data=data, message=SuccessMessages.PROPERTY_SUBMISSION_DRAFT_SAVED)
 
 
 @router.post("/{submission_id}/submit", response_model=StandardResponse[PropertySubmissionSubmitResponse])
@@ -88,7 +89,7 @@ def submit_submission(
     After admin **reject**, the agent can edit and call this again to re-enter **submitted** (pending review).
     """
     data = service.submit_submission(submission_id=submission_id, body=body, user=current_user)
-    return create_success_response(data=data, message=None)
+    return create_success_response(data=data, message=SuccessMessages.PROPERTY_SUBMISSION_SUBMITTED)
 
 
 @router.delete("/{submission_id}", response_model=StandardResponse[PropertySubmissionDeleteResponse])
@@ -103,4 +104,4 @@ def delete_submission(
     **Edit** remains ``PATCH /{submission_id}``; use this to remove a submission the agent is allowed to drop.
     """
     data = service.delete_submission_with_reason(submission_id=submission_id, user=current_user, reason=reason)
-    return create_success_response(data=data, message=None)
+    return create_success_response(data=data, message=SuccessMessages.PROPERTY_SUBMISSION_DELETED)

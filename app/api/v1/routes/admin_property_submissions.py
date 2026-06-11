@@ -21,10 +21,16 @@ from app.schemas.property_submission import (
 )
 from app.schemas.admin_property_drafts import AdminDraftSubmissionItem, AdminDraftSubmissionListResponse
 from app.services.property_submission_service import PropertySubmissionService
-from app.utils.constants import UserRoles
+from app.utils.constants import SuccessMessages, UserRoles
 from app.utils.responses import StandardResponse, create_success_response
 
 router = APIRouter()
+
+_REVIEW_STATUS_MESSAGES = {
+    "approved": SuccessMessages.PROPERTY_SUBMISSION_APPROVED,
+    "changes_requested": SuccessMessages.PROPERTY_SUBMISSION_CHANGES_REQUESTED,
+    "rejected": SuccessMessages.PROPERTY_SUBMISSION_REJECTED,
+}
 
 
 @router.get("", response_model=StandardResponse[AdminSubmissionListResponse])
@@ -43,7 +49,7 @@ def list_submissions_for_admin(
     """
     data = service.list_admin_submissions(status=status, page=page, page_size=page_size, include_deleted=include_deleted)
     pm = calculate_pagination(page=data.page, page_size=data.pageSize, total=data.total)
-    return create_success_response(data=data, message=None, pagination=pm)
+    return create_success_response(data=data, message=SuccessMessages.PROPERTY_SUBMISSIONS_LIST_FETCHED, pagination=pm)
 
 
 @router.get(
@@ -68,7 +74,7 @@ def list_admin_draft_submissions(
         hasPrevious=bool(payload["hasPrevious"]),
     )
     pm = calculate_pagination(page=body.page, page_size=body.pageSize, total=body.total)
-    return create_success_response(data=body, message=None, pagination=pm)
+    return create_success_response(data=body, message=SuccessMessages.ADMIN_PROPERTY_SUBMISSION_DRAFTS_FETCHED, pagination=pm)
 
 
 @router.get("/{submission_id}", response_model=StandardResponse[AdminSubmissionDetailResponse])
@@ -79,7 +85,7 @@ def get_submission_for_admin(
 ):
     """Get one submission details for moderation."""
     data = service.get_admin_submission(submission_id=submission_id)
-    return create_success_response(data=data, message=None)
+    return create_success_response(data=data, message=SuccessMessages.PROPERTY_SUBMISSION_FETCHED)
 
 
 @router.post(
@@ -98,7 +104,8 @@ def review_submission_for_admin(
         admin_user=current_user,
         body=body,
     )
-    return create_success_response(data=data, message=None)
+    message = _REVIEW_STATUS_MESSAGES.get(data.status, SuccessMessages.PROPERTY_SUBMISSION_APPROVED)
+    return create_success_response(data=data, message=message)
 
 
 @router.post(
@@ -112,7 +119,7 @@ def admin_create_and_submit_approved(
 ):
     """Admin creates a property and it is approved immediately (no pending review)."""
     data = service.admin_create_and_approve_submission(admin_user=current_user, body=body)
-    return create_success_response(data=data, message=None)
+    return create_success_response(data=data, message=SuccessMessages.ADMIN_PROPERTY_SUBMISSION_PUBLISHED)
 
 
 @router.post(
@@ -131,7 +138,7 @@ def admin_submit_existing_draft(
         admin_user=current_user,
         confirm_submit=body.confirm_submit,
     )
-    return create_success_response(data=data, message=None)
+    return create_success_response(data=data, message=SuccessMessages.ADMIN_PROPERTY_SUBMISSION_PUBLISHED)
 
 
 @router.delete(
@@ -146,4 +153,4 @@ def admin_soft_delete_submission(
 ):
     """Admin soft delete a submission and linked property (if any)."""
     data = service.admin_soft_delete_submission(submission_id=submission_id, admin_user=current_user, reason=reason)
-    return create_success_response(data=data, message=None)
+    return create_success_response(data=data, message=SuccessMessages.ADMIN_PROPERTY_SUBMISSION_DELETED)

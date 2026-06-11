@@ -271,6 +271,22 @@ class SuccessMessages:
     LEAD_DASHBOARD_SUMMARY_FETCHED = "Lead dashboard summary fetched successfully"
     LEAD_COMPLIANCE_REPORT_FETCHED = "Lead compliance report fetched successfully"
 
+    # Property submissions (user)
+    PROPERTY_SUBMISSION_DRAFT_CREATED = "Property draft saved successfully"
+    PROPERTY_SUBMISSION_DRAFT_SAVED = "Property submission progress saved successfully"
+    PROPERTY_SUBMISSION_SUBMITTED = "Property submitted successfully"
+    PROPERTY_SUBMISSION_FETCHED = "Property submission fetched successfully"
+    PROPERTY_SUBMISSION_DELETED = "Property submission deleted successfully"
+
+    # Property submissions (admin)
+    PROPERTY_SUBMISSIONS_LIST_FETCHED = "Property submissions fetched successfully"
+    ADMIN_PROPERTY_SUBMISSION_DRAFTS_FETCHED = "Admin draft submissions fetched successfully"
+    PROPERTY_SUBMISSION_APPROVED = "Property submission approved successfully"
+    PROPERTY_SUBMISSION_CHANGES_REQUESTED = "Changes requested on property submission"
+    PROPERTY_SUBMISSION_REJECTED = "Property submission rejected"
+    ADMIN_PROPERTY_SUBMISSION_PUBLISHED = "Property published successfully"
+    ADMIN_PROPERTY_SUBMISSION_DELETED = "Property submission deleted successfully"
+
 
 # Info Messages
 class InfoMessages:
