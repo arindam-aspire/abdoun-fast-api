@@ -30,6 +30,9 @@ jobs:
           ssh "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" << 'EOF'
             cd /var/www/app
             git pull origin main
-            docker compose down --remove-orphans
+            docker compose down --remove-orphans || true
+            docker rm -f realestate_api || true
+            docker ps -q | xargs -r docker stop
+            docker ps -aq | xargs -r docker rm
             docker compose up -d --build --force-recreate
           EOF
