@@ -8,6 +8,7 @@ import uuid
 from datetime import datetime, timezone
 
 from app.schemas.agency import AgencyLogoUploadResponse, AgencyResponse
+from app.schemas.uploads import PresignedUploadData, PropertyImageUploadData
 from app.schemas.user import UserResponse
 from app.services.media_url_signer import MediaUrlSigner
 
@@ -128,6 +129,62 @@ def test_sign_agency_response_skips_pending_placeholder() -> None:
     signer.apply_agency_response(agency)
     assert agency.legal_document_s3_link == "__pending_legal_document_upload__"
     s3.generate_presigned_get_url.assert_not_called()
+
+
+def _signer_settings() -> MagicMock:
+    settings = MagicMock()
+    settings.aws_s3_bucket = "b"
+    settings.aws_region = "us-west-2"
+    settings.aws_s3_public_base_url = None
+    settings.aws_s3_endpoint_url = None
+    settings.aws_s3_presigned_get_expiry_seconds = 3600
+    settings.aws_s3_use_presigned_url = True
+    return settings
+
+
+def test_apply_presigned_upload_data_keeps_canonical_url_and_adds_preview() -> None:
+    s3 = MagicMock()
+    s3.generate_presigned_get_url.return_value = "https://signed-preview"
+    signer = MediaUrlSigner(s3_service=s3, settings=_signer_settings())
+    data = PresignedUploadData(
+        upload_url="https://put-url",
+        url="https://b.s3.us-west-2.amazonaws.com/drafts/property-submissions/x/images/watermarked/a.jpg",
+        expires_in=900,
+        original_url="https://b.s3.us-west-2.amazonaws.com/drafts/property-submissions/x/images/original/a.jpg",
+        upload_completed=False,
+    )
+    signer.apply_presigned_upload_data(data)
+    assert "/watermarked/" in data.url
+    assert data.preview_url == "https://signed-preview"
+    assert s3.generate_presigned_get_url.call_args.kwargs["key"] == "drafts/property-submissions/x/images/original/a.jpg"
+
+
+def test_apply_presigned_upload_data_completed_uses_watermarked_preview() -> None:
+    s3 = MagicMock()
+    s3.generate_presigned_get_url.return_value = "https://signed-watermarked"
+    signer = MediaUrlSigner(s3_service=s3, settings=_signer_settings())
+    data = PresignedUploadData(
+        upload_url="https://put-url",
+        url="https://b.s3.us-west-2.amazonaws.com/drafts/property-submissions/x/images/watermarked/a.jpg",
+        expires_in=900,
+        upload_completed=True,
+    )
+    signer.apply_presigned_upload_data(data)
+    assert data.preview_url == "https://signed-watermarked"
+    assert "/watermarked/" in s3.generate_presigned_get_url.call_args.kwargs["key"]
+
+
+def test_apply_property_image_upload_data() -> None:
+    s3 = MagicMock()
+    s3.generate_presigned_get_url.return_value = "https://signed-image"
+    signer = MediaUrlSigner(s3_service=s3, settings=_signer_settings())
+    data = PropertyImageUploadData(
+        url="https://b.s3.us-west-2.amazonaws.com/drafts/property-submissions/x/images/watermarked/a.jpg",
+        file_name="a.jpg",
+    )
+    signer.apply_property_image_upload_data(data)
+    assert data.url.endswith("/watermarked/a.jpg")
+    assert data.preview_url == "https://signed-image"
 
 
 def test_sign_agency_logo_upload_response() -> None:

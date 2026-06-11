@@ -274,6 +274,8 @@ class SuccessMessages:
     # Property submissions (user)
     PROPERTY_SUBMISSION_DRAFT_CREATED = "Property draft saved successfully"
     PROPERTY_SUBMISSION_DRAFT_SAVED = "Property submission progress saved successfully"
+    PROPERTY_SUBMISSION_SAVED = "Property submission saved successfully"
+    PROPERTY_SUBMISSION_UPDATED = "Property submission updated successfully"
     PROPERTY_SUBMISSION_SUBMITTED = "Property submitted successfully"
     PROPERTY_SUBMISSION_FETCHED = "Property submission fetched successfully"
     PROPERTY_SUBMISSION_DELETED = "Property submission deleted successfully"

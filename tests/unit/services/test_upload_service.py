@@ -60,7 +60,7 @@ def test_presigned_url_generation_for_each_context() -> None:
         assert out.upload_completed is False
 
 
-def test_json_presigned_property_media_image_returns_watermark_finalize() -> None:
+def test_json_presigned_property_media_image_returns_watermark_finalize(monkeypatch: pytest.MonkeyPatch) -> None:
     user = SimpleNamespace(id=uuid.uuid4())
     repo = MagicMock()
     s3 = MagicMock()
@@ -68,6 +68,19 @@ def test_json_presigned_property_media_image_returns_watermark_finalize() -> Non
     repo.get_submission_by_id.return_value = submission
     s3.generate_presigned_upload_url.return_value = "https://presigned-original"
     s3.build_public_url.side_effect = lambda key: f"https://public/{key}"
+    scheduled: list[dict] = []
+
+    class _FakeProcessor:
+        def __init__(self, **_kwargs):
+            pass
+
+        def schedule_after_presigned_upload(self, **kwargs):
+            scheduled.append(kwargs)
+
+    monkeypatch.setattr(
+        "app.services.upload_service.PropertyImageWatermarkProcessor",
+        _FakeProcessor,
+    )
     service = UploadService(repository=repo, s3_service=s3, settings=_settings())
 
     out = service.generate_presigned_upload(
@@ -89,6 +102,8 @@ def test_json_presigned_property_media_image_returns_watermark_finalize() -> Non
     key = s3.generate_presigned_upload_url.call_args.kwargs["key"]
     assert "/original/" in key
     assert "download" in key
+    assert len(scheduled) == 1
+    assert scheduled[0]["original_key"] == key
 
 
 def test_extension_allowed_with_or_without_dot_in_env() -> None:
