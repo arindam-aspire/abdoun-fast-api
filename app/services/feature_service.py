@@ -10,9 +10,11 @@ from fastapi import HTTPException
 from app.models.property_normalized import Feature
 from app.repositories.feature_repository import FeatureRepository
 from app.schemas.feature import (
+    FeatureCategoryRef,
     FeatureCreate,
     FeatureListFilters,
     FeatureListResponse,
+    FeaturePropertyTypeRef,
     FeatureResponse,
     FeatureUpdate,
 )
@@ -42,7 +44,9 @@ class FeatureService:
             is_active=filters.is_active,
             include_legacy=filters.include_legacy,
         )
-        responses = [FeatureResponse.model_validate(item) for item in items]
+        responses = [
+            self._apply_list_filter_context(item, filters) for item in items
+        ]
         payload = FeatureListResponse(items=responses, total=len(responses))
         return create_success_response(data=payload, message=None)
 
@@ -168,6 +172,44 @@ class FeatureService:
             data=FeatureResponse.model_validate(updated),
             message=None,
         )
+
+    def _apply_list_filter_context(
+        self, feature: Feature, filters: FeatureListFilters
+    ) -> FeatureResponse:
+        """Backfill null taxonomy IDs from list query filters for legacy rows."""
+        resp = FeatureResponse.model_validate(feature)
+        if filters.category_id is None and filters.property_type_id is None:
+            return resp
+
+        updates: dict[str, object] = {}
+        category_id = resp.category_id
+        property_type_id = resp.property_type_id
+
+        if category_id is None and filters.category_id is not None:
+            updates["category_id"] = filters.category_id
+            category_id = filters.category_id
+        if property_type_id is None and filters.property_type_id is not None:
+            updates["property_type_id"] = filters.property_type_id
+            property_type_id = filters.property_type_id
+
+        if not updates:
+            return resp
+
+        if "category_id" in updates and resp.category is None and category_id is not None:
+            category = self._repo.get_category(category_id)
+            if category is not None:
+                updates["category"] = FeatureCategoryRef.model_validate(category)
+
+        if (
+            "property_type_id" in updates
+            and resp.property_type is None
+            and property_type_id is not None
+        ):
+            prop_type = self._repo.get_property_type(property_type_id)
+            if prop_type is not None:
+                updates["property_type"] = FeaturePropertyTypeRef.model_validate(prop_type)
+
+        return resp.model_copy(update=updates)
 
     def _validate_taxonomy_rules(
         self,
