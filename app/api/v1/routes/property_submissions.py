@@ -26,6 +26,13 @@ from app.utils.responses import StandardResponse, create_success_response
 router = APIRouter()
 
 
+def _patch_success_message(body: PropertySubmissionPatchRequest) -> str:
+    """Return user-facing success copy for PATCH based on save vs step update."""
+    if body.payload is not None or body.action == "save_draft":
+        return SuccessMessages.PROPERTY_SUBMISSION_SAVED
+    return SuccessMessages.PROPERTY_SUBMISSION_UPDATED
+
+
 @router.post("", response_model=StandardResponse[PropertySubmissionCreateResponse])
 def create_submission(
     current_user: Annotated[User, Depends(get_current_user)],

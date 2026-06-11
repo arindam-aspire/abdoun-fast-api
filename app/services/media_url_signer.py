@@ -10,6 +10,7 @@ from app.schemas.agency import (
     AgencyLogoUploadResponse,
     AgencyResponse,
 )
+from app.schemas.uploads import PresignedUploadData, PropertyImageUploadData
 from app.schemas.user import ProfilePictureUploadData, UserResponse
 from app.services.s3_service import S3Service
 from app.utils.log_messages import LogMessages, format_log_message
@@ -67,6 +68,23 @@ class MediaUrlSigner:
         orig = data.profile_picture_url
         signed = self.sign_optional_url(orig)
         data.profile_picture_url = signed if signed is not None else orig
+
+    def apply_presigned_upload_data(self, data: PresignedUploadData) -> None:
+        """Keep canonical ``url`` for PATCH storage; add presigned GET ``preview_url`` when configured."""
+        if not self._settings.aws_s3_use_presigned_url:
+            data.preview_url = None
+            return
+        preview_source = data.url
+        if data.original_url and not data.upload_completed:
+            preview_source = data.original_url
+        data.preview_url = self.sign_optional_url(preview_source)
+
+    def apply_property_image_upload_data(self, data: PropertyImageUploadData) -> None:
+        """Keep canonical ``url`` for PATCH storage; add presigned GET ``preview_url`` when configured."""
+        if not self._settings.aws_s3_use_presigned_url:
+            data.preview_url = None
+            return
+        data.preview_url = self.sign_optional_url(data.url)
 
     def apply_agency_response(self, agency: AgencyResponse) -> None:
         """Replace stored public S3 URLs with presigned GET for private bucket downloads."""

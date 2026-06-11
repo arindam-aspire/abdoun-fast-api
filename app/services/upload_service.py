@@ -10,6 +10,10 @@ from app.core.config import Settings, get_settings
 from app.models.user import User
 from app.repositories.property_submission_repository import PropertySubmissionRepository
 from app.schemas.uploads import PresignedUploadData, PresignedUploadRequest
+from app.services.property_image_watermark_processor import (
+    PropertyImageWatermarkProcessor,
+    file_extension_from_filename,
+)
 from app.services.s3_service import S3Service
 from app.utils.status_codes import HTTPStatus
 from app.utils.storage_paths import (
@@ -104,6 +108,14 @@ class UploadService:
         if body.context == "property_media_image":
             original_key = draft_image_original_key(path_id, sanitized_name)
             watermarked_key = draft_image_watermarked_key(path_id, sanitized_name)
+            PropertyImageWatermarkProcessor(
+                s3_service=self._s3,
+                settings=self._settings,
+            ).schedule_after_presigned_upload(
+                original_key=original_key,
+                watermarked_key=watermarked_key,
+                file_extension=file_extension_from_filename(sanitized_name),
+            )
             upload_url = self._s3.generate_presigned_upload_url(
                 key=original_key,
                 content_type=body.content_type,

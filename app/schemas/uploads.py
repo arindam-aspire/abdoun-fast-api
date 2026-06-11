@@ -44,6 +44,13 @@ class PresignedUploadData(BaseModel):
     upload_url: str
     url: str
     expires_in: int
+    preview_url: str | None = Field(
+        default=None,
+        description=(
+            "Short-lived presigned GET for private buckets (in-app preview). "
+            "Persist ``url`` in PATCH payloads, not this field."
+        ),
+    )
     original_url: str | None = Field(
         default=None,
         description="Public URL of the original object (property images only).",
@@ -84,6 +91,10 @@ class PropertyImageUploadData(BaseModel):
 
     url: str
     file_name: str
+    preview_url: str | None = Field(
+        default=None,
+        description="Short-lived presigned GET for private buckets (in-app preview). Persist ``url``, not this field.",
+    )
     original_url: str | None = Field(
         default=None,
         description="Public URL of the preserved original upload.",

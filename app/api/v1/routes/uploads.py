@@ -10,11 +10,13 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, Uplo
 from pydantic import ValidationError
 from fastapi.responses import JSONResponse
 
+from app.api.v1.deps.media_urls import get_media_url_signer
 from app.api.v1.deps.security import get_current_user
 from app.api.v1.deps.uploads import (
     get_property_image_upload_service,
     get_upload_service,
 )
+from app.services.media_url_signer import MediaUrlSigner
 from app.core.config import get_settings
 from app.exceptions.property_image_upload import PropertyImageUploadError
 from app.models.user import User
@@ -53,6 +55,7 @@ async def get_presigned_upload_url(
     current_user: Annotated[User, Depends(get_current_user)],
     upload_service: Annotated[UploadService, Depends(get_upload_service)],
     image_service: Annotated[PropertyImageUploadService, Depends(get_property_image_upload_service)],
+    media_signer: Annotated[MediaUrlSigner, Depends(get_media_url_signer)],
 ):
     """Presigned URL for videos/documents (JSON). Property images: multipart with ``file`` — watermark + S3 in one call.
 
@@ -73,6 +76,7 @@ async def get_presigned_upload_url(
             current_user=current_user,
             upload_service=upload_service,
             image_service=image_service,
+            media_signer=media_signer,
         )
 
     try:
@@ -105,6 +109,7 @@ async def get_presigned_upload_url(
 
     try:
         data = upload_service.generate_presigned_upload(body=body, user=current_user)
+        media_signer.apply_presigned_upload_data(data)
     except HTTPException:
         logger.warning(
             "[presigned-url] rejected user_id=%s context=%s submission_id=%s draft_client_id=%s",
@@ -130,6 +135,7 @@ async def _presigned_url_multipart(
     current_user: User,
     upload_service: UploadService,
     image_service: PropertyImageUploadService,
+    media_signer: MediaUrlSigner,
 ) -> StandardResponse[PresignedUploadData]:
     form = await parse_property_image_form(request)
     context = form.get("context")
@@ -188,6 +194,7 @@ async def _presigned_url_multipart(
         upload_completed=True,
         requires_watermark_finalize=False,
     )
+    media_signer.apply_presigned_upload_data(data)
     logger.info(
         "[presigned-url] property image done file_name=%s url=%s (no client PUT needed)",
         uploaded.file_name,
@@ -200,6 +207,7 @@ async def _presigned_url_multipart(
 async def upload_property_image(
     current_user: Annotated[User, Depends(get_current_user)],
     service: Annotated[PropertyImageUploadService, Depends(get_property_image_upload_service)],
+    media_signer: Annotated[MediaUrlSigner, Depends(get_media_url_signer)],
     file: Annotated[UploadFile | None, File()] = None,
     submission_id: Annotated[uuid.UUID | None, Form()] = None,
     draft_client_id: Annotated[uuid.UUID | None, Form()] = None,
@@ -223,6 +231,7 @@ async def upload_property_image(
         )
     except PropertyImageUploadError as exc:
         return _property_image_error_response(exc)  # type: ignore[return-value]
+    media_signer.apply_property_image_upload_data(data)
     return create_success_response(
         data=data,
         message="Property image uploaded successfully",
@@ -234,6 +243,7 @@ def finalize_presigned_property_image(
     body: PropertyImageFinalizeRequest,
     current_user: Annotated[User, Depends(get_current_user)],
     service: Annotated[PropertyImageUploadService, Depends(get_property_image_upload_service)],
+    media_signer: Annotated[MediaUrlSigner, Depends(get_media_url_signer)],
 ):
     """Manual retry only (normal flow uses multipart presigned-url)."""
     try:
@@ -245,6 +255,7 @@ def finalize_presigned_property_image(
         )
     except PropertyImageUploadError as exc:
         return _property_image_error_response(exc)  # type: ignore[return-value]
+    media_signer.apply_property_image_upload_data(data)
     return create_success_response(
         data=data,
         message="Property image watermarked successfully",
