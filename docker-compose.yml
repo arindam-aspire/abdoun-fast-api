@@ -1,5 +1,6 @@
 services:
   api:
+    image: ${DOCKER_IMAGE_NAME:-realestate_api}:${DOCKER_IMAGE_TAG:-latest}
     build:
       context: .
       dockerfile: Dockerfile

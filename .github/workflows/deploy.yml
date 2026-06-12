@@ -8,6 +8,9 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    env:
+      DOCKER_IMAGE_NAME: realestate_api
+      DOCKER_IMAGE_TAG: ${{ github.sha }}
 
     steps:
       - name: Checkout code
@@ -27,7 +30,10 @@ jobs:
 
       - name: Deploy to EC2
         run: |
-          ssh "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" << 'EOF'
+          ssh "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" << EOF
+            set -e
+            export DOCKER_IMAGE_NAME="${DOCKER_IMAGE_NAME}"
+            export DOCKER_IMAGE_TAG="${DOCKER_IMAGE_TAG}"
             cd /var/www/app
             git pull origin main
             docker compose down --remove-orphans || true
