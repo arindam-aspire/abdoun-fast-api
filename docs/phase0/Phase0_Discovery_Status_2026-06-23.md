@@ -155,12 +155,25 @@ Notes:
 
 ## DB Discovery Blocker
 
+Schema inspection utility added:
+
+- `scripts/inspect_db_schema.py`
+
+Intended command after DB access is corrected:
+
+```powershell
+python scripts\inspect_db_schema.py --markdown docs\phase0\Live_DB_Schema_Inventory.md --json docs\phase0\live_db_schema_inventory.json
+```
+
+The script loads DB settings from `.env`, avoids printing secrets, and can generate both Markdown and JSON schema inventories.
+
 Attempted DB connection using:
 
 - `DATABASE_URL` from `abdoun_fast_api/.env`
 - individual DB fields from `abdoun_fast_api/.env`
 - explicit SSL mode
 - Azure-style username variant
+- `scripts/inspect_db_schema.py`
 
 Result: DB server was reachable, but authentication failed.
 
@@ -186,6 +199,7 @@ Needed to unblock:
 | Backend compile check | Passed |
 | MLS build check | Passed with `npx.cmd next build --webpack` |
 | Library build check | Passed |
+| Schema inspection script compile check | Passed |
 | Demo DB connection | Blocked by DB authentication failure |
 | Live DB schema inventory | Blocked |
 | Final DB/API implementation spec | Blocked until live DB schema discovery |
