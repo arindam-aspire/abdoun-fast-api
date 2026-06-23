@@ -8,7 +8,7 @@ Repository: `abdoun_fast_api`
 
 Phase 0 has started but has not passed its gate yet.
 
-The code structure discovery is partially complete. Live demo DB schema discovery is blocked because the DB connection from `abdoun_fast_api/.env` fails authentication. No secrets were printed or copied into this document.
+The code structure discovery is partially complete and build checks now pass for the backend, shared library, and MLS website. Live demo DB schema discovery remains blocked because the DB connection from `abdoun_fast_api/.env` fails authentication. No secrets were printed or copied into this document.
 
 ## Branch Isolation
 
@@ -125,12 +125,18 @@ Result: Passed.
 Command:
 
 ```powershell
-npm.cmd run build
+npx.cmd next build --webpack
 ```
 
-Result: Not executed successfully because local `node_modules` are missing and `next` is not available.
+Result: Passed.
 
-This is an environment setup issue, not yet a code failure.
+Notes:
+
+- Initial `npm.cmd ci` failed because the private package registry token was not accepted for `@abdoun/abdoun-library`.
+- The local `abdoun-library` workspace was installed into `mls_website` without changing tracked package metadata.
+- The default Turbopack build could not resolve the locally linked `@abdoun/abdoun-library` package.
+- Webpack mode resolved the local package successfully.
+- The build required network access for `next/font` Google font fetches.
 
 ### Shared Library Build
 
@@ -140,9 +146,12 @@ Command:
 npm.cmd run build
 ```
 
-Result: Not executed successfully because local `node_modules` are missing and `tsup` is not available.
+Result: Passed.
 
-This is an environment setup issue, not yet a code failure.
+Notes:
+
+- `npm.cmd ci` completed for `abdoun-library`.
+- `npm.cmd run build` completed successfully with `tsup`.
 
 ## DB Discovery Blocker
 
@@ -175,8 +184,8 @@ Needed to unblock:
 | Backend code structure mapped | Passed |
 | Frontend/library structure mapped | Passed |
 | Backend compile check | Passed |
-| MLS build check | Blocked by missing `node_modules` |
-| Library build check | Blocked by missing `node_modules` |
+| MLS build check | Passed with `npx.cmd next build --webpack` |
+| Library build check | Passed |
 | Demo DB connection | Blocked by DB authentication failure |
 | Live DB schema inventory | Blocked |
 | Final DB/API implementation spec | Blocked until live DB schema discovery |
@@ -186,4 +195,3 @@ Needed to unblock:
 Do not start Phase 1 schema or backend implementation until live DB schema discovery is completed.
 
 The next action is to correct DB access, then rerun Phase 0 DB discovery and generate the final implementation-ready DB/API specification.
-
