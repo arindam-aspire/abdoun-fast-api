@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 from app.models.live_schema import AgentInvite, AgentProfile, User
 from app.services.auth import assign_role, normalize_username, utc_now
 from app.services.notifications import send_email_notification
-from app.utils.status_codes import STATUS_BAD_REQUEST, STATUS_NOT_FOUND
+from app.utils.status_codes import STATUS_BAD_REQUEST, STATUS_FORBIDDEN, STATUS_NOT_FOUND
 
 
 AGENT_STATUSES = {"ACTIVE", "INVITED", "PENDING_REVIEW", "DECLINED", "INACTIVE", "DELETED"}
@@ -108,6 +108,8 @@ def invite_agent(
     phone_number: str | None = None,
     service_area: str | None = None,
 ) -> dict:
+    if agency_id is None:
+        raise HTTPException(status_code=STATUS_BAD_REQUEST, detail="Agency Admin must belong to an agency")
     normalized_email = normalize_username(email)
     lookup_conditions = [User.email == normalized_email]
     if phone_number:
@@ -172,6 +174,7 @@ def update_agent_status(
     *,
     agent_id: UUID,
     actor_id: UUID,
+    actor_agency_id: UUID | None,
     status: str,
     reason: str | None = None,
 ) -> dict:
@@ -183,6 +186,8 @@ def update_agent_status(
     profile = db.get(AgentProfile, agent_id)
     if not user or not profile:
         raise HTTPException(status_code=STATUS_NOT_FOUND, detail="Agent not found")
+    if actor_agency_id is None or user.agency_id != actor_agency_id:
+        raise HTTPException(status_code=STATUS_FORBIDDEN, detail="Agent is outside the agency")
 
     profile.status = normalized_status
     profile.reviewed_by = actor_id

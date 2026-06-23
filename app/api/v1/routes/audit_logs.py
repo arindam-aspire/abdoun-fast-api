@@ -4,10 +4,10 @@ import math
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 
 from app.api.deps import DBSessionDep, RequestContext, require_authenticated_user
-from app.models.live_schema import ActivityLog
+from app.models.live_schema import ActivityLog, PropertyListingSubmission, User
 from app.utils.api_response import success_response
 from app.utils.status_codes import STATUS_FORBIDDEN
 
@@ -58,10 +58,20 @@ def list_audit_logs(
     page = max(page, 1)
     pageSize = max(min(pageSize, 100), 1)
     stmt = select(ActivityLog).order_by(ActivityLog.created_at.desc())
+    if "super_admin" not in role_names:
+        agency_user_ids = select(User.id).where(User.agency_id == context.agency_id)
+        agency_property_ids = (
+            select(PropertyListingSubmission.property_id)
+            .join(User, User.id == PropertyListingSubmission.submitted_by)
+            .where(
+                User.agency_id == context.agency_id,
+                PropertyListingSubmission.property_id.is_not(None),
+            )
+        )
+        stmt = stmt.where(or_(ActivityLog.user_id.in_(agency_user_ids), ActivityLog.property_id.in_(agency_property_ids)))
     if activityType:
         stmt = stmt.where(ActivityLog.activity_type == activityType)
     total = db.execute(select(func.count()).select_from(stmt.order_by(None).subquery())).scalar() or 0
     rows = db.execute(stmt.offset((page - 1) * pageSize).limit(pageSize)).scalars().all()
     meta = pagination(total, page, pageSize)
     return success_response({**meta, "items": [serialize_activity(row) for row in rows]}, meta={"pagination": meta})
-

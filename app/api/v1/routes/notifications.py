@@ -95,16 +95,6 @@ def unread_count(context: AuthenticatedContext, db: DBSessionDep) -> dict:
     return success_response({"unreadCount": count})
 
 
-@router.put("/{notification_id}/read")
-def mark_read(notification_id: UUID, context: AuthenticatedContext, db: DBSessionDep) -> dict:
-    notification = get_notification_or_404(db, notification_id, context.user_id)
-    notification.is_read = True
-    notification.read_at = notification.read_at or utc_now()
-    db.commit()
-    db.refresh(notification)
-    return success_response(serialize_notification(notification), "Notification marked as read")
-
-
 @router.put("/read-all")
 def mark_all_read(context: AuthenticatedContext, db: DBSessionDep) -> dict:
     notifications = db.execute(
@@ -120,30 +110,6 @@ def mark_all_read(context: AuthenticatedContext, db: DBSessionDep) -> dict:
         notification.read_at = now
     db.commit()
     return success_response({"updated": len(notifications)}, "Notifications marked as read")
-
-
-@router.post("/{notification_id}/archive")
-def archive_notification(notification_id: UUID, context: AuthenticatedContext, db: DBSessionDep) -> dict:
-    notification = get_notification_or_404(db, notification_id, context.user_id)
-    notification.archived_at = notification.archived_at or utc_now()
-    db.commit()
-    return success_response(True, "Notification archived")
-
-
-@router.post("/{notification_id}/unarchive")
-def unarchive_notification(notification_id: UUID, context: AuthenticatedContext, db: DBSessionDep) -> dict:
-    notification = get_notification_or_404(db, notification_id, context.user_id)
-    notification.archived_at = None
-    db.commit()
-    return success_response(True, "Notification unarchived")
-
-
-@router.delete("/{notification_id}")
-def delete_notification(notification_id: UUID, context: AuthenticatedContext, db: DBSessionDep) -> dict:
-    notification = get_notification_or_404(db, notification_id, context.user_id)
-    db.execute(delete(Notification).where(Notification.id == notification.id))
-    db.commit()
-    return success_response({"id": str(notification_id)}, "Notification deleted")
 
 
 @router.get("/preferences")
@@ -168,3 +134,36 @@ def list_notification_preferences(context: AuthenticatedContext, db: DBSessionDe
         }
     )
 
+
+@router.put("/{notification_id}/read")
+def mark_read(notification_id: UUID, context: AuthenticatedContext, db: DBSessionDep) -> dict:
+    notification = get_notification_or_404(db, notification_id, context.user_id)
+    notification.is_read = True
+    notification.read_at = notification.read_at or utc_now()
+    db.commit()
+    db.refresh(notification)
+    return success_response(serialize_notification(notification), "Notification marked as read")
+
+
+@router.post("/{notification_id}/archive")
+def archive_notification(notification_id: UUID, context: AuthenticatedContext, db: DBSessionDep) -> dict:
+    notification = get_notification_or_404(db, notification_id, context.user_id)
+    notification.archived_at = notification.archived_at or utc_now()
+    db.commit()
+    return success_response(True, "Notification archived")
+
+
+@router.post("/{notification_id}/unarchive")
+def unarchive_notification(notification_id: UUID, context: AuthenticatedContext, db: DBSessionDep) -> dict:
+    notification = get_notification_or_404(db, notification_id, context.user_id)
+    notification.archived_at = None
+    db.commit()
+    return success_response(True, "Notification unarchived")
+
+
+@router.delete("/{notification_id}")
+def delete_notification(notification_id: UUID, context: AuthenticatedContext, db: DBSessionDep) -> dict:
+    notification = get_notification_or_404(db, notification_id, context.user_id)
+    db.execute(delete(Notification).where(Notification.id == notification.id))
+    db.commit()
+    return success_response({"id": str(notification_id)}, "Notification deleted")

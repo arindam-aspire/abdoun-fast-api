@@ -154,6 +154,96 @@ def can_edit_approved_submission(
     return False
 
 
+def _role_names(roles: tuple[str, ...]) -> set[str]:
+    return {role.lower() for role in roles}
+
+
+def _assigned_agent_id(submission: PropertyListingSubmission) -> str | None:
+    workflow = (submission.payload or {}).get("_workflow") or {}
+    return workflow.get("assigned_agent_id")
+
+
+def _submitter_agency_id(db: Session, submission: PropertyListingSubmission) -> UUID | None:
+    submitter = db.get(User, submission.submitted_by)
+    return submitter.agency_id if submitter else None
+
+
+def can_view_submission(
+    db: Session,
+    submission: PropertyListingSubmission,
+    *,
+    user_id: UUID,
+    roles: tuple[str, ...],
+    agency_id: UUID | None,
+) -> bool:
+    role_names = _role_names(roles)
+    if "super_admin" in role_names:
+        return True
+    if submission.submitted_by == user_id:
+        return True
+    if _assigned_agent_id(submission) == str(user_id):
+        return True
+    if "admin" in role_names and agency_id and _submitter_agency_id(db, submission) == agency_id:
+        return True
+    return False
+
+
+def can_edit_working_submission(
+    db: Session,
+    submission: PropertyListingSubmission,
+    *,
+    user_id: UUID,
+    roles: tuple[str, ...],
+    agency_id: UUID | None,
+) -> bool:
+    if submission.submitted_by == user_id:
+        return True
+    if _assigned_agent_id(submission) == str(user_id):
+        return True
+    if "admin" in _role_names(roles) and agency_id and _submitter_agency_id(db, submission) == agency_id:
+        return True
+    return False
+
+
+def assert_can_view_submission(
+    db: Session,
+    submission: PropertyListingSubmission,
+    *,
+    user_id: UUID,
+    roles: tuple[str, ...],
+    agency_id: UUID | None,
+) -> None:
+    if not can_view_submission(db, submission, user_id=user_id, roles=roles, agency_id=agency_id):
+        raise HTTPException(status_code=STATUS_FORBIDDEN, detail="Insufficient permissions")
+
+
+def assert_can_edit_working_submission(
+    db: Session,
+    submission: PropertyListingSubmission,
+    *,
+    user_id: UUID,
+    roles: tuple[str, ...],
+    agency_id: UUID | None,
+) -> None:
+    if not can_edit_working_submission(db, submission, user_id=user_id, roles=roles, agency_id=agency_id):
+        raise HTTPException(status_code=STATUS_FORBIDDEN, detail="Insufficient permissions")
+
+
+def assert_can_manage_submission(
+    db: Session,
+    submission: PropertyListingSubmission,
+    *,
+    roles: tuple[str, ...],
+    agency_id: UUID | None,
+) -> None:
+    role_names = _role_names(roles)
+    if "super_admin" in role_names:
+        return
+    if "admin" in role_names and agency_id and _submitter_agency_id(db, submission) == agency_id:
+        return
+    raise HTTPException(status_code=STATUS_FORBIDDEN, detail="Insufficient permissions")
+
+
 def create_revision_from_approved(
     db: Session,
     *,
@@ -361,7 +451,14 @@ def list_submissions(
     return rows, _pagination(total, page, page_size)
 
 
-def assign_agent_to_property(db: Session, *, property_id: UUID, agent_id: UUID | None) -> PropertyListingSubmission:
+def assign_agent_to_property(
+    db: Session,
+    *,
+    property_id: UUID,
+    agent_id: UUID | None,
+    actor_roles: tuple[str, ...],
+    actor_agency_id: UUID | None,
+) -> PropertyListingSubmission:
     submission = db.execute(
         select(PropertyListingSubmission).where(
             or_(
@@ -373,6 +470,14 @@ def assign_agent_to_property(db: Session, *, property_id: UUID, agent_id: UUID |
     ).scalars().first()
     if not submission:
         raise HTTPException(status_code=STATUS_NOT_FOUND, detail="Property submission not found")
+    assert_can_manage_submission(db, submission, roles=actor_roles, agency_id=actor_agency_id)
+    submitter_agency_id = _submitter_agency_id(db, submission)
+    if agent_id:
+        agent = db.get(User, agent_id)
+        if not agent:
+            raise HTTPException(status_code=STATUS_NOT_FOUND, detail="Agent not found")
+        if submitter_agency_id and agent.agency_id != submitter_agency_id:
+            raise HTTPException(status_code=STATUS_FORBIDDEN, detail="Agent is outside the property agency")
     payload = dict(submission.payload or {})
     workflow = _payload_workflow(payload)
     workflow["assigned_agent_id"] = str(agent_id) if agent_id else None

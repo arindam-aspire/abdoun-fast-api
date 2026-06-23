@@ -5,19 +5,20 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends
 
-from app.api.deps import DBSessionDep, RequestContext, require_authenticated_user
+from app.api.deps import DBSessionDep, RequestContext, require_any_role
 from app.schemas.agents import AgentInviteRequest, AgentStatusUpdateRequest
 from app.services.agents import invite_agent, list_agents, update_agent_status
 from app.utils.api_response import success_response
 
 router = APIRouter()
 
-AuthenticatedContext = Annotated[RequestContext, Depends(require_authenticated_user)]
+AgentListContext = Annotated[RequestContext, Depends(require_any_role("admin", "super_admin"))]
+AgencyAdminContext = Annotated[RequestContext, Depends(require_any_role("admin"))]
 
 
 @router.get("")
 def get_agents(
-    context: AuthenticatedContext,
+    context: AgentListContext,
     db: DBSessionDep,
     page: int = 1,
     pageSize: int = 10,
@@ -37,7 +38,7 @@ def get_agents(
 
 
 @router.post("/invite")
-def create_agent_invite(payload: AgentInviteRequest, context: AuthenticatedContext, db: DBSessionDep) -> dict:
+def create_agent_invite(payload: AgentInviteRequest, context: AgencyAdminContext, db: DBSessionDep) -> dict:
     agent = invite_agent(
         db,
         email=payload.email,
@@ -55,13 +56,14 @@ def create_agent_invite(payload: AgentInviteRequest, context: AuthenticatedConte
 def set_agent_status(
     agent_id: UUID,
     payload: AgentStatusUpdateRequest,
-    context: AuthenticatedContext,
+    context: AgencyAdminContext,
     db: DBSessionDep,
 ) -> dict:
     agent = update_agent_status(
         db,
         agent_id=agent_id,
         actor_id=context.user_id,
+        actor_agency_id=context.agency_id,
         status=payload.status,
         reason=payload.reason,
     )

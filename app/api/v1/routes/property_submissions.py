@@ -13,6 +13,8 @@ from app.schemas.property_submissions import (
     PropertySubmissionUpdateRequest,
 )
 from app.services.property_submissions import (
+    assert_can_edit_working_submission,
+    assert_can_view_submission,
     create_revision_from_approved,
     create_submission,
     get_submission_or_404,
@@ -68,6 +70,7 @@ def submit_new_property_submission(
 @router.get("/{submission_id}")
 def get_property_submission(submission_id: UUID, context: AuthenticatedContext, db: DBSessionDep) -> dict:
     submission = get_submission_or_404(db, submission_id)
+    assert_can_view_submission(db, submission, user_id=context.user_id, roles=context.roles, agency_id=context.agency_id)
     return success_response(serialize_submission(submission))
 
 
@@ -94,6 +97,7 @@ def update_property_submission(
         db.refresh(revision)
         return success_response(serialize_submission(revision), "Property revision submitted for reapproval")
 
+    assert_can_edit_working_submission(db, submission, user_id=context.user_id, roles=context.roles, agency_id=context.agency_id)
     update_submission(
         submission,
         payload=payload.payload,
@@ -108,6 +112,7 @@ def update_property_submission(
 @router.delete("/{submission_id}")
 def delete_property_submission(submission_id: UUID, context: AuthenticatedContext, db: DBSessionDep) -> dict:
     submission = get_submission_or_404(db, submission_id)
+    assert_can_edit_working_submission(db, submission, user_id=context.user_id, roles=context.roles, agency_id=context.agency_id)
     soft_delete_submission(submission, deleted_by=context.user_id)
     db.commit()
     return success_response(True, "Property draft deleted")
@@ -121,6 +126,7 @@ def submit_existing_property_submission(
     db: DBSessionDep,
 ) -> dict:
     submission = get_submission_or_404(db, submission_id)
+    assert_can_edit_working_submission(db, submission, user_id=context.user_id, roles=context.roles, agency_id=context.agency_id)
     submit_submission(submission)
     db.commit()
     db.refresh(submission)
