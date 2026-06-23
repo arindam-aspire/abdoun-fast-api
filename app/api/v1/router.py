@@ -5,6 +5,7 @@ from app.api.v1.routes import (
     agency,
     agent_properties,
     agents,
+    audit_logs,
     deal_closures,
     favorites,
     auth,
@@ -14,6 +15,8 @@ from app.api.v1.routes import (
     public_catalog,
     saved_searches,
     search,
+    notifications,
+    uploads,
     users,
 )
 
@@ -75,6 +78,24 @@ api_router.include_router(
     deal_closures.router,
     prefix="/deal-closures",
     tags=["deal-closures"],
+)
+
+api_router.include_router(
+    notifications.router,
+    prefix="/notifications",
+    tags=["notifications"],
+)
+
+api_router.include_router(
+    audit_logs.router,
+    prefix="/audit-logs",
+    tags=["audit-logs"],
+)
+
+api_router.include_router(
+    uploads.router,
+    prefix="/uploads",
+    tags=["uploads"],
 )
 
 api_router.include_router(
