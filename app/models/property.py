@@ -3,12 +3,10 @@ from typing import Any
 
 from geoalchemy2 import Geometry
 from sqlalchemy import String, Integer, Numeric, JSON, DateTime, Float
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
 
-
-class Base(DeclarativeBase):
-    pass
+from app.db.base_class import Base
 
 
 class Property(Base):

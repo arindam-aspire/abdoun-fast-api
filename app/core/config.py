@@ -1,5 +1,6 @@
 import os
 from functools import lru_cache
+from urllib.parse import quote_plus
 
 from dotenv import load_dotenv
 from pydantic import BaseModel
@@ -13,7 +14,21 @@ from app.utils.constants import SystemMessages
 
 def _get_database_url() -> str:
     """Get database URL from environment variable."""
-    return os.getenv("DATABASE_URL", "postgresql+psycopg2://postgres:postgres@localhost:5432/realestate")
+    database_url = os.getenv("DATABASE_URL")
+    if database_url:
+        return database_url
+
+    db_host = os.getenv("DB_HOST")
+    db_port = os.getenv("DB_PORT")
+    db_name = os.getenv("DB_NAME")
+    db_user = os.getenv("DB_USER")
+    db_password = os.getenv("DB_PASSWORD")
+    if all([db_host, db_port, db_name, db_user, db_password]):
+        encoded_user = quote_plus(db_user or "")
+        encoded_password = quote_plus(db_password or "")
+        return f"postgresql+psycopg2://{encoded_user}:{encoded_password}@{db_host}:{db_port}/{db_name}"
+
+    return "postgresql+psycopg2://postgres:postgres@localhost:5432/realestate"
 
 
 class Settings(BaseModel):
@@ -22,8 +37,15 @@ class Settings(BaseModel):
     debug: bool = os.getenv("DEBUG", "false").lower() == "true"
 
     database_url: str = _get_database_url()
+    db_sslmode: str = os.getenv("DB_SSLMODE", "require")
 
     api_v1_prefix: str = SystemMessages.API_V1_PREFIX
+
+    notification_email_mode: str = os.getenv("NOTIFICATION_EMAIL_MODE", "log")
+    notification_sms_mode: str = os.getenv("NOTIFICATION_SMS_MODE", "log")
+    notification_poll_interval_seconds: int = int(os.getenv("NOTIFICATION_POLL_INTERVAL_SECONDS", "30"))
+    supported_locales: str = os.getenv("SUPPORTED_LOCALES", "en,ar,fr,es")
+    default_locale: str = os.getenv("DEFAULT_LOCALE", "en")
     
     # Azure OpenAI settings (optional, for geocoding fallback)
     azure_openai_key: str | None = os.getenv("AZURE_OPENAI_KEY")

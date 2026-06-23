@@ -7,7 +7,11 @@ from app.core.config import get_settings
 
 settings = get_settings()
 
-engine = create_engine(settings.database_url, future=True)
+connect_args = {}
+if settings.db_sslmode:
+    connect_args["sslmode"] = settings.db_sslmode
+
+engine = create_engine(settings.database_url, future=True, connect_args=connect_args)
 
 SessionLocal = sessionmaker(
     autocommit=False,
