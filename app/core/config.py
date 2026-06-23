@@ -46,6 +46,10 @@ class Settings(BaseModel):
     notification_poll_interval_seconds: int = int(os.getenv("NOTIFICATION_POLL_INTERVAL_SECONDS", "30"))
     supported_locales: str = os.getenv("SUPPORTED_LOCALES", "en,ar,fr,es")
     default_locale: str = os.getenv("DEFAULT_LOCALE", "en")
+    auth_token_secret: str = os.getenv("AUTH_TOKEN_SECRET", os.getenv("SECRET_KEY", "abdoun-dev-token-secret"))
+    auth_access_token_seconds: int = int(os.getenv("AUTH_ACCESS_TOKEN_SECONDS", "3600"))
+    auth_refresh_token_seconds: int = int(os.getenv("AUTH_REFRESH_TOKEN_SECONDS", "604800"))
+    auth_otp_ttl_seconds: int = int(os.getenv("AUTH_OTP_TTL_SECONDS", "600"))
     
     # Azure OpenAI settings (optional, for geocoding fallback)
     azure_openai_key: str | None = os.getenv("AZURE_OPENAI_KEY")

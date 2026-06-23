@@ -5,10 +5,13 @@ from typing import Annotated
 from uuid import UUID
 
 from fastapi import Depends, Header, HTTPException
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.localization import normalize_locale
+from app.core.tokens import verify_token
 from app.db.session import get_db
+from app.models.live_schema import Role, User, UserRole
 from app.utils.status_codes import STATUS_FORBIDDEN, STATUS_UNAUTHORIZED
 
 
@@ -24,9 +27,42 @@ class RequestContext:
 
 
 def get_request_context(
+    db: DBSessionDep,
+    authorization: Annotated[str | None, Header(alias="Authorization")] = None,
     accept_language: Annotated[str | None, Header(alias="Accept-Language")] = None,
 ) -> RequestContext:
-    return RequestContext(locale=normalize_locale(accept_language))
+    locale = normalize_locale(accept_language)
+    if not authorization or not authorization.lower().startswith("bearer "):
+        return RequestContext(locale=locale)
+
+    token = authorization.split(" ", 1)[1].strip()
+    payload = verify_token(token, expected_type="access")
+    if not payload:
+        return RequestContext(locale=locale)
+
+    try:
+        user_id = UUID(str(payload["sub"]))
+    except (KeyError, ValueError):
+        return RequestContext(locale=locale)
+
+    user = db.get(User, user_id)
+    if not user or not user.is_active:
+        return RequestContext(locale=locale)
+
+    roles = tuple(
+        db.execute(
+            select(Role.name)
+            .join(UserRole, UserRole.role_id == Role.id)
+            .where(UserRole.user_id == user.id)
+            .order_by(Role.name)
+        ).scalars().all()
+    )
+    return RequestContext(
+        locale=locale,
+        user_id=user.id,
+        agency_id=user.agency_id,
+        roles=roles,
+    )
 
 
 RequestContextDep = Annotated[RequestContext, Depends(get_request_context)]
