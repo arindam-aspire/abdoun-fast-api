@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 from app.models.live_schema import AgencyMaster, PropertyListingSubmission, User
 from app.services.audit import record_activity
 from app.services.notifications import create_in_app_notification
-from app.utils.status_codes import STATUS_BAD_REQUEST, STATUS_NOT_FOUND
+from app.utils.status_codes import STATUS_BAD_REQUEST, STATUS_FORBIDDEN, STATUS_NOT_FOUND
 
 
 SUBMISSION_SECTIONS = (
@@ -129,6 +129,77 @@ def update_submission(
     submission.step_completion = compute_step_completion(payload)
     submission.status = "draft"
     return submission
+
+
+def can_edit_approved_submission(
+    db: Session,
+    submission: PropertyListingSubmission,
+    *,
+    user_id: UUID,
+    roles: tuple[str, ...],
+    agency_id: UUID | None,
+) -> bool:
+    role_names = {role.lower() for role in roles}
+    if submission.submitted_by == user_id:
+        return True
+
+    workflow = (submission.payload or {}).get("_workflow") or {}
+    if workflow.get("assigned_agent_id") == str(user_id):
+        return True
+
+    if "admin" in role_names and agency_id:
+        submitter = db.get(User, submission.submitted_by)
+        return bool(submitter and submitter.agency_id == agency_id)
+
+    return False
+
+
+def create_revision_from_approved(
+    db: Session,
+    *,
+    source: PropertyListingSubmission,
+    user_id: UUID,
+    roles: tuple[str, ...],
+    agency_id: UUID | None,
+    payload: dict[str, Any],
+    current_step: int,
+    last_completed_step: int,
+) -> PropertyListingSubmission:
+    if source.status != "approved":
+        raise HTTPException(status_code=STATUS_BAD_REQUEST, detail="Only approved submissions can create revisions")
+    if not can_edit_approved_submission(db, source, user_id=user_id, roles=roles, agency_id=agency_id):
+        raise HTTPException(status_code=STATUS_FORBIDDEN, detail="Approved property cannot be edited by this user")
+
+    revision_payload = dict(payload)
+    workflow = _payload_workflow(revision_payload)
+    workflow["revision_of_submission_id"] = str(source.id)
+    workflow["revision_property_id"] = str(source.property_id or source.id)
+    workflow["revision_status"] = "pending_reapproval"
+
+    revision = PropertyListingSubmission(
+        id=uuid4(),
+        submitted_by=user_id,
+        property_id=source.property_id or source.id,
+        status="submitted",
+        current_step=current_step,
+        last_completed_step=last_completed_step,
+        payload=revision_payload,
+        step_completion=compute_step_completion(revision_payload),
+        terms_accepted=True,
+        privacy_accepted=True,
+        public_display_authorized=True,
+        fees_acknowledged=True,
+        submitted_at=utc_now(),
+    )
+    db.add(revision)
+    record_activity(
+        db,
+        activity_type="property_revision_submitted",
+        message=f"Revision submitted for approved property {revision.property_id}",
+        user_id=user_id,
+        property_id=revision.property_id,
+    )
+    return revision
 
 
 def submit_submission(submission: PropertyListingSubmission) -> PropertyListingSubmission:

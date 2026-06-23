@@ -5,6 +5,7 @@ from app.api.v1.routes import (
     agency,
     agent_properties,
     agents,
+    deal_closures,
     favorites,
     auth,
     leads,
@@ -68,6 +69,12 @@ api_router.include_router(
     leads.router,
     prefix="/leads",
     tags=["leads"],
+)
+
+api_router.include_router(
+    deal_closures.router,
+    prefix="/deal-closures",
+    tags=["deal-closures"],
 )
 
 api_router.include_router(

@@ -13,6 +13,7 @@ from app.schemas.property_submissions import (
     PropertySubmissionUpdateRequest,
 )
 from app.services.property_submissions import (
+    create_revision_from_approved,
     create_submission,
     get_submission_or_404,
     serialize_submission,
@@ -78,6 +79,21 @@ def update_property_submission(
     db: DBSessionDep,
 ) -> dict:
     submission = get_submission_or_404(db, submission_id)
+    if submission.status == "approved":
+        revision = create_revision_from_approved(
+            db,
+            source=submission,
+            user_id=context.user_id,
+            roles=context.roles,
+            agency_id=context.agency_id,
+            payload=payload.payload,
+            current_step=payload.current_step,
+            last_completed_step=payload.last_completed_step,
+        )
+        db.commit()
+        db.refresh(revision)
+        return success_response(serialize_submission(revision), "Property revision submitted for reapproval")
+
     update_submission(
         submission,
         payload=payload.payload,

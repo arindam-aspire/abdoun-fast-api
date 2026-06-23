@@ -9,6 +9,7 @@ from fastapi import HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.models.deal_closure import PropertyDealClosure
 from app.models.live_schema import (
     AgencyMaster,
     Area,
@@ -25,6 +26,7 @@ from app.utils.status_codes import STATUS_NOT_FOUND
 
 
 PUBLIC_STATUSES = {"approved"}
+DEAL_CLOSED_STATUS = "APPROVED"
 
 
 def utc_now() -> datetime:
@@ -386,7 +388,7 @@ def serialize_property_detail(db: Session, submission: PropertyListingSubmission
 
 
 def list_public_submissions(db: Session) -> list[tuple[PropertyListingSubmission, User | None]]:
-    return db.execute(
+    rows = db.execute(
         select(PropertyListingSubmission, User)
         .join(User, User.id == PropertyListingSubmission.submitted_by)
         .where(
@@ -396,6 +398,25 @@ def list_public_submissions(db: Session) -> list[tuple[PropertyListingSubmission
         )
         .order_by(PropertyListingSubmission.updated_at.desc())
     ).all()
+    latest_by_property: dict[UUID, tuple[PropertyListingSubmission, User | None]] = {}
+    for submission, user in rows:
+        property_id = submission.property_id or submission.id
+        if is_property_deal_closed(db, property_id):
+            continue
+        if property_id not in latest_by_property:
+            latest_by_property[property_id] = (submission, user)
+    return list(latest_by_property.values())
+
+
+def is_property_deal_closed(db: Session, property_id: UUID) -> bool:
+    return bool(
+        db.execute(
+            select(PropertyDealClosure.id).where(
+                PropertyDealClosure.property_id == property_id,
+                PropertyDealClosure.status == DEAL_CLOSED_STATUS,
+            )
+        ).first()
+    )
 
 
 def find_public_submission_by_hash(db: Session, property_key: str | int) -> tuple[PropertyListingSubmission, User | None] | None:
@@ -543,4 +564,3 @@ def serialize_feature_catalog_item(db: Session, feature: Feature) -> dict[str, A
         if property_type
         else None,
     }
-
