@@ -7,6 +7,7 @@ from app.api.v1.routes import (
     agents,
     favorites,
     auth,
+    leads,
     properties,
     property_submissions,
     public_catalog,
@@ -61,6 +62,12 @@ api_router.include_router(
     saved_searches.router,
     prefix="/saved-searches",
     tags=["saved-searches"],
+)
+
+api_router.include_router(
+    leads.router,
+    prefix="/leads",
+    tags=["leads"],
 )
 
 api_router.include_router(
