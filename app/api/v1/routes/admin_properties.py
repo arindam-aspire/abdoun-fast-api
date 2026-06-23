@@ -1,0 +1,76 @@
+from __future__ import annotations
+
+from typing import Annotated
+from uuid import UUID
+
+from fastapi import APIRouter, Depends
+
+from app.api.deps import DBSessionDep, RequestContext, require_authenticated_user
+from app.schemas.property_submissions import PropertyAssignAgentRequest, PropertySubmissionReviewRequest
+from app.services.property_submissions import (
+    assign_agent_to_property,
+    get_submission_or_404,
+    list_submissions,
+    review_submission,
+    serialize_admin_submission_item,
+    serialize_submission,
+)
+from app.utils.api_response import success_response
+
+router = APIRouter()
+
+AuthenticatedContext = Annotated[RequestContext, Depends(require_authenticated_user)]
+
+
+@router.get("/property-submissions")
+def get_admin_property_submissions(
+    context: AuthenticatedContext,
+    db: DBSessionDep,
+    page: int = 1,
+    pageSize: int = 10,
+    status: str | None = None,
+) -> dict:
+    roles = {role.lower() for role in context.roles}
+    rows, pagination = list_submissions(
+        db,
+        page=page,
+        page_size=pageSize,
+        statuses={status} if status else None,
+        agency_id=None if "super_admin" in roles else context.agency_id,
+    )
+    data = {"items": [serialize_admin_submission_item(submission, submitter) for submission, submitter in rows], **pagination}
+    return success_response(data, meta={"pagination": pagination})
+
+
+@router.post("/property-submissions/{submission_id}/review")
+def review_admin_property_submission(
+    submission_id: UUID,
+    payload: PropertySubmissionReviewRequest,
+    context: AuthenticatedContext,
+    db: DBSessionDep,
+) -> dict:
+    submission = get_submission_or_404(db, submission_id)
+    review_submission(
+        db,
+        submission,
+        actor_id=context.user_id,
+        action=payload.action,
+        reason=payload.reason,
+    )
+    db.commit()
+    db.refresh(submission)
+    return success_response(serialize_submission(submission), "Property submission reviewed")
+
+
+@router.patch("/properties/{property_id}/assign-agent")
+def assign_admin_property_agent(
+    property_id: UUID,
+    payload: PropertyAssignAgentRequest,
+    context: AuthenticatedContext,
+    db: DBSessionDep,
+) -> dict:
+    agent_id = UUID(payload.agent_id) if payload.agent_id else None
+    submission = assign_agent_to_property(db, property_id=property_id, agent_id=agent_id)
+    db.commit()
+    db.refresh(submission)
+    return success_response(serialize_submission(submission), "Property agent assignment updated")
