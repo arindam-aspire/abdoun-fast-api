@@ -6,9 +6,9 @@ Repository: `abdoun_fast_api`
 
 ## Status
 
-Phase 0 has started but has not passed its gate yet.
+Phase 0 discovery is now unblocked and the live DB schema inventory has been generated.
 
-The code structure discovery is partially complete and build checks now pass for the backend, shared library, and MLS website. Live demo DB schema discovery remains blocked because the DB connection from `abdoun_fast_api/.env` fails authentication. No secrets were printed or copied into this document.
+The code structure discovery is complete for the current repositories, baseline build checks passed, and the live demo DB schema was inspected from the configured backend `.env`. No secrets were printed or copied into this document.
 
 ## Branch Isolation
 
@@ -47,7 +47,7 @@ Current visible DB model coverage:
 
 - `properties`
 
-This means the remaining confirmed modules still need to be added or aligned after live DB discovery:
+This means the remaining confirmed modules must be aligned to the live schema rather than created blindly:
 
 - auth/users/roles
 - agencies
@@ -153,19 +153,34 @@ Notes:
 - `npm.cmd ci` completed for `abdoun-library`.
 - `npm.cmd run build` completed successfully with `tsup`.
 
-## DB Discovery Blocker
+## DB Discovery
 
 Schema inspection utility added:
 
 - `scripts/inspect_db_schema.py`
 
-Intended command after DB access is corrected:
+Command:
 
 ```powershell
 python scripts\inspect_db_schema.py --markdown docs\phase0\Live_DB_Schema_Inventory.md --json docs\phase0\live_db_schema_inventory.json
 ```
 
-The script loads DB settings from `.env`, avoids printing secrets, and can generate both Markdown and JSON schema inventories.
+The script loads DB settings from `.env`, avoids printing secrets, and generated both Markdown and JSON schema inventories:
+
+- `docs/phase0/Live_DB_Schema_Inventory.md`
+- `docs/phase0/live_db_schema_inventory.json`
+
+Result:
+
+```text
+db-schema-inspection-ok
+schemas=1
+tables=42
+```
+
+The live database already contains a broad schema for users, roles, agencies, agents, leads, notifications, property submissions, translations, favorites, recent views, and taxonomy.
+
+## Prior DB Access Blocker
 
 Attempted DB connection using:
 
@@ -177,24 +192,24 @@ Attempted DB connection using:
 
 Result: DB server was reachable, but authentication failed.
 
-Latest recheck on 2026-06-23:
+Earlier recheck on 2026-06-23:
 
 - `scripts/inspect_db_schema.py` was rerun against the current `abdoun_fast_api/.env`.
 - The database endpoint was reachable.
 - Authentication was still rejected by the server.
 - No live DB schema inventory files were produced.
 
+Latest recheck on 2026-06-23:
+
+- `scripts/inspect_db_schema.py` was rerun against the current `abdoun_fast_api/.env`.
+- The database connection succeeded.
+- Live DB schema inventory files were generated.
+
 Safe summary:
 
-- Network path to the DB host appears reachable.
-- The provided DB credentials or auth format are not accepted by the server.
-- Live DB schema inventory cannot be generated until DB access is corrected.
-
-Needed to unblock:
-
-- Confirm or update the DB credentials in `abdoun_fast_api/.env`.
-- Confirm whether a different username format, password, database user, or auth method is required.
-- If credentials are correct, confirm whether any database access policy needs to be updated.
+- Network path to the DB host is reachable.
+- The current `.env` credentials are accepted by the server.
+- Live DB schema inventory is now available.
 
 ## Phase 0 Gate Status
 
@@ -207,9 +222,9 @@ Needed to unblock:
 | MLS build check | Passed with `npx.cmd next build --webpack` |
 | Library build check | Passed |
 | Schema inspection script compile check | Passed |
-| Demo DB connection | Blocked by DB authentication failure |
-| Live DB schema inventory | Blocked |
-| Final DB/API implementation spec | Blocked until live DB schema discovery |
+| Demo DB connection | Passed |
+| Live DB schema inventory | Passed |
+| Final DB/API implementation spec | In progress |
 
 Additional Phase 0 inventory added:
 
@@ -217,6 +232,6 @@ Additional Phase 0 inventory added:
 
 ## Decision
 
-Do not start Phase 1 schema or backend implementation until live DB schema discovery is completed.
+Do not create duplicate foundational tables in Phase 1.
 
-The next action is to correct DB access, then rerun Phase 0 DB discovery and generate the final implementation-ready DB/API specification.
+The next action is to produce the final implementation-ready Phase 1 DB/API specification against the live 42-table schema, then align backend SQLAlchemy models, schemas, and routes to the existing database structure.
