@@ -5,9 +5,12 @@ from app.api.v1.routes import (
     agency,
     agent_properties,
     agents,
+    favorites,
     auth,
     properties,
     property_submissions,
+    public_catalog,
+    saved_searches,
     search,
     users,
 )
@@ -26,6 +29,11 @@ api_router.include_router(
 )
 
 api_router.include_router(
+    public_catalog.router,
+    tags=["public-catalog"],
+)
+
+api_router.include_router(
     auth.router,
     prefix="/auth",
     tags=["auth"],
@@ -41,6 +49,18 @@ api_router.include_router(
     users.router,
     prefix="/users",
     tags=["users"],
+)
+
+api_router.include_router(
+    favorites.router,
+    prefix="/favorites",
+    tags=["favorites"],
+)
+
+api_router.include_router(
+    saved_searches.router,
+    prefix="/saved-searches",
+    tags=["saved-searches"],
 )
 
 api_router.include_router(

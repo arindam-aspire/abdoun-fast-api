@@ -1,57 +1,115 @@
+from __future__ import annotations
+
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select
-from sqlalchemy.orm import Session
+from fastapi import APIRouter, Depends
 
-from app.db.session import get_db
-from app.models.property import Property
-from app.schemas.property import (
-    PropertyDetail,
-    PropertySearchResult,
-    PropertyListResponse,
+from app.api.deps import DBSessionDep, RequestContext, get_request_context
+from app.services.public_properties import (
+    apply_public_filters,
+    favorite_lookup,
+    get_public_submission_or_404,
+    list_public_submissions,
+    pagination_meta,
+    serialize_property_detail,
+    serialize_property_listing,
+    sort_public_rows,
 )
-from app.utils.constants import ErrorMessages, Defaults
-from app.utils.status_codes import STATUS_NOT_FOUND
- 
+from app.utils.api_response import success_response
+
 router = APIRouter()
+ContextDep = Annotated[RequestContext, Depends(get_request_context)]
 
-DBSessionDep = Annotated[Session, Depends(get_db)]
 
-
-@router.get("", response_model=PropertyListResponse)
+@router.get("")
 def list_properties(
     db: DBSessionDep,
-    limit: int = Defaults.DEFAULT_LIMIT,
-    offset: int = Defaults.DEFAULT_OFFSET,
-) -> PropertyListResponse:
-    stmt = (
-        select(Property)
-        .order_by(Property.created_at.desc())
-        .offset(offset)
-        .limit(limit)
+    context: ContextDep,
+    page: int = 1,
+    pageSize: int = 10,
+    category: str | None = None,
+    status: str | None = None,
+    sort: str | None = "newest",
+    type: str | None = None,
+    location: str | None = None,
+    city: str | None = None,
+    locations: str | None = None,
+    budgetMin: float | None = None,
+    budgetMax: float | None = None,
+    bedrooms: int | None = None,
+    rooms: int | None = None,
+    bathrooms: int | None = None,
+    parking: int | None = None,
+    minArea: float | None = None,
+    maxArea: float | None = None,
+    amenities: str | None = None,
+    similar_to: str | None = None,
+) -> dict:
+    page = max(page, 1)
+    pageSize = max(min(pageSize, 100), 1)
+    rows = list_public_submissions(db)
+    rows = apply_public_filters(
+        rows,
+        category=category,
+        status=status,
+        type=type,
+        city=city or location,
+        locations=locations,
+        budgetMin=budgetMin,
+        budgetMax=budgetMax,
+        bedrooms=bedrooms,
+        rooms=rooms,
+        bathrooms=bathrooms,
+        parking=parking,
+        minArea=minArea,
+        maxArea=maxArea,
+        amenities=amenities,
+        similar_to=similar_to,
+        db=db,
     )
-    results = db.execute(stmt).scalars().all()
-
-    items = [
-        PropertySearchResult.from_orm_obj(p)
-        for p in results
-    ]
-    return PropertyListResponse(items=items, total=len(items))
-
-
-@router.get("/{property_id}", response_model=PropertyDetail)
-def get_property(
-    property_id: int,
-    db: DBSessionDep,
-) -> PropertyDetail:
-    prop = db.get(Property, property_id)
-    if not prop:
-        raise HTTPException(
-            status_code=STATUS_NOT_FOUND,
-            detail=ErrorMessages.PROPERTY_NOT_FOUND
+    rows = sort_public_rows(rows, sort)
+    total = len(rows)
+    page_rows = rows[(page - 1) * pageSize : page * pageSize]
+    favorites = favorite_lookup(db, context.user_id) if context.user_id else {}
+    items = []
+    for submission, user in page_rows:
+        favorite = favorites.get(submission.property_id or submission.id)
+        items.append(
+            serialize_property_listing(
+                db,
+                submission,
+                submitter=user,
+                favorite_id=favorite.id if favorite else None,
+                user_id=context.user_id,
+            )
         )
-    return PropertyDetail.from_orm_obj(prop)
+    pagination = pagination_meta(total, page, pageSize)
+    return success_response({"items": items}, meta={"pagination": pagination})
 
 
+@router.get("/{property_id}/similar")
+def get_similar_properties(property_id: str, db: DBSessionDep, context: ContextDep) -> dict:
+    rows = list_public_submissions(db)
+    rows = apply_public_filters(rows, similar_to=property_id, db=db)
+    rows = sort_public_rows(rows, "newest")[:6]
+    favorites = favorite_lookup(db, context.user_id) if context.user_id else {}
+    items = []
+    for submission, user in rows:
+        favorite = favorites.get(submission.property_id or submission.id)
+        items.append(
+            serialize_property_listing(
+                db,
+                submission,
+                submitter=user,
+                favorite_id=favorite.id if favorite else None,
+                user_id=context.user_id,
+            )
+        )
+    return success_response({"items": items})
+
+
+@router.get("/{property_id}")
+def get_property(property_id: str, db: DBSessionDep) -> dict:
+    submission, user = get_public_submission_or_404(db, property_id)
+    return success_response(serialize_property_detail(db, submission, submitter=user))
 
