@@ -177,6 +177,13 @@ Attempted DB connection using:
 
 Result: DB server was reachable, but authentication failed.
 
+Latest recheck on 2026-06-23:
+
+- `scripts/inspect_db_schema.py` was rerun against the current `abdoun_fast_api/.env`.
+- The database endpoint was reachable.
+- Authentication was still rejected by the server.
+- No live DB schema inventory files were produced.
+
 Safe summary:
 
 - Network path to the DB host appears reachable.
@@ -203,6 +210,10 @@ Needed to unblock:
 | Demo DB connection | Blocked by DB authentication failure |
 | Live DB schema inventory | Blocked |
 | Final DB/API implementation spec | Blocked until live DB schema discovery |
+
+Additional Phase 0 inventory added:
+
+- `docs/phase0/Frontend_Backend_Contract_Inventory_2026-06-23.md`
 
 ## Decision
 
