@@ -71,8 +71,16 @@ def _create_engine():
 
 
 def _safe_error_message(exc: Exception) -> str:
-    message = str(exc).splitlines()[0] if str(exc) else exc.__class__.__name__
-    return message.replace(os.getenv("DB_PASSWORD") or "", "***")
+    raw_message = str(exc).lower()
+    if "password authentication failed" in raw_message or "authentication failed" in raw_message:
+        return "Database authentication failed; verify credentials, username format, or auth method."
+    if "timeout" in raw_message or "timed out" in raw_message:
+        return "Database connection timed out; verify network access, firewall rules, and host settings."
+    if "could not translate host name" in raw_message or "name or service not known" in raw_message:
+        return "Database host could not be resolved; verify DB host settings."
+    if "ssl" in raw_message:
+        return "Database SSL negotiation failed; verify DB SSL mode and server requirements."
+    return "Database schema inspection failed; verify connection settings and rerun."
 
 
 def _column_payload(column: dict[str, Any]) -> dict[str, Any]:
@@ -212,4 +220,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
