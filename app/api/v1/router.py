@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 
-from app.api.v1.routes import agency, auth, properties, search, users
+from app.api.v1.routes import agency, agents, auth, properties, search, users
 
 api_router = APIRouter()
 
@@ -31,6 +31,12 @@ api_router.include_router(
     users.router,
     prefix="/users",
     tags=["users"],
+)
+
+api_router.include_router(
+    agents.router,
+    prefix="/agents",
+    tags=["agents"],
 )
 
 
