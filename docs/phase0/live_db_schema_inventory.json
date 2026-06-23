@@ -2,6 +2,48 @@
   "database": "abdoun_internal_db_shared",
   "current_schema": "public",
   "postgres_version": "PostgreSQL 17.9 on x86_64-pc-linux-gnu, compiled by gcc (GCC) 13.2.0, 64-bit",
+  "extensions": [
+    "plpgsql"
+  ],
+  "enum_types": [
+    {
+      "name": "lead_message_channel_enum",
+      "labels": [
+        "IN_APP",
+        "EMAIL"
+      ]
+    },
+    {
+      "name": "lead_source_enum",
+      "labels": [
+        "EMAIL_FORM",
+        "PHONE",
+        "WHATSAPP",
+        "MANUAL_ADMIN",
+        "AGENT_MANUAL",
+        "OFFLINE_MANUAL"
+      ]
+    },
+    {
+      "name": "lead_status_enum",
+      "labels": [
+        "NEW",
+        "IN_PROGRESS",
+        "REQUEST_FOR_CLOSE",
+        "CLOSED"
+      ]
+    },
+    {
+      "name": "property_view_user_type",
+      "labels": [
+        "guest",
+        "registered"
+      ]
+    }
+  ],
+  "alembic_versions": [
+    "0053_owner_soft_delete"
+  ],
   "schemas": [
     {
       "name": "public",

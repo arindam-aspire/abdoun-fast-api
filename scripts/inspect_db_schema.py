@@ -93,6 +93,38 @@ def _column_payload(column: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _list_extensions(connection) -> list[str]:
+    result = connection.execute(text("select extname from pg_extension order by extname"))
+    return [str(row[0]) for row in result]
+
+
+def _list_enum_types(connection) -> list[dict[str, Any]]:
+    result = connection.execute(
+        text(
+            """
+            select t.typname, string_agg(e.enumlabel, ',' order by e.enumsortorder) as labels
+            from pg_type t
+            join pg_enum e on e.enumtypid = t.oid
+            join pg_namespace n on n.oid = t.typnamespace
+            where n.nspname = 'public'
+            group by t.typname
+            order by t.typname
+            """
+        )
+    )
+    return [
+        {"name": str(row[0]), "labels": str(row[1]).split(",") if row[1] else []}
+        for row in result
+    ]
+
+
+def _list_alembic_versions(connection, inspector) -> list[str]:
+    if not inspector.has_table("alembic_version", schema="public"):
+        return []
+    result = connection.execute(text("select version_num from alembic_version order by version_num"))
+    return [str(row[0]) for row in result]
+
+
 def build_schema_inventory() -> dict[str, Any]:
     engine = _create_engine()
     with engine.connect() as connection:
@@ -111,6 +143,9 @@ def build_schema_inventory() -> dict[str, Any]:
             "database": db_name,
             "current_schema": current_schema,
             "postgres_version": version,
+            "extensions": _list_extensions(connection),
+            "enum_types": _list_enum_types(connection),
+            "alembic_versions": _list_alembic_versions(connection, inspector),
             "schemas": [],
         }
 
@@ -140,6 +175,25 @@ def write_markdown(inventory: dict[str, Any], output_path: Path) -> None:
         f"Current schema: `{inventory['current_schema']}`",
         "",
     ]
+
+    if inventory.get("alembic_versions"):
+        lines.extend(["Alembic versions:", ""])
+        for version in inventory["alembic_versions"]:
+            lines.append(f"- `{version}`")
+        lines.append("")
+
+    if inventory.get("extensions"):
+        lines.extend(["PostgreSQL extensions:", ""])
+        for extension in inventory["extensions"]:
+            lines.append(f"- `{extension}`")
+        lines.append("")
+
+    if inventory.get("enum_types"):
+        lines.extend(["Enum types:", ""])
+        for enum_type in inventory["enum_types"]:
+            labels = ", ".join(f"`{label}`" for label in enum_type["labels"])
+            lines.append(f"- `{enum_type['name']}`: {labels}")
+        lines.append("")
 
     for schema in inventory["schemas"]:
         lines.extend([f"## Schema `{schema['name']}`", ""])

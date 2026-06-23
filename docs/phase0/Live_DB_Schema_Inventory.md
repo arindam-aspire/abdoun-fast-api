@@ -3,6 +3,21 @@
 Database: `abdoun_internal_db_shared`
 Current schema: `public`
 
+Alembic versions:
+
+- `0053_owner_soft_delete`
+
+PostgreSQL extensions:
+
+- `plpgsql`
+
+Enum types:
+
+- `lead_message_channel_enum`: `IN_APP`, `EMAIL`
+- `lead_source_enum`: `EMAIL_FORM`, `PHONE`, `WHATSAPP`, `MANUAL_ADMIN`, `AGENT_MANUAL`, `OFFLINE_MANUAL`
+- `lead_status_enum`: `NEW`, `IN_PROGRESS`, `REQUEST_FOR_CLOSE`, `CLOSED`
+- `property_view_user_type`: `guest`, `registered`
+
 ## Schema `public`
 
 ### `public.activity_logs`
