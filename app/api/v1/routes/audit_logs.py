@@ -8,6 +8,7 @@ from sqlalchemy import func, or_, select
 
 from app.api.deps import DBSessionDep, RequestContext, require_authenticated_user
 from app.models.live_schema import ActivityLog, PropertyListingSubmission, User
+from app.services.user_agencies import agency_user_ids
 from app.utils.api_response import success_response
 from app.utils.status_codes import STATUS_FORBIDDEN
 
@@ -59,16 +60,29 @@ def list_audit_logs(
     pageSize = max(min(pageSize, 100), 1)
     stmt = select(ActivityLog).order_by(ActivityLog.created_at.desc())
     if "super_admin" not in role_names:
-        agency_user_ids = select(User.id).where(User.agency_id == context.agency_id)
+        if context.agency_id is None:
+            meta = pagination(0, page, pageSize)
+            return success_response({**meta, "items": []}, meta={"pagination": meta})
+        mapped_user_ids = agency_user_ids(db, agency_id=context.agency_id)
+        legacy_user_ids = select(User.id).where(User.agency_id == context.agency_id)
         agency_property_ids = (
             select(PropertyListingSubmission.property_id)
             .join(User, User.id == PropertyListingSubmission.submitted_by)
             .where(
-                User.agency_id == context.agency_id,
+                or_(
+                    PropertyListingSubmission.agency_id == context.agency_id,
+                    PropertyListingSubmission.agency_id.is_(None) & (User.agency_id == context.agency_id),
+                ),
                 PropertyListingSubmission.property_id.is_not(None),
             )
         )
-        stmt = stmt.where(or_(ActivityLog.user_id.in_(agency_user_ids), ActivityLog.property_id.in_(agency_property_ids)))
+        stmt = stmt.where(
+            or_(
+                ActivityLog.user_id.in_(mapped_user_ids),
+                ActivityLog.user_id.in_(legacy_user_ids),
+                ActivityLog.property_id.in_(agency_property_ids),
+            )
+        )
     if activityType:
         stmt = stmt.where(ActivityLog.activity_type == activityType)
     total = db.execute(select(func.count()).select_from(stmt.order_by(None).subquery())).scalar() or 0

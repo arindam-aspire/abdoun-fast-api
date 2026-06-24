@@ -10,6 +10,7 @@ from app.api.deps import DBSessionDep, RequestContext, require_any_role, require
 from app.models.live_schema import AgencyMaster
 from app.schemas.agency import AgencyUpdateRequest, UploadRequest
 from app.services.auth import create_otp_challenge, create_user, send_dev_otp, serialize_agency
+from app.services.user_agencies import selectable_owner_agencies
 from app.utils.api_response import success_response
 from app.utils.status_codes import STATUS_FORBIDDEN, STATUS_NOT_FOUND
 
@@ -94,8 +95,8 @@ def list_agencies(db: DBSessionDep, context: AuthenticatedContext, skip: int = 0
     elif "admin" in roles:
         query = query.filter(false())
     else:
-        # Owners need this directory before they have an agency assignment.
-        query = query.filter(AgencyMaster.is_active.is_(True))
+        agencies = selectable_owner_agencies(db, user_id=context.user_id)
+        return success_response([serialize_agency(agency) for agency in agencies])
 
     agencies = query.offset(max(skip, 0)).limit(max(min(limit, 100), 1)).all()
     return success_response([serialize_agency(agency) for agency in agencies])

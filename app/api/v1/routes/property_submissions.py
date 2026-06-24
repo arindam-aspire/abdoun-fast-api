@@ -30,6 +30,10 @@ router = APIRouter()
 AuthenticatedContext = Annotated[RequestContext, Depends(require_authenticated_user)]
 
 
+def _resolved_agency_id(payload_agency_id: UUID | None, context: RequestContext) -> UUID | None:
+    return payload_agency_id or context.agency_id
+
+
 @router.post("")
 def create_property_submission(
     payload: PropertySubmissionCreateRequest,
@@ -39,6 +43,7 @@ def create_property_submission(
     submission = create_submission(
         db,
         user_id=context.user_id,
+        agency_id=_resolved_agency_id(payload.agency_id, context),
         payload=payload.payload,
         current_step=payload.current_step,
         last_completed_step=payload.last_completed_step,
@@ -57,10 +62,16 @@ def submit_new_property_submission(
     submission = create_submission(
         db,
         user_id=context.user_id,
+        agency_id=_resolved_agency_id(payload.agency_id, context),
         payload=payload.payload,
         current_step=8,
         last_completed_step=8,
-        status="submitted",
+    )
+    submit_submission(
+        db,
+        submission,
+        user_id=context.user_id,
+        roles=context.roles,
     )
     db.commit()
     db.refresh(submission)
@@ -100,6 +111,7 @@ def update_property_submission(
     assert_can_edit_working_submission(db, submission, user_id=context.user_id, roles=context.roles, agency_id=context.agency_id)
     update_submission(
         submission,
+        agency_id=_resolved_agency_id(payload.agency_id, context),
         payload=payload.payload,
         current_step=payload.current_step,
         last_completed_step=payload.last_completed_step,
@@ -127,7 +139,13 @@ def submit_existing_property_submission(
 ) -> dict:
     submission = get_submission_or_404(db, submission_id)
     assert_can_edit_working_submission(db, submission, user_id=context.user_id, roles=context.roles, agency_id=context.agency_id)
-    submit_submission(submission)
+    submit_submission(
+        db,
+        submission,
+        user_id=context.user_id,
+        roles=context.roles,
+        agency_id=context.agency_id,
+    )
     db.commit()
     db.refresh(submission)
     return success_response(serialize_submission(submission), "Property submitted for approval")

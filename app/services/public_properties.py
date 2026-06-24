@@ -163,10 +163,11 @@ def _taxonomy_maps(db: Session) -> tuple[dict[int, PropertyCategory], dict[int, 
     return categories, types, cities, areas
 
 
-def _agency_for_user(db: Session, user: User | None) -> AgencyMaster | None:
-    if not user or not user.agency_id:
+def _agency_for_submission(db: Session, submission: PropertyListingSubmission, user: User | None = None) -> AgencyMaster | None:
+    agency_id = submission.agency_id or (user.agency_id if user else None)
+    if not agency_id:
         return None
-    return db.get(AgencyMaster, user.agency_id)
+    return db.get(AgencyMaster, agency_id)
 
 
 def _agency_payload(agency: AgencyMaster | None) -> dict[str, Any] | None:
@@ -224,7 +225,7 @@ def serialize_property_listing(
     property_type = types.get(_int(basic.get("type_id")))
     city = cities.get(_int(location.get("city_id")))
     area = areas.get(_int(location.get("area_id")))
-    agency = _agency_for_user(db, submitter)
+    agency = _agency_for_submission(db, submission, submitter)
     property_id = submission.property_id or submission.id
     property_hash = stable_property_hash(property_id)
     listing_type = "rent" if basic.get("listing_purpose") == "rent" else "sale"
@@ -299,7 +300,7 @@ def serialize_property_detail(db: Session, submission: PropertyListingSubmission
     basic = payload.get("basic_information") or {}
     details = payload.get("property_details") or {}
     pricing = payload.get("pricing") or {}
-    agency = _agency_for_user(db, submitter)
+    agency = _agency_for_submission(db, submission, submitter)
     owners = _owners(payload)
     property_hash = listing["id"]
     listing_type = listing["listing_type"]

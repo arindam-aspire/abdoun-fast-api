@@ -9,9 +9,18 @@ from fastapi import HTTPException
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.models.live_schema import AgencyMaster, PropertyListingSubmission, User
 from app.services.audit import record_activity
-from app.services.notifications import create_in_app_notification
+from app.services.notifications import create_in_app_notification, send_email_notification, send_sms_notification
+from app.services.user_agencies import (
+    REL_AGENT,
+    REL_PROPERTY_OWNER,
+    active_mappings,
+    agency_users_with_role,
+    ensure_user_agency_mapping,
+    user_has_active_agency_mapping,
+)
 from app.utils.status_codes import STATUS_BAD_REQUEST, STATUS_FORBIDDEN, STATUS_NOT_FOUND
 
 
@@ -56,6 +65,7 @@ def serialize_submission(submission: PropertyListingSubmission) -> dict:
     payload = submission.payload or {}
     return {
         "submission_id": str(submission.id),
+        "agency_id": str(submission.agency_id) if submission.agency_id else None,
         "status": submission.status,
         "current_step": submission.current_step,
         "last_completed_step": submission.last_completed_step,
@@ -83,6 +93,7 @@ def create_submission(
     db: Session,
     *,
     user_id: UUID,
+    agency_id: UUID | None,
     payload: dict[str, Any],
     current_step: int,
     last_completed_step: int,
@@ -92,6 +103,7 @@ def create_submission(
     submission = PropertyListingSubmission(
         id=uuid4(),
         submitted_by=user_id,
+        agency_id=agency_id,
         status=status,
         current_step=current_step,
         last_completed_step=last_completed_step,
@@ -117,6 +129,7 @@ def get_submission_or_404(db: Session, submission_id: UUID) -> PropertyListingSu
 def update_submission(
     submission: PropertyListingSubmission,
     *,
+    agency_id: UUID | None,
     payload: dict[str, Any],
     current_step: int,
     last_completed_step: int,
@@ -124,6 +137,8 @@ def update_submission(
     if submission.status not in {"draft", "rejected", "in_progress"}:
         raise HTTPException(status_code=STATUS_BAD_REQUEST, detail="Only draft or rejected submissions can be edited")
     submission.payload = payload
+    if agency_id is not None:
+        submission.agency_id = agency_id
     submission.current_step = current_step
     submission.last_completed_step = last_completed_step
     submission.step_completion = compute_step_completion(payload)
@@ -148,8 +163,7 @@ def can_edit_approved_submission(
         return True
 
     if "admin" in role_names and agency_id:
-        submitter = db.get(User, submission.submitted_by)
-        return bool(submitter and submitter.agency_id == agency_id)
+        return _submitter_agency_id(db, submission) == agency_id
 
     return False
 
@@ -164,6 +178,8 @@ def _assigned_agent_id(submission: PropertyListingSubmission) -> str | None:
 
 
 def _submitter_agency_id(db: Session, submission: PropertyListingSubmission) -> UUID | None:
+    if submission.agency_id:
+        return submission.agency_id
     submitter = db.get(User, submission.submitted_by)
     return submitter.agency_id if submitter else None
 
@@ -269,6 +285,7 @@ def create_revision_from_approved(
     revision = PropertyListingSubmission(
         id=uuid4(),
         submitted_by=user_id,
+        agency_id=_submitter_agency_id(db, source),
         property_id=source.property_id or source.id,
         status="submitted",
         current_step=current_step,
@@ -292,12 +309,25 @@ def create_revision_from_approved(
     return revision
 
 
-def submit_submission(submission: PropertyListingSubmission) -> PropertyListingSubmission:
+def submit_submission(
+    db: Session,
+    submission: PropertyListingSubmission,
+    *,
+    user_id: UUID,
+    roles: tuple[str, ...],
+    agency_id: UUID | None = None,
+) -> PropertyListingSubmission:
     if submission.status in {"approved"}:
         raise HTTPException(status_code=STATUS_BAD_REQUEST, detail="Approved submissions cannot be resubmitted")
+    if agency_id is not None and submission.status in {"draft", "rejected", "in_progress"}:
+        submission.agency_id = agency_id
+    resolve_listing_agency_or_400(db, submission.agency_id)
+    assert_owner_agency_rule(db, user_id=user_id, agency_id=submission.agency_id, roles=roles)
+    record_owner_agency_mapping_for_submission(db, user_id=user_id, agency_id=submission.agency_id, roles=roles)
     submission.status = "submitted"
     submission.submitted_at = utc_now()
     submission.step_completion = compute_step_completion(submission.payload or {})
+    notify_agency_admins_for_submission(db, submission=submission, actor_user_id=user_id)
     return submission
 
 
@@ -305,6 +335,91 @@ def soft_delete_submission(submission: PropertyListingSubmission, *, deleted_by:
     submission.deleted_at = utc_now()
     submission.deleted_by = deleted_by
     submission.delete_reason = "Deleted by user"
+
+
+def resolve_listing_agency_or_400(db: Session, agency_id: UUID | None) -> AgencyMaster:
+    if agency_id is None:
+        raise HTTPException(status_code=STATUS_BAD_REQUEST, detail="Agency is required before submitting a property")
+    agency = db.get(AgencyMaster, agency_id)
+    if not agency or not agency.is_active or not agency.is_verified:
+        raise HTTPException(status_code=STATUS_BAD_REQUEST, detail="Selected agency is not available for property submission")
+    return agency
+
+
+def assert_owner_agency_rule(
+    db: Session,
+    *,
+    user_id: UUID,
+    agency_id: UUID,
+    roles: tuple[str, ...],
+) -> None:
+    role_names = _role_names(roles)
+    if "owner" not in role_names and "registered_user" not in role_names:
+        return
+    settings = get_settings()
+    mappings = active_mappings(db, user_id=user_id, relationship_type=REL_PROPERTY_OWNER)
+    if mappings and not settings.allow_owner_multiple_agencies and all(mapping.agency_id != agency_id for mapping in mappings):
+        raise HTTPException(status_code=STATUS_BAD_REQUEST, detail="Owner is already linked to another agency")
+
+
+def record_owner_agency_mapping_for_submission(
+    db: Session,
+    *,
+    user_id: UUID,
+    agency_id: UUID,
+    roles: tuple[str, ...],
+) -> None:
+    role_names = _role_names(roles)
+    if "owner" not in role_names and "registered_user" not in role_names:
+        return
+    created = not user_has_active_agency_mapping(
+        db,
+        user_id=user_id,
+        agency_id=agency_id,
+        relationship_type=REL_PROPERTY_OWNER,
+    )
+    ensure_user_agency_mapping(
+        db,
+        user_id=user_id,
+        agency_id=agency_id,
+        relationship_type=REL_PROPERTY_OWNER,
+        actor_user_id=user_id,
+    )
+    if created and get_settings().allow_owner_multiple_agencies:
+        record_activity(
+            db,
+            activity_type="owner_agency_mapping_created",
+            message=f"Owner {user_id} linked to agency {agency_id}",
+            user_id=user_id,
+        )
+
+
+def notify_agency_admins_for_submission(db: Session, *, submission: PropertyListingSubmission, actor_user_id: UUID) -> None:
+    if not submission.agency_id:
+        return
+    recipients = agency_users_with_role(db, agency_id=submission.agency_id, role_name="admin")
+    payload = submission.payload or {}
+    title = ((payload.get("basic_information") or {}).get("title")) or "property listing"
+    for recipient in recipients:
+        create_in_app_notification(
+            db,
+            recipient_user_id=recipient.id,
+            actor_user_id=actor_user_id,
+            type_key="property_submission_created",
+            title="New property submission",
+            message=f"New property submission received for {title}.",
+            data={"submission_id": str(submission.id), "agency_id": str(submission.agency_id)},
+        )
+        send_email_notification(
+            to_email=recipient.email,
+            subject="New property submission",
+            body=f"New property submission received for {title}.",
+        )
+        if recipient.phone_number:
+            send_sms_notification(
+                to_phone=recipient.phone_number,
+                body=f"New property submission received for {title}.",
+            )
 
 
 def review_submission(
@@ -352,6 +467,7 @@ def review_submission(
 def serialize_draft_list_item(submission: PropertyListingSubmission) -> dict:
     return {
         "submission_id": str(submission.id),
+        "agency_id": str(submission.agency_id) if submission.agency_id else None,
         "status": submission.status,
         "current_step": submission.current_step,
         "last_completed_step": submission.last_completed_step,
@@ -372,6 +488,9 @@ def serialize_agent_property_item(submission: PropertyListingSubmission, submitt
     pricing = payload.get("pricing") or {}
     workflow = payload.get("_workflow") or {}
     property_id = submission.property_id or submission.id
+    agency = None
+    if submission.agency_id:
+        agency = {"agency_id": str(submission.agency_id), "id": str(submission.agency_id)}
     return {
         "property_id": str(property_id),
         "property_hash": stable_property_hash(property_id),
@@ -396,7 +515,7 @@ def serialize_agent_property_item(submission: PropertyListingSubmission, submitt
         "submission_workflow_label": submission.status.replace("_", " ").title(),
         "can_edit_submission": submission.status in {"draft", "rejected", "in_progress"},
         "can_delete_submission": submission.status in {"draft", "rejected", "in_progress"},
-        "agency": None,
+        "agency": agency,
         "submitted_by": str(submitter.id) if submitter else str(submission.submitted_by),
         "agent_user_id": workflow.get("assigned_agent_id"),
     }
@@ -408,6 +527,7 @@ def serialize_admin_submission_item(submission: PropertyListingSubmission, submi
     property_id = submission.property_id or submission.id
     return {
         "submission_id": str(submission.id),
+        "agency_id": str(submission.agency_id) if submission.agency_id else None,
         "submitted_by": str(submission.submitted_by),
         "submitted_by_name": submitter.full_name if submitter else "",
         "status": submission.status,
@@ -444,7 +564,12 @@ def list_submissions(
     if submitted_by:
         stmt = stmt.where(PropertyListingSubmission.submitted_by == submitted_by)
     if agency_id:
-        stmt = stmt.where(User.agency_id == agency_id)
+        stmt = stmt.where(
+            or_(
+                PropertyListingSubmission.agency_id == agency_id,
+                PropertyListingSubmission.agency_id.is_(None) & (User.agency_id == agency_id),
+            )
+        )
     stmt = stmt.order_by(PropertyListingSubmission.updated_at.desc())
     total = db.execute(select(func.count()).select_from(stmt.order_by(None).subquery())).scalar() or 0
     rows = db.execute(stmt.offset((page - 1) * page_size).limit(page_size)).all()
@@ -471,12 +596,22 @@ def assign_agent_to_property(
     if not submission:
         raise HTTPException(status_code=STATUS_NOT_FOUND, detail="Property submission not found")
     assert_can_manage_submission(db, submission, roles=actor_roles, agency_id=actor_agency_id)
-    submitter_agency_id = _submitter_agency_id(db, submission)
+    submission_agency_id = _submitter_agency_id(db, submission)
     if agent_id:
         agent = db.get(User, agent_id)
         if not agent:
             raise HTTPException(status_code=STATUS_NOT_FOUND, detail="Agent not found")
-        if submitter_agency_id and agent.agency_id != submitter_agency_id:
+        has_mapping = bool(
+            submission_agency_id
+            and user_has_active_agency_mapping(
+                db,
+                user_id=agent.id,
+                agency_id=submission_agency_id,
+                relationship_type=REL_AGENT,
+            )
+        )
+        has_legacy_agency = bool(submission_agency_id and agent.agency_id == submission_agency_id)
+        if submission_agency_id and not has_mapping and not has_legacy_agency:
             raise HTTPException(status_code=STATUS_FORBIDDEN, detail="Agent is outside the property agency")
     payload = dict(submission.payload or {})
     workflow = _payload_workflow(payload)

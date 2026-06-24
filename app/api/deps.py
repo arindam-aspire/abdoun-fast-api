@@ -12,6 +12,7 @@ from app.core.localization import normalize_locale
 from app.core.tokens import verify_token
 from app.db.session import get_db
 from app.models.live_schema import Role, User, UserRole
+from app.services.user_agencies import primary_agency_id_for_context
 from app.utils.status_codes import STATUS_FORBIDDEN, STATUS_UNAUTHORIZED
 
 
@@ -60,7 +61,7 @@ def get_request_context(
     return RequestContext(
         locale=locale,
         user_id=user.id,
-        agency_id=user.agency_id,
+        agency_id=primary_agency_id_for_context(db, user, roles),
         roles=roles,
     )
 

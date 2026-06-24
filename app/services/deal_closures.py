@@ -55,6 +55,8 @@ def _submission_for_property(db: Session, property_id: UUID) -> tuple[PropertyLi
 
 def _agency_id_for_property(db: Session, property_id: UUID) -> UUID | None:
     match = _submission_for_property(db, property_id)
+    if match and match[0].agency_id:
+        return match[0].agency_id
     submitter = match[1] if match else None
     return submitter.agency_id if submitter else None
 
@@ -77,7 +79,8 @@ def _can_request_closure(
     workflow = (submission.payload or {}).get("_workflow") or {}
     if workflow.get("assigned_agent_id") == str(user_id):
         return True
-    if "admin" in role_names and agency_id and submitter and submitter.agency_id == agency_id:
+    property_agency_id = submission.agency_id or (submitter.agency_id if submitter else None)
+    if "admin" in role_names and agency_id and property_agency_id == agency_id:
         return True
     return False
 
@@ -276,4 +279,3 @@ def list_deal_closures(
     total = db.execute(select(func.count()).select_from(stmt.order_by(None).subquery())).scalar() or 0
     closures = db.execute(stmt.offset((page - 1) * page_size).limit(page_size)).scalars().all()
     return [serialize_deal_closure(db, closure) for closure in closures], pagination_meta(total, page, page_size)
-

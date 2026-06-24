@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from app.models.live_schema import AgentInvite, AgentProfile, User
 from app.services.auth import assign_role, normalize_username, utc_now
 from app.services.notifications import send_email_notification
+from app.services.user_agencies import REL_AGENT, agency_user_ids, ensure_user_agency_mapping, user_has_active_agency_mapping
 from app.utils.status_codes import STATUS_BAD_REQUEST, STATUS_FORBIDDEN, STATUS_NOT_FOUND
 
 
@@ -51,6 +52,19 @@ def list_agents(
     page = max(page, 1)
     page_size = max(min(page_size, 100), 1)
     offset = (page - 1) * page_size
+    is_super_admin = "super_admin" in {role.lower() for role in roles}
+    if not is_super_admin and agency_id is None:
+        return {
+            "agents": [],
+            "pagination": {
+                "page": page,
+                "pageSize": page_size,
+                "total": 0,
+                "totalPages": 1,
+                "hasNext": False,
+                "hasPrevious": False,
+            },
+        }
 
     stmt = (
         select(User, AgentProfile, AgentInvite)
@@ -59,8 +73,9 @@ def list_agents(
         .where(AgentProfile.deleted_at.is_(None))
     )
 
-    if "super_admin" not in {role.lower() for role in roles} and agency_id:
-        stmt = stmt.where(User.agency_id == agency_id)
+    if not is_super_admin and agency_id:
+        mapped_user_ids = agency_user_ids(db, agency_id=agency_id, relationship_types=(REL_AGENT,))
+        stmt = stmt.where(or_(User.id.in_(mapped_user_ids), User.agency_id == agency_id))
 
     sort_columns = {
         "invited_at": AgentInvite.invited_at,
@@ -134,6 +149,13 @@ def invite_agent(
         user.agency_id = agency_id
 
     assign_role(db, user.id, "agent", assigned_by=invited_by)
+    ensure_user_agency_mapping(
+        db,
+        user_id=user.id,
+        agency_id=agency_id,
+        relationship_type=REL_AGENT,
+        actor_user_id=invited_by,
+    )
 
     profile = db.get(AgentProfile, user.id)
     if not profile:
@@ -186,7 +208,17 @@ def update_agent_status(
     profile = db.get(AgentProfile, agent_id)
     if not user or not profile:
         raise HTTPException(status_code=STATUS_NOT_FOUND, detail="Agent not found")
-    if actor_agency_id is None or user.agency_id != actor_agency_id:
+    has_mapping = bool(
+        actor_agency_id
+        and user_has_active_agency_mapping(
+            db,
+            user_id=user.id,
+            agency_id=actor_agency_id,
+            relationship_type=REL_AGENT,
+        )
+    )
+    has_legacy_agency = bool(actor_agency_id and user.agency_id == actor_agency_id)
+    if actor_agency_id is None or not (has_mapping or has_legacy_agency):
         raise HTTPException(status_code=STATUS_FORBIDDEN, detail="Agent is outside the agency")
 
     profile.status = normalized_status

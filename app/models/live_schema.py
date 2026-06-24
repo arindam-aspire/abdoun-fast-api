@@ -251,6 +251,7 @@ class PropertyListingSubmission(Base):
 
     id: Mapped[Any] = mapped_column(UUID(as_uuid=True), primary_key=True, nullable=False, server_default=text("gen_random_uuid()"))
     submitted_by: Mapped[Any] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    agency_id: Mapped[Any] = mapped_column(UUID(as_uuid=True), ForeignKey("agency_master.id"), nullable=True)
     property_id: Mapped[Any] = mapped_column(UUID(as_uuid=True), nullable=True)
     status: Mapped[Any] = mapped_column(String(30), nullable=False, server_default=text("'draft'::character varying"))
     current_step: Mapped[Any] = mapped_column(Integer, nullable=False, server_default=text("1"))
@@ -417,6 +418,22 @@ class UserRole(Base):
     role_id: Mapped[Any] = mapped_column(UUID(as_uuid=True), ForeignKey("roles.id"), primary_key=True, nullable=False)
     assigned_by: Mapped[Any] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     assigned_at: Mapped[Any] = mapped_column(DateTime, nullable=True, server_default=text("now()"))
+
+
+class UserAgencyMapping(Base):
+    __tablename__ = "user_agency_mappings"
+
+    id: Mapped[Any] = mapped_column(UUID(as_uuid=True), primary_key=True, nullable=False, server_default=text("gen_random_uuid()"))
+    user_id: Mapped[Any] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    agency_id: Mapped[Any] = mapped_column(UUID(as_uuid=True), ForeignKey("agency_master.id"), nullable=False)
+    relationship_type: Mapped[Any] = mapped_column(String(40), nullable=False)
+    status: Mapped[Any] = mapped_column(String(20), nullable=False, server_default=text("'active'::character varying"))
+    is_primary: Mapped[Any] = mapped_column(Boolean, nullable=False, server_default=text("false"))
+    created_by: Mapped[Any] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    updated_by: Mapped[Any] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    created_at: Mapped[Any] = mapped_column(DateTime, nullable=False, server_default=text("now()"))
+    updated_at: Mapped[Any] = mapped_column(DateTime, nullable=False, server_default=text("now()"))
+    deleted_at: Mapped[Any] = mapped_column(DateTime, nullable=True)
 
 
 class SearchField(Base):
@@ -605,6 +622,7 @@ __all__ = [
     "SocialAccount",
     "TypeFeature",
     "User",
+    "UserAgencyMapping",
     "UserProfileChangeChallenge",
     "UserPropertyFavorite",
     "UserRememberMeSession",

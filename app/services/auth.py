@@ -21,6 +21,14 @@ from app.models.live_schema import (
     UserRole,
 )
 from app.services.notifications import send_email_notification, send_sms_notification
+from app.services.user_agencies import (
+    REL_AGENCY_ADMIN,
+    REL_AGENT,
+    REL_PROPERTY_OWNER,
+    active_mappings,
+    ensure_user_agency_mapping,
+    primary_agency_id_for_context,
+)
 from app.utils.status_codes import STATUS_BAD_REQUEST, STATUS_CONFLICT, STATUS_FORBIDDEN, STATUS_NOT_FOUND, STATUS_UNAUTHORIZED
 
 
@@ -180,7 +188,14 @@ def serialize_agency(agency: AgencyMaster | None) -> dict | None:
 
 def serialize_user(db: Session, user: User) -> dict:
     roles = load_user_roles(db, user.id)
-    agency = db.get(AgencyMaster, user.agency_id) if user.agency_id else None
+    role_names = tuple(role.name for role in roles)
+    primary_agency_id = primary_agency_id_for_context(db, user, role_names)
+    agency = db.get(AgencyMaster, primary_agency_id) if primary_agency_id else None
+    mapped_agencies = [
+        serialize_agency(db.get(AgencyMaster, mapping.agency_id))
+        for mapping in active_mappings(db, user_id=user.id)
+    ]
+    mapped_agencies = [item for item in mapped_agencies if item is not None]
     return {
         "id": str(user.id),
         "email": user.email,
@@ -201,7 +216,8 @@ def serialize_user(db: Session, user: User) -> dict:
             for role in roles
         ],
         "agency": serialize_agency(agency),
-        "has_agency": agency is not None,
+        "agencies": mapped_agencies,
+        "has_agency": bool(mapped_agencies or agency),
         "created_at": _iso(user.created_at),
         "requires_password_set": not bool(user.password_hash),
         "status": "active" if user.is_active else "inactive",
@@ -325,6 +341,21 @@ def create_user(
     db.add(user)
     db.flush()
     assign_role(db, user.id, role)
+    normalized_role = normalize_role_name(role)
+    relationship_type = {
+        "admin": REL_AGENCY_ADMIN,
+        "agent": REL_AGENT,
+        "owner": REL_PROPERTY_OWNER,
+        "registered_user": REL_PROPERTY_OWNER,
+    }.get(normalized_role)
+    if agency_id and relationship_type:
+        ensure_user_agency_mapping(
+            db,
+            user_id=user.id,
+            agency_id=agency_id,
+            relationship_type=relationship_type,
+            is_primary=True,
+        )
     return user
 
 

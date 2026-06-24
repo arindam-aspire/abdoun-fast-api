@@ -33,6 +33,9 @@ def get_admin_property_submissions(
     status: str | None = None,
 ) -> dict:
     roles = {role.lower() for role in context.roles}
+    if "super_admin" not in roles and context.agency_id is None:
+        pagination = {"total": 0, "page": max(page, 1), "pageSize": max(min(pageSize, 100), 1), "totalPages": 1, "hasNext": False, "hasPrevious": False}
+        return success_response({"items": [], **pagination}, meta={"pagination": pagination})
     rows, pagination = list_submissions(
         db,
         page=page,

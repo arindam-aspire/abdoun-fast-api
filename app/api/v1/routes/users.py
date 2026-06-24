@@ -7,10 +7,12 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import delete, func, select
 
 from app.api.deps import DBSessionDep, RequestContext, require_authenticated_user
+from app.core.config import get_settings
 from app.models.live_schema import AgencyMaster, RecentlyViewedProperty
 from app.schemas.favorites import RecentViewCreate
 from app.schemas.users import AssignUserAgencyRequest
 from app.services.auth import get_user_or_404, serialize_user
+from app.services.user_agencies import REL_PROPERTY_OWNER, active_mappings, ensure_user_agency_mapping
 from app.services.public_properties import (
     get_public_submission_or_404,
     pagination_meta,
@@ -19,7 +21,7 @@ from app.services.public_properties import (
     utc_now,
 )
 from app.utils.api_response import success_response
-from app.utils.status_codes import STATUS_NOT_FOUND
+from app.utils.status_codes import STATUS_BAD_REQUEST, STATUS_NOT_FOUND
 
 router = APIRouter()
 
@@ -31,10 +33,21 @@ def assign_user_agency(payload: AssignUserAgencyRequest, context: AuthenticatedC
     user = get_user_or_404(db, context.user_id)
     agency_id = UUID(payload.agencyId)
     agency = db.get(AgencyMaster, agency_id)
-    if not agency or not agency.is_active:
+    if not agency or not agency.is_active or not agency.is_verified:
         raise HTTPException(status_code=STATUS_NOT_FOUND, detail="Agency not found")
 
-    user.agency_id = agency.id
+    settings = get_settings()
+    owner_mappings = active_mappings(db, user_id=user.id, relationship_type=REL_PROPERTY_OWNER)
+    if owner_mappings and not settings.allow_owner_multiple_agencies and all(mapping.agency_id != agency.id for mapping in owner_mappings):
+        raise HTTPException(status_code=STATUS_BAD_REQUEST, detail="Owner is already linked to an agency")
+
+    ensure_user_agency_mapping(
+        db,
+        user_id=user.id,
+        agency_id=agency.id,
+        relationship_type=REL_PROPERTY_OWNER,
+        actor_user_id=user.id,
+    )
     db.commit()
     db.refresh(user)
     return success_response(serialize_user(db, user), "Agency assigned successfully")

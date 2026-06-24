@@ -13,6 +13,7 @@ from app.schemas.leads import LeadCreate
 from app.services.audit import record_activity
 from app.services.notifications import create_in_app_notification, send_email_notification, send_sms_notification
 from app.services.public_properties import get_public_submission_or_404, pagination_meta, serialize_property_listing
+from app.services.user_agencies import REL_AGENT, agency_user_ids, agency_users_with_role, user_has_active_agency_mapping
 from app.utils.status_codes import STATUS_BAD_REQUEST, STATUS_FORBIDDEN, STATUS_NOT_FOUND
 
 
@@ -92,19 +93,25 @@ def _lead_property_submission(db: Session, lead: Lead) -> tuple[PropertyListingS
         return None
 
 
+def _submission_agency_id(submission: PropertyListingSubmission | None, submitter: User | None = None) -> UUID | None:
+    if not submission:
+        return None
+    return submission.agency_id or (submitter.agency_id if submitter else None)
+
+
 def _agency_admins(db: Session, agency_id: UUID | None) -> list[User]:
     if not agency_id:
         return []
-    return db.execute(
+    mapped_admins = agency_users_with_role(db, agency_id=agency_id, role_name=AGENCY_ADMIN_ROLE)
+    legacy_admins = db.execute(
         select(User)
         .join(UserRole, UserRole.user_id == User.id)
         .join(Role, Role.id == UserRole.role_id)
-        .where(
-            User.agency_id == agency_id,
-            User.is_active.is_(True),
-            Role.name == AGENCY_ADMIN_ROLE,
-        )
+        .where(User.agency_id == agency_id, User.is_active.is_(True), Role.name == AGENCY_ADMIN_ROLE)
     ).scalars().all()
+    by_id = {user.id: user for user in mapped_admins}
+    by_id.update({user.id: user for user in legacy_admins})
+    return list(by_id.values())
 
 
 def _can_access_lead(db: Session, lead: Lead, *, user_id: UUID, roles: tuple[str, ...], agency_id: UUID | None) -> bool:
@@ -114,12 +121,19 @@ def _can_access_lead(db: Session, lead: Lead, *, user_id: UUID, roles: tuple[str
         return True
     if AGENCY_ADMIN_ROLE in roles and agency_id:
         submission_match = _lead_property_submission(db, lead)
+        submission = submission_match[0] if submission_match else None
         submitter = submission_match[1] if submission_match else None
-        if submitter and submitter.agency_id == agency_id:
+        if _submission_agency_id(submission, submitter) == agency_id:
             return True
         if lead.assigned_agent_id:
             agent = db.get(User, lead.assigned_agent_id)
-            if agent and agent.agency_id == agency_id:
+            has_mapping = user_has_active_agency_mapping(
+                db,
+                user_id=lead.assigned_agent_id,
+                agency_id=agency_id,
+                relationship_type=REL_AGENT,
+            )
+            if agent and (has_mapping or agent.agency_id == agency_id):
                 return True
     return False
 
@@ -134,16 +148,25 @@ def _lead_query_for_context(db: Session, *, user_id: UUID, roles: tuple[str, ...
     if SUPER_ADMIN_ROLE in roles:
         return stmt
     if AGENCY_ADMIN_ROLE in roles and agency_id:
-        agency_user_ids = select(User.id).where(User.agency_id == agency_id)
+        mapped_user_ids = agency_user_ids(db, agency_id=agency_id)
+        legacy_user_ids = select(User.id).where(User.agency_id == agency_id)
         property_ids = (
             select(PropertyListingSubmission.property_id)
             .join(User, User.id == PropertyListingSubmission.submitted_by)
-            .where(User.agency_id == agency_id, PropertyListingSubmission.property_id.is_not(None))
+            .where(
+                or_(
+                    PropertyListingSubmission.agency_id == agency_id,
+                    PropertyListingSubmission.agency_id.is_(None) & (User.agency_id == agency_id),
+                ),
+                PropertyListingSubmission.property_id.is_not(None),
+            )
         )
         return stmt.where(
             or_(
-                Lead.assigned_agent_id.in_(agency_user_ids),
-                Lead.created_by_agent_id.in_(agency_user_ids),
+                Lead.assigned_agent_id.in_(mapped_user_ids),
+                Lead.assigned_agent_id.in_(legacy_user_ids),
+                Lead.created_by_agent_id.in_(mapped_user_ids),
+                Lead.created_by_agent_id.in_(legacy_user_ids),
                 Lead.created_by_admin_id == user_id,
                 Lead.property_id.in_(property_ids),
             )
@@ -213,8 +236,8 @@ def create_lead(db: Session, *, payload: LeadCreate, user_id: UUID | None = None
         agent = db.get(User, assigned_agent_id)
         if agent:
             notify_users.append(agent)
-    if submitter:
-        notify_users.extend(_agency_admins(db, submitter.agency_id))
+    submission_agency_id = _submission_agency_id(submission, submitter)
+    notify_users.extend(_agency_admins(db, submission_agency_id))
     seen: set[UUID] = set()
     for recipient in notify_users:
         if recipient.id in seen:
@@ -311,7 +334,17 @@ def assign_lead(
         agent = db.get(User, agent_id)
         if not agent or not agent.is_active or not user_has_role(db, agent.id, AGENT_ROLE):
             raise HTTPException(status_code=STATUS_BAD_REQUEST, detail="Agent not found")
-        if AGENCY_ADMIN_ROLE in actor_roles and actor_agency_id and agent.agency_id != actor_agency_id:
+        has_mapping = bool(
+            actor_agency_id
+            and user_has_active_agency_mapping(
+                db,
+                user_id=agent.id,
+                agency_id=actor_agency_id,
+                relationship_type=REL_AGENT,
+            )
+        )
+        has_legacy_agency = bool(actor_agency_id and agent.agency_id == actor_agency_id)
+        if AGENCY_ADMIN_ROLE in actor_roles and actor_agency_id and not (has_mapping or has_legacy_agency):
             raise HTTPException(status_code=STATUS_FORBIDDEN, detail="Agent is outside the agency")
     lead.assigned_agent_id = agent_id
     lead.assigned_by_admin_id = actor_user_id
@@ -433,4 +466,3 @@ def add_lead_message(
         if recipient and channel == "SMS" and recipient.phone_number:
             send_sms_notification(to_phone=recipient.phone_number, body=message)
     return record
-
