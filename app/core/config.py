@@ -54,6 +54,11 @@ class Settings(BaseModel):
     auth_access_token_seconds: int = int(os.getenv("AUTH_ACCESS_TOKEN_SECONDS", "3600"))
     auth_refresh_token_seconds: int = int(os.getenv("AUTH_REFRESH_TOKEN_SECONDS", "604800"))
     auth_otp_ttl_seconds: int = int(os.getenv("AUTH_OTP_TTL_SECONDS", "600"))
+
+    aws_s3_bucket: str | None = os.getenv("AWS_S3_BUCKET", "").strip().strip("\"'")
+    aws_region: str = os.getenv("AWS_REGION", "us-west-2").strip().strip("\"'") or "us-west-2"
+    media_url_presign_enabled: bool = os.getenv("MEDIA_URL_PRESIGN_ENABLED", "true").lower() == "true"
+    media_url_presign_expires_seconds: int = int(os.getenv("MEDIA_URL_PRESIGN_EXPIRES_SECONDS", "3600"))
     
     # Azure OpenAI settings (optional, for geocoding fallback)
     azure_openai_key: str | None = os.getenv("AZURE_OPENAI_KEY")

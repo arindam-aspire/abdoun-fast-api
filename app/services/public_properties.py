@@ -21,6 +21,7 @@ from app.models.live_schema import (
     User,
     UserPropertyFavorite,
 )
+from app.services.media_urls import resolve_readable_media_url
 from app.services.property_submissions import stable_property_hash
 from app.utils.status_codes import STATUS_NOT_FOUND
 
@@ -96,7 +97,7 @@ def _media_for_listing(payload: dict[str, Any]) -> dict[str, Any]:
     source = payload.get("media_documents") or {}
     images = []
     for index, image in enumerate(source.get("images") or []):
-        url = image.get("url")
+        url = resolve_readable_media_url(image.get("url"))
         if not url:
             continue
         images.append(
@@ -123,7 +124,7 @@ def _media_for_listing(payload: dict[str, Any]) -> dict[str, Any]:
         )
     documents = []
     for index, document in enumerate(source.get("documents") or []):
-        url = document.get("url")
+        url = resolve_readable_media_url(document.get("url"))
         if not url:
             continue
         documents.append(
