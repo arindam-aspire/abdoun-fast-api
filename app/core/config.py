@@ -40,6 +40,10 @@ class Settings(BaseModel):
     db_sslmode: str = os.getenv("DB_SSLMODE", "require")
 
     api_v1_prefix: str = SystemMessages.API_V1_PREFIX
+    cors_allowed_origins: str = os.getenv(
+        "CORS_ALLOWED_ORIGINS",
+        "http://localhost:3000,http://127.0.0.1:3000",
+    )
 
     notification_email_mode: str = os.getenv("NOTIFICATION_EMAIL_MODE", "log")
     notification_sms_mode: str = os.getenv("NOTIFICATION_SMS_MODE", "log")
