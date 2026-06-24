@@ -31,7 +31,7 @@ def assign_user_agency(payload: AssignUserAgencyRequest, context: AuthenticatedC
     user = get_user_or_404(db, context.user_id)
     agency_id = UUID(payload.agencyId)
     agency = db.get(AgencyMaster, agency_id)
-    if not agency:
+    if not agency or not agency.is_active:
         raise HTTPException(status_code=STATUS_NOT_FOUND, detail="Agency not found")
 
     user.agency_id = agency.id

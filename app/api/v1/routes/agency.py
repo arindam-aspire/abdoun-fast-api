@@ -4,8 +4,9 @@ from typing import Annotated
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from sqlalchemy import false
 
-from app.api.deps import DBSessionDep, RequestContext, require_any_role
+from app.api.deps import DBSessionDep, RequestContext, require_any_role, require_authenticated_user
 from app.models.live_schema import AgencyMaster
 from app.schemas.agency import AgencyUpdateRequest, UploadRequest
 from app.services.auth import create_otp_challenge, create_user, send_dev_otp, serialize_agency
@@ -15,6 +16,7 @@ from app.utils.status_codes import STATUS_FORBIDDEN, STATUS_NOT_FOUND
 router = APIRouter()
 
 AgencyAdminContext = Annotated[RequestContext, Depends(require_any_role("admin", "super_admin"))]
+AuthenticatedContext = Annotated[RequestContext, Depends(require_authenticated_user)]
 
 
 def _role_names(context: RequestContext) -> set[str]:
@@ -81,10 +83,20 @@ async def register_agency(
 
 
 @router.get("/list")
-def list_agencies(db: DBSessionDep, context: AgencyAdminContext, skip: int = 0, limit: int = 20) -> dict:
+def list_agencies(db: DBSessionDep, context: AuthenticatedContext, skip: int = 0, limit: int = 20) -> dict:
+    roles = _role_names(context)
     query = db.query(AgencyMaster).order_by(AgencyMaster.created_at.desc())
-    if "super_admin" not in _role_names(context):
+
+    if "super_admin" in roles:
+        pass
+    elif "admin" in roles and context.agency_id:
         query = query.filter(AgencyMaster.id == context.agency_id)
+    elif "admin" in roles:
+        query = query.filter(false())
+    else:
+        # Owners need this directory before they have an agency assignment.
+        query = query.filter(AgencyMaster.is_active.is_(True))
+
     agencies = query.offset(max(skip, 0)).limit(max(min(limit, 100), 1)).all()
     return success_response([serialize_agency(agency) for agency in agencies])
 
