@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from pydantic import BaseModel
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
 
 class AgentInviteRequest(BaseModel):
@@ -18,3 +18,12 @@ class AgentReviewRequest(BaseModel):
 class AgentStatusUpdateRequest(BaseModel):
     status: str
     reason: str | None = None
+
+
+class ManualOnboardAgentRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    full_name: str = Field(validation_alias=AliasChoices("fullName", "full_name"))
+    email: str
+    phone: str | None = None
+    service_area: str | None = Field(default=None, validation_alias=AliasChoices("serviceArea", "service_area"))

@@ -6,8 +6,16 @@ from uuid import UUID
 from fastapi import APIRouter, Depends
 
 from app.api.deps import DBSessionDep, RequestContext, require_any_role
-from app.schemas.agents import AgentInviteRequest, AgentStatusUpdateRequest
-from app.services.agents import invite_agent, list_agents, update_agent_status
+from app.schemas.agents import AgentInviteRequest, AgentStatusUpdateRequest, ManualOnboardAgentRequest
+from app.services.agents import (
+    agent_summary,
+    delete_agent,
+    invite_agent,
+    list_agents,
+    manual_onboard_agent,
+    resend_agent_invitation,
+    update_agent_status,
+)
 from app.utils.api_response import success_response
 
 router = APIRouter()
@@ -24,6 +32,8 @@ def get_agents(
     pageSize: int = 10,
     sortBy: str = "invited_at",
     sortOrder: str = "desc",
+    search: str | None = None,
+    status: str | None = None,
 ) -> dict:
     data = list_agents(
         db,
@@ -33,8 +43,15 @@ def get_agents(
         page_size=pageSize,
         sort_by=sortBy,
         sort_order=sortOrder,
+        search=search,
+        status=status,
     )
     return success_response(data, meta={"pagination": data["pagination"]})
+
+
+@router.get("/summary")
+def get_agent_summary(context: AgentListContext, db: DBSessionDep) -> dict:
+    return success_response(agent_summary(db, agency_id=context.agency_id, roles=context.roles))
 
 
 @router.post("/invite")
@@ -50,6 +67,45 @@ def create_agent_invite(payload: AgentInviteRequest, context: AgencyAdminContext
     )
     db.commit()
     return success_response(agent, "Agent invitation logged in dev mode")
+
+
+@router.post("/manual-onboard")
+def create_manual_agent(payload: ManualOnboardAgentRequest, context: AgencyAdminContext, db: DBSessionDep) -> dict:
+    agent = manual_onboard_agent(
+        db,
+        full_name=payload.full_name,
+        email=payload.email,
+        phone=payload.phone,
+        service_area=payload.service_area,
+        actor_id=context.user_id,
+        agency_id=context.agency_id,
+    )
+    db.commit()
+    return success_response(agent, "Agent onboarded successfully")
+
+
+@router.post("/{agent_id}/resend-invitation")
+def resend_invitation(agent_id: UUID, context: AgencyAdminContext, db: DBSessionDep) -> dict:
+    invite = resend_agent_invitation(
+        db,
+        agent_id=agent_id,
+        actor_id=context.user_id,
+        agency_id=context.agency_id,
+    )
+    db.commit()
+    return success_response(invite, "Agent invitation resent")
+
+
+@router.delete("/{agent_id}")
+def remove_agent(agent_id: UUID, context: AgencyAdminContext, db: DBSessionDep) -> dict:
+    delete_agent(
+        db,
+        agent_id=agent_id,
+        actor_id=context.user_id,
+        agency_id=context.agency_id,
+    )
+    db.commit()
+    return success_response(True, "Agent removed")
 
 
 @router.patch("/{agent_id}/status")

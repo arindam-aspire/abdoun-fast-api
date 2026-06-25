@@ -10,6 +10,7 @@ from app.api.deps import DBSessionDep, RequestContext, require_any_role, require
 from app.models.live_schema import AgencyMaster
 from app.schemas.agency import AgencyUpdateRequest, UploadRequest
 from app.services.auth import create_otp_challenge, create_user, send_dev_otp, serialize_agency
+from app.services.owners import list_agency_owners
 from app.services.user_agencies import selectable_owner_agencies
 from app.utils.api_response import success_response
 from app.utils.status_codes import STATUS_FORBIDDEN, STATUS_NOT_FOUND
@@ -100,6 +101,31 @@ def list_agencies(db: DBSessionDep, context: AuthenticatedContext, skip: int = 0
 
     agencies = query.offset(max(skip, 0)).limit(max(min(limit, 100), 1)).all()
     return success_response([serialize_agency(agency) for agency in agencies])
+
+
+@router.get("/{agency_id}/owners")
+def get_agency_owners(
+    agency_id: UUID,
+    db: DBSessionDep,
+    context: AgencyAdminContext,
+    page: int = 1,
+    pageSize: int = 10,
+    search: str | None = None,
+    status: str | None = None,
+) -> dict:
+    agency = db.get(AgencyMaster, agency_id)
+    if not agency:
+        raise HTTPException(status_code=STATUS_NOT_FOUND, detail="Agency not found")
+    _assert_can_access_agency(context, agency_id)
+    items, pagination = list_agency_owners(
+        db,
+        agency_id=agency_id,
+        page=page,
+        page_size=pageSize,
+        search=search,
+        status=status,
+    )
+    return success_response({**pagination, "items": items}, meta={"pagination": pagination})
 
 
 @router.get("/{agency_id}")
