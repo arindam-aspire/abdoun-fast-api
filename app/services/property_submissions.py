@@ -341,7 +341,7 @@ def resolve_listing_agency_or_400(db: Session, agency_id: UUID | None) -> Agency
     if agency_id is None:
         raise HTTPException(status_code=STATUS_BAD_REQUEST, detail="Agency is required before submitting a property")
     agency = db.get(AgencyMaster, agency_id)
-    if not agency or not agency.is_active or not agency.is_verified:
+    if not agency or not agency.is_active:
         raise HTTPException(status_code=STATUS_BAD_REQUEST, detail="Selected agency is not available for property submission")
     return agency
 

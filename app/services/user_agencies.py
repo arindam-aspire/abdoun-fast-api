@@ -92,10 +92,10 @@ def user_has_active_agency_mapping(
     return db.execute(stmt).scalar_one_or_none() is not None
 
 
-def active_verified_agencies(db: Session):
+def active_agencies(db: Session):
     return (
         db.query(AgencyMaster)
-        .filter(AgencyMaster.is_active.is_(True), AgencyMaster.is_verified.is_(True))
+        .filter(AgencyMaster.is_active.is_(True))
         .order_by(AgencyMaster.agency_name.asc())
     )
 
@@ -105,8 +105,8 @@ def selectable_owner_agencies(db: Session, *, user_id: UUID) -> list[AgencyMaste
     owner_mappings = active_mappings(db, user_id=user_id, relationship_type=REL_PROPERTY_OWNER)
     if owner_mappings and not settings.allow_owner_multiple_agencies:
         agency_ids = [mapping.agency_id for mapping in owner_mappings]
-        return active_verified_agencies(db).filter(AgencyMaster.id.in_(agency_ids)).all()
-    return active_verified_agencies(db).all()
+        return active_agencies(db).filter(AgencyMaster.id.in_(agency_ids)).all()
+    return active_agencies(db).all()
 
 
 def ensure_user_agency_mapping(
