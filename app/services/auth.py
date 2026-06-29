@@ -53,6 +53,15 @@ def normalize_username(username: str) -> str:
     return username.strip().lower()
 
 
+def resolve_effective_sign_in_role(db: Session, *, user: User, requested_role: str) -> str:
+    role = normalize_role_name(requested_role)
+    if user_has_role(db, user.id, role):
+        return role
+    if role == "admin" and user_has_role(db, user.id, "super_admin"):
+        return "super_admin"
+    raise HTTPException(status_code=STATUS_FORBIDDEN, detail="Account role is not allowed for this sign-in")
+
+
 def _iso(value) -> str | None:
     return value.isoformat() if value else None
 
@@ -264,8 +273,7 @@ def authenticate_password(db: Session, *, username: str, password: str, role: st
         raise HTTPException(status_code=STATUS_UNAUTHORIZED, detail="Invalid credentials")
     if not user.password_hash or not verify_secret(password, user.password_hash):
         raise HTTPException(status_code=STATUS_UNAUTHORIZED, detail="Invalid credentials")
-    if not user_has_role(db, user.id, role):
-        raise HTTPException(status_code=STATUS_FORBIDDEN, detail="Account role is not allowed for this sign-in")
+    resolve_effective_sign_in_role(db, user=user, requested_role=role)
     return user
 
 
