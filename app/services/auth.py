@@ -267,13 +267,12 @@ def create_auth_tokens(db: Session, user: User, role_name: str | None = None) ->
     }
 
 
-def authenticate_password(db: Session, *, username: str, password: str, role: str) -> User:
+def authenticate_password(db: Session, *, username: str, password: str) -> User:
     user = find_user_by_username(db, username)
     if not user or not user.is_active:
         raise HTTPException(status_code=STATUS_UNAUTHORIZED, detail="Invalid credentials")
     if not user.password_hash or not verify_secret(password, user.password_hash):
         raise HTTPException(status_code=STATUS_UNAUTHORIZED, detail="Invalid credentials")
-    resolve_effective_sign_in_role(db, user=user, requested_role=role)
     return user
 
 

@@ -7,19 +7,16 @@ class SignInRequest(BaseModel):
     username: str
     password: str
     rememberMe: bool = False
-    role: str
 
 
 class SignInWithOtpRequest(BaseModel):
     username: str
-    role: str
 
 
 class SignInWithOtpVerifyRequest(BaseModel):
     username: str
     code: str
     session: str
-    role: str
 
 
 class SignUpRequest(BaseModel):

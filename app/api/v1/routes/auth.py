@@ -28,7 +28,6 @@ from app.services.auth import (
     find_user_by_username,
     get_user_or_404,
     normalize_username,
-    resolve_effective_sign_in_role,
     send_dev_otp,
     serialize_user,
     verify_otp_challenge,
@@ -49,11 +48,9 @@ def login_with_password(payload: SignInRequest, db: DBSessionDep) -> dict:
         db,
         username=payload.username,
         password=payload.password,
-        role=payload.role,
     )
-    effective_role = resolve_effective_sign_in_role(db, user=user, requested_role=payload.role)
     return success_response(
-        create_auth_tokens(db, user, effective_role),
+        create_auth_tokens(db, user),
         "Signed in successfully",
     )
 
@@ -63,12 +60,6 @@ def login_with_otp_request(payload: SignInWithOtpRequest, db: DBSessionDep) -> d
     user = find_user_by_username(db, payload.username)
     if not user or not user.is_active:
         raise HTTPException(status_code=STATUS_UNAUTHORIZED, detail="Invalid account")
-    try:
-        resolve_effective_sign_in_role(db, user=user, requested_role=payload.role)
-    except HTTPException as exc:
-        if exc.status_code == STATUS_FORBIDDEN:
-            raise HTTPException(status_code=STATUS_UNAUTHORIZED, detail="Invalid account") from exc
-        raise
 
     challenge, otp = create_otp_challenge(
         db,
@@ -89,12 +80,6 @@ def login_with_otp_verify(payload: SignInWithOtpVerifyRequest, db: DBSessionDep)
     user = find_user_by_username(db, payload.username)
     if not user or not user.is_active:
         raise HTTPException(status_code=STATUS_UNAUTHORIZED, detail="Invalid account")
-    try:
-        effective_role = resolve_effective_sign_in_role(db, user=user, requested_role=payload.role)
-    except HTTPException as exc:
-        if exc.status_code == STATUS_FORBIDDEN:
-            raise HTTPException(status_code=STATUS_UNAUTHORIZED, detail="Invalid account") from exc
-        raise
 
     try:
         challenge_id = UUID(payload.session)
@@ -110,7 +95,7 @@ def login_with_otp_verify(payload: SignInWithOtpVerifyRequest, db: DBSessionDep)
         new_value=normalize_username(payload.username),
     )
     return success_response(
-        create_auth_tokens(db, user, effective_role),
+        create_auth_tokens(db, user),
         "Signed in successfully",
     )
 
