@@ -13,6 +13,7 @@ from app.schemas.agency import (
     AgencyInvitationCreateRequest,
     AgencyOfflineRegistrationRequest,
     AgencyPasswordSetupRequest,
+    OwnerAgencyAssignmentRequest,
     AgencyReviewRequest,
     AgencyUpdateRequest,
     UploadRequest,
@@ -31,7 +32,7 @@ from app.services.agency_workflows import (
     PENDING_APPROVAL,
 )
 from app.services.auth import create_otp_challenge, create_user, send_dev_otp, serialize_agency
-from app.services.owners import list_agency_owners
+from app.services.owners import assign_owner_to_agency, list_agency_owners, list_platform_owners
 from app.services.user_agencies import selectable_owner_agencies
 from app.utils.api_response import success_response
 from app.utils.status_codes import STATUS_FORBIDDEN, STATUS_NOT_FOUND
@@ -207,6 +208,55 @@ def get_agency_owners(
         status=status,
     )
     return success_response({**pagination, "items": items}, meta={"pagination": pagination})
+
+
+@router.get("/owners")
+def get_platform_owners(
+    db: DBSessionDep,
+    context: SuperAdminContext,
+    page: int = 1,
+    pageSize: int = 10,
+    search: str | None = None,
+    status: str | None = None,
+    agencyId: UUID | None = None,
+) -> dict:
+    items, pagination = list_platform_owners(
+        db,
+        page=page,
+        page_size=pageSize,
+        search=search,
+        status=status,
+        agency_id=agencyId,
+    )
+    return success_response({**pagination, "items": items}, meta={"pagination": pagination})
+
+
+@router.post("/owners/{owner_id}/agency")
+def assign_owner_agency(
+    owner_id: UUID,
+    payload: OwnerAgencyAssignmentRequest,
+    context: SuperAdminContext,
+    db: DBSessionDep,
+) -> dict:
+    mapping = assign_owner_to_agency(
+        db,
+        owner_id=owner_id,
+        agency_id=payload.agency_id,
+        actor_user_id=context.user_id,
+    )
+    db.commit()
+    db.refresh(mapping)
+    return success_response(
+        {
+            "id": str(mapping.id),
+            "owner_id": str(mapping.user_id),
+            "agency_id": str(mapping.agency_id),
+            "relationship_type": mapping.relationship_type,
+            "status": mapping.status,
+            "is_primary": mapping.is_primary,
+        },
+        "Owner agency assignment updated",
+    )
 
 
 @router.get("/{agency_id}")

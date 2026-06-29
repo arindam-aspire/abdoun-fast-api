@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from uuid import UUID
+
 from pydantic import BaseModel
 
 
@@ -61,6 +63,10 @@ class AgencyReviewRequest(BaseModel):
 class AgencyPasswordSetupRequest(BaseModel):
     token: str
     password: str
+
+
+class OwnerAgencyAssignmentRequest(BaseModel):
+    agency_id: UUID
 
 
 class UploadRequest(BaseModel):
