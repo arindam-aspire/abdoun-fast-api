@@ -26,7 +26,7 @@ from app.services.property_submissions import stable_property_hash
 from app.utils.status_codes import STATUS_NOT_FOUND
 
 
-PUBLIC_STATUSES = {"approved"}
+PUBLIC_STATUSES = {"active"}
 DEAL_CLOSED_STATUS = "APPROVED"
 
 

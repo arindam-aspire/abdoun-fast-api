@@ -40,10 +40,15 @@ def run_migrations_offline() -> None:
 
 def run_migrations_online() -> None:
     """Run migrations in 'online' mode using the application DB URL."""
+    connect_args = {}
+    if settings.db_sslmode:
+        connect_args["sslmode"] = settings.db_sslmode
+
     connectable = create_engine(
         settings.database_url,
         poolclass=pool.NullPool,
         future=True,
+        connect_args=connect_args,
     )
 
     with connectable.connect() as connection:

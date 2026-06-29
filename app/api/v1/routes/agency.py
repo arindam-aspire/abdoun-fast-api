@@ -8,7 +8,28 @@ from sqlalchemy import false
 
 from app.api.deps import DBSessionDep, RequestContext, require_any_role, require_authenticated_user
 from app.models.live_schema import AgencyMaster
-from app.schemas.agency import AgencyUpdateRequest, UploadRequest
+from app.schemas.agency import (
+    AgencyInvitationAcceptRequest,
+    AgencyInvitationCreateRequest,
+    AgencyOfflineRegistrationRequest,
+    AgencyPasswordSetupRequest,
+    AgencyReviewRequest,
+    AgencyUpdateRequest,
+    UploadRequest,
+)
+from app.services.agency_workflows import (
+    accept_agency_invitation,
+    agency_response,
+    approve_or_reject_agency,
+    complete_agency_password_setup,
+    create_agency_invitation,
+    get_invitation_by_token_or_404,
+    offline_register_agency,
+    resend_agency_password_setup,
+    revoke_agency_invitation,
+    serialize_invitation,
+    PENDING_APPROVAL,
+)
 from app.services.auth import create_otp_challenge, create_user, send_dev_otp, serialize_agency
 from app.services.owners import list_agency_owners
 from app.services.user_agencies import selectable_owner_agencies
@@ -19,6 +40,7 @@ router = APIRouter()
 
 AgencyAdminContext = Annotated[RequestContext, Depends(require_any_role("admin", "super_admin"))]
 AuthenticatedContext = Annotated[RequestContext, Depends(require_authenticated_user)]
+SuperAdminContext = Annotated[RequestContext, Depends(require_any_role("super_admin"))]
 
 
 def _role_names(context: RequestContext) -> set[str]:
@@ -41,8 +63,8 @@ async def register_agency(
     agency_trade_name: Annotated[str, Form()],
     email: Annotated[str, Form()],
     phone_number: Annotated[str, Form()],
-    password: Annotated[str, Form()],
     legal_document: Annotated[UploadFile, File()],
+    password: Annotated[str | None, Form()] = None,
 ) -> dict:
     agency_id = uuid4()
     legal_document_url = f"dev://agency-legal-documents/{agency_id}/{legal_document.filename}"
@@ -55,6 +77,7 @@ async def register_agency(
         phone=phone_number,
         is_active=False,
         is_verified=False,
+        status=PENDING_APPROVAL,
         currency="JOD",
         measurement_unit="sqm",
     )
@@ -66,7 +89,7 @@ async def register_agency(
         full_name=agency_trade_name or agency_name,
         email=email,
         phone_number=phone_number,
-        password=password,
+        password=None,
         role="admin",
         agency_id=agency.id,
     )
@@ -82,6 +105,64 @@ async def register_agency(
         {"agency": serialize_agency(agency), "otp": otp, "dev_email_otp": otp},
         "Agency registration submitted. Verification code logged in dev mode.",
     )
+
+
+@router.post("/offline-registration")
+def create_offline_agency(
+    payload: AgencyOfflineRegistrationRequest,
+    context: SuperAdminContext,
+    db: DBSessionDep,
+) -> dict:
+    agency, password_setup_token = offline_register_agency(db, payload=payload, actor_id=context.user_id)
+    db.commit()
+    db.refresh(agency)
+    return success_response(
+        agency_response(agency, password_setup_token=password_setup_token),
+        "Agency created and password creation link logged in dev mode.",
+    )
+
+
+@router.post("/invitations")
+def invite_agency(
+    payload: AgencyInvitationCreateRequest,
+    context: SuperAdminContext,
+    db: DBSessionDep,
+) -> dict:
+    invitation = create_agency_invitation(db, payload=payload, invited_by=context.user_id)
+    db.commit()
+    db.refresh(invitation)
+    return success_response(serialize_invitation(db, invitation), "Agency invitation logged in dev mode")
+
+
+@router.get("/invitations/validate")
+def validate_agency_invitation(token: str, db: DBSessionDep) -> dict:
+    invitation = get_invitation_by_token_or_404(db, token)
+    db.commit()
+    return success_response(serialize_invitation(db, invitation))
+
+
+@router.post("/invitations/accept")
+def accept_invited_agency(payload: AgencyInvitationAcceptRequest, db: DBSessionDep) -> dict:
+    agency = accept_agency_invitation(db, payload=payload)
+    db.commit()
+    db.refresh(agency)
+    return success_response(agency_response(agency), "Agency registration submitted for approval")
+
+
+@router.post("/invitations/{invitation_id}/revoke")
+def revoke_invited_agency(invitation_id: UUID, context: SuperAdminContext, db: DBSessionDep) -> dict:
+    invitation = revoke_agency_invitation(db, invitation_id=invitation_id, actor_id=context.user_id)
+    db.commit()
+    db.refresh(invitation)
+    return success_response(serialize_invitation(db, invitation), "Agency invitation revoked")
+
+
+@router.post("/password/setup")
+def setup_agency_password(payload: AgencyPasswordSetupRequest, db: DBSessionDep) -> dict:
+    agency = complete_agency_password_setup(db, token=payload.token, password=payload.password)
+    db.commit()
+    db.refresh(agency)
+    return success_response(agency_response(agency), "Agency activated successfully")
 
 
 @router.get("/list")
@@ -135,6 +216,47 @@ def get_agency(agency_id: UUID, db: DBSessionDep, context: AgencyAdminContext) -
         raise HTTPException(status_code=STATUS_NOT_FOUND, detail="Agency not found")
     _assert_can_access_agency(context, agency_id)
     return success_response(serialize_agency(agency))
+
+
+@router.post("/{agency_id}/review")
+def review_agency_registration(
+    agency_id: UUID,
+    payload: AgencyReviewRequest,
+    context: SuperAdminContext,
+    db: DBSessionDep,
+) -> dict:
+    agency = db.get(AgencyMaster, agency_id)
+    if not agency:
+        raise HTTPException(status_code=STATUS_NOT_FOUND, detail="Agency not found")
+    agency, password_setup_token = approve_or_reject_agency(
+        db,
+        agency=agency,
+        actor_id=context.user_id,
+        action=payload.action,
+        reason=payload.reason,
+    )
+    db.commit()
+    db.refresh(agency)
+    message = "Agency approved and password creation link logged in dev mode" if password_setup_token else "Agency rejected"
+    return success_response(agency_response(agency, password_setup_token=password_setup_token), message)
+
+
+@router.post("/{agency_id}/password-link")
+def resend_agency_password_link(
+    agency_id: UUID,
+    context: SuperAdminContext,
+    db: DBSessionDep,
+) -> dict:
+    agency = db.get(AgencyMaster, agency_id)
+    if not agency:
+        raise HTTPException(status_code=STATUS_NOT_FOUND, detail="Agency not found")
+    password_setup_token = resend_agency_password_setup(db, agency=agency, actor_id=context.user_id)
+    db.commit()
+    db.refresh(agency)
+    return success_response(
+        agency_response(agency, password_setup_token=password_setup_token),
+        "Password creation link logged in dev mode",
+    )
 
 
 @router.put("/{agency_id}")

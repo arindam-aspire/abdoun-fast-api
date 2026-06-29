@@ -172,6 +172,7 @@ class Feature(Base):
     name: Mapped[Any] = mapped_column(String(100), nullable=False)
     slug: Mapped[Any] = mapped_column(String(100), nullable=False)
     is_active: Mapped[Any] = mapped_column(Boolean, nullable=True)
+    display_order: Mapped[Any] = mapped_column(Integer, nullable=True)
     created_at: Mapped[Any] = mapped_column(DateTime, nullable=True, server_default=text("now()"))
     updated_at: Mapped[Any] = mapped_column(DateTime, nullable=True, server_default=text("now()"))
     category_id: Mapped[Any] = mapped_column(Integer, ForeignKey("property_categories.id"), nullable=True)
@@ -244,6 +245,27 @@ class AgencyMaster(Base):
     logo_url: Mapped[Any] = mapped_column(Text, nullable=True)
     currency: Mapped[Any] = mapped_column(String(3), nullable=False, server_default=text("'JOD'::character varying"))
     measurement_unit: Mapped[Any] = mapped_column(String(20), nullable=False, server_default=text("'sqm'::character varying"))
+    status: Mapped[Any] = mapped_column(String(30), nullable=False, server_default=text("'PENDING_APPROVAL'::character varying"))
+
+
+class AgencyInvitation(Base):
+    __tablename__ = "agency_invitations"
+
+    id: Mapped[Any] = mapped_column(UUID(as_uuid=True), primary_key=True, nullable=False, server_default=text("gen_random_uuid()"))
+    email: Mapped[Any] = mapped_column(String(255), nullable=False)
+    agency_name: Mapped[Any] = mapped_column(String(255), nullable=True)
+    agency_trade_name: Mapped[Any] = mapped_column(String(255), nullable=True)
+    phone: Mapped[Any] = mapped_column(String(20), nullable=True)
+    token: Mapped[Any] = mapped_column(String(128), nullable=False)
+    status: Mapped[Any] = mapped_column(String(20), nullable=False, server_default=text("'INVITED'::character varying"))
+    invited_by: Mapped[Any] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    accepted_by: Mapped[Any] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    accepted_at: Mapped[Any] = mapped_column(DateTime, nullable=True)
+    revoked_by: Mapped[Any] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    revoked_at: Mapped[Any] = mapped_column(DateTime, nullable=True)
+    expires_at: Mapped[Any] = mapped_column(DateTime, nullable=False)
+    created_at: Mapped[Any] = mapped_column(DateTime, nullable=False, server_default=text("now()"))
+    updated_at: Mapped[Any] = mapped_column(DateTime, nullable=False, server_default=text("now()"))
 
 
 class PropertyListingSubmission(Base):
@@ -362,6 +384,7 @@ class PropertyStatus(Base):
     name: Mapped[Any] = mapped_column(String(50), nullable=False)
     slug: Mapped[Any] = mapped_column(String(50), nullable=False)
     is_active: Mapped[Any] = mapped_column(Boolean, nullable=True)
+    display_order: Mapped[Any] = mapped_column(Integer, nullable=True)
     created_at: Mapped[Any] = mapped_column(DateTime, nullable=True, server_default=text("now()"))
     updated_at: Mapped[Any] = mapped_column(DateTime, nullable=True, server_default=text("now()"))
 
@@ -456,6 +479,7 @@ class PropertyType(Base):
     name: Mapped[Any] = mapped_column(String(100), nullable=False)
     slug: Mapped[Any] = mapped_column(String(100), nullable=False)
     is_active: Mapped[Any] = mapped_column(Boolean, nullable=True)
+    display_order: Mapped[Any] = mapped_column(Integer, nullable=True)
     created_at: Mapped[Any] = mapped_column(DateTime, nullable=True, server_default=text("now()"))
     updated_at: Mapped[Any] = mapped_column(DateTime, nullable=True, server_default=text("now()"))
 
@@ -588,6 +612,7 @@ class PropertyOwner(Base):
 __all__ = [
     "ActivityLog",
     "AdminAgentAssignment",
+    "AgencyInvitation",
     "AgencyMaster",
     "AgentInvite",
     "AgentProfile",

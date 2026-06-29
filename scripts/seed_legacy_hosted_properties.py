@@ -384,7 +384,7 @@ def main() -> None:
 
         planned_inserts: list[tuple[dict[str, Any], dict[str, Any]]] = []
         planned_updates: list[tuple[PropertyListingSubmission, dict[str, Any], dict[str, Any]]] = []
-        skipped_existing_approved = 0
+        skipped_existing_active = 0
         skipped_existing_seed = 0
         for item in fetched:
             source_id = str(item.get("property_id") or item.get("id"))
@@ -404,8 +404,8 @@ def main() -> None:
             )
             existing = existing_by_property_id.get(source_id)
             if existing is not None:
-                if existing.status == "approved":
-                    skipped_existing_approved += 1
+                if existing.status == "active":
+                    skipped_existing_active += 1
                     continue
                 planned_updates.append((existing, item, payload))
                 continue
@@ -414,7 +414,7 @@ def main() -> None:
 
         summary: dict[str, Any] = {
             "fetched": len(fetched),
-            "skipped_existing_approved": skipped_existing_approved,
+            "skipped_existing_active": skipped_existing_active,
             "skipped_existing_seed": skipped_existing_seed,
             "planned_inserts": len(planned_inserts),
             "planned_updates": len(planned_updates),
@@ -471,7 +471,7 @@ def main() -> None:
             submission = PropertyListingSubmission(
                 submitted_by=submitter.id,
                 property_id=property_id,
-                status="approved",
+                status="active",
                 current_step=7,
                 last_completed_step=7,
                 payload=payload,
@@ -488,7 +488,7 @@ def main() -> None:
             db.add(submission)
 
         for submission, item, payload in planned_updates:
-            submission.status = "approved"
+            submission.status = "active"
             submission.current_step = 7
             submission.last_completed_step = 7
             submission.payload = payload

@@ -6,6 +6,12 @@ from sqlalchemy import select
 from app.api.deps import DBSessionDep
 from app.models.live_schema import Area, City, Feature, PropertyCategory, PropertyType
 from app.services.public_properties import serialize_feature_catalog_item
+from app.services.property_taxonomy import (
+    is_dco_category,
+    is_dco_property_type,
+    sort_categories,
+    sort_property_types,
+)
 from app.utils.api_response import success_response
 
 router = APIRouter()
@@ -25,12 +31,10 @@ def get_property_taxonomy(db: DBSessionDep) -> dict:
     categories = db.execute(
         select(PropertyCategory)
         .where(PropertyCategory.is_active.is_(True))
-        .order_by(PropertyCategory.name.asc())
     ).scalars().all()
     types = db.execute(
         select(PropertyType)
         .where(PropertyType.is_active.is_(True))
-        .order_by(PropertyType.name.asc())
     ).scalars().all()
     types_by_category: dict[int, list[PropertyType]] = {}
     for property_type in types:
@@ -48,10 +52,17 @@ def get_property_taxonomy(db: DBSessionDep) -> dict:
                     "name": property_type.name,
                     "slug": property_type.slug,
                 }
-                for property_type in types_by_category.get(category.id, [])
+                for property_type in sort_property_types(
+                    category.slug,
+                    [
+                        property_type
+                        for property_type in types_by_category.get(category.id, [])
+                        if is_dco_property_type(category.slug, property_type)
+                    ],
+                )
             ],
         }
-        for category in categories
+        for category in sort_categories([category for category in categories if is_dco_category(category)])
     ]
     return success_response({"data": data, "total": len(data)})
 
@@ -81,4 +92,3 @@ def get_location_taxonomy(db: DBSessionDep) -> dict:
         for city in cities
     ]
     return success_response({"data": data, "total": len(data)})
-

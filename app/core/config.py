@@ -54,6 +54,8 @@ class Settings(BaseModel):
     auth_access_token_seconds: int = int(os.getenv("AUTH_ACCESS_TOKEN_SECONDS", "3600"))
     auth_refresh_token_seconds: int = int(os.getenv("AUTH_REFRESH_TOKEN_SECONDS", "604800"))
     auth_otp_ttl_seconds: int = int(os.getenv("AUTH_OTP_TTL_SECONDS", "600"))
+    agency_invitation_ttl_seconds: int = int(os.getenv("AGENCY_INVITATION_TTL_SECONDS", "900"))
+    agency_password_setup_ttl_seconds: int = int(os.getenv("AGENCY_PASSWORD_SETUP_TTL_SECONDS", "900"))
     allow_owner_multiple_agencies: bool = os.getenv("ALLOW_OWNER_MULTIPLE_AGENCIES", "false").lower() == "true"
 
     aws_s3_bucket: str | None = os.getenv("AWS_S3_BUCKET", "").strip().strip("\"'")

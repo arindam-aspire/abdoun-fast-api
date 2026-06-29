@@ -42,6 +42,7 @@ def get_admin_property_submissions(
         page_size=pageSize,
         statuses={status} if status else None,
         agency_id=None if "super_admin" in roles else context.agency_id,
+        exclude_drafts=True,
     )
     data = {"items": [serialize_admin_submission_item(submission, submitter) for submission, submitter in rows], **pagination}
     return success_response(data, meta={"pagination": pagination})

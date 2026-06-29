@@ -15,7 +15,7 @@ from app.schemas.property_submissions import (
 from app.services.property_submissions import (
     assert_can_edit_working_submission,
     assert_can_view_submission,
-    create_revision_from_approved,
+    create_revision_from_active,
     create_submission,
     get_submission_or_404,
     serialize_submission,
@@ -93,8 +93,8 @@ def update_property_submission(
     db: DBSessionDep,
 ) -> dict:
     submission = get_submission_or_404(db, submission_id)
-    if submission.status == "approved":
-        revision = create_revision_from_approved(
+    if submission.status == "active":
+        revision = create_revision_from_active(
             db,
             source=submission,
             user_id=context.user_id,

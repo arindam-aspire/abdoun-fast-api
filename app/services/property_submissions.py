@@ -35,6 +35,11 @@ SUBMISSION_SECTIONS = (
     "review_submit",
 )
 
+DRAFT_STATUSES = {"draft"}
+PENDING_APPROVAL_STATUS = "pending-approval"
+ACTIVE_STATUS = "active"
+WORKING_STATUSES = {"draft", "rejected", "in_progress"}
+
 
 def utc_now() -> datetime:
     return datetime.now(timezone.utc)
@@ -99,7 +104,7 @@ def create_submission(
     last_completed_step: int,
     status: str = "draft",
 ) -> PropertyListingSubmission:
-    submitted_at = utc_now() if status == "submitted" else None
+    submitted_at = utc_now() if status == PENDING_APPROVAL_STATUS else None
     submission = PropertyListingSubmission(
         id=uuid4(),
         submitted_by=user_id,
@@ -146,7 +151,7 @@ def update_submission(
     return submission
 
 
-def can_edit_approved_submission(
+def can_edit_active_submission(
     db: Session,
     submission: PropertyListingSubmission,
     *,
@@ -193,6 +198,8 @@ def can_view_submission(
     agency_id: UUID | None,
 ) -> bool:
     role_names = _role_names(roles)
+    if submission.status in DRAFT_STATUSES:
+        return submission.submitted_by == user_id
     if "super_admin" in role_names:
         return True
     if submission.submitted_by == user_id:
@@ -212,6 +219,8 @@ def can_edit_working_submission(
     roles: tuple[str, ...],
     agency_id: UUID | None,
 ) -> bool:
+    if submission.status in DRAFT_STATUSES:
+        return submission.submitted_by == user_id
     if submission.submitted_by == user_id:
         return True
     if _assigned_agent_id(submission) == str(user_id):
@@ -260,7 +269,7 @@ def assert_can_manage_submission(
     raise HTTPException(status_code=STATUS_FORBIDDEN, detail="Insufficient permissions")
 
 
-def create_revision_from_approved(
+def create_revision_from_active(
     db: Session,
     *,
     source: PropertyListingSubmission,
@@ -271,10 +280,10 @@ def create_revision_from_approved(
     current_step: int,
     last_completed_step: int,
 ) -> PropertyListingSubmission:
-    if source.status != "approved":
-        raise HTTPException(status_code=STATUS_BAD_REQUEST, detail="Only approved submissions can create revisions")
-    if not can_edit_approved_submission(db, source, user_id=user_id, roles=roles, agency_id=agency_id):
-        raise HTTPException(status_code=STATUS_FORBIDDEN, detail="Approved property cannot be edited by this user")
+    if source.status != ACTIVE_STATUS:
+        raise HTTPException(status_code=STATUS_BAD_REQUEST, detail="Only active submissions can create revisions")
+    if not can_edit_active_submission(db, source, user_id=user_id, roles=roles, agency_id=agency_id):
+        raise HTTPException(status_code=STATUS_FORBIDDEN, detail="Active property cannot be edited by this user")
 
     revision_payload = dict(payload)
     workflow = _payload_workflow(revision_payload)
@@ -287,7 +296,7 @@ def create_revision_from_approved(
         submitted_by=user_id,
         agency_id=_submitter_agency_id(db, source),
         property_id=source.property_id or source.id,
-        status="submitted",
+        status=PENDING_APPROVAL_STATUS,
         current_step=current_step,
         last_completed_step=last_completed_step,
         payload=revision_payload,
@@ -302,7 +311,7 @@ def create_revision_from_approved(
     record_activity(
         db,
         activity_type="property_revision_submitted",
-        message=f"Revision submitted for approved property {revision.property_id}",
+        message=f"Revision submitted for active property {revision.property_id}",
         user_id=user_id,
         property_id=revision.property_id,
     )
@@ -317,14 +326,14 @@ def submit_submission(
     roles: tuple[str, ...],
     agency_id: UUID | None = None,
 ) -> PropertyListingSubmission:
-    if submission.status in {"approved"}:
-        raise HTTPException(status_code=STATUS_BAD_REQUEST, detail="Approved submissions cannot be resubmitted")
+    if submission.status in {ACTIVE_STATUS}:
+        raise HTTPException(status_code=STATUS_BAD_REQUEST, detail="Active submissions cannot be resubmitted")
     if agency_id is not None and submission.status in {"draft", "rejected", "in_progress"}:
         submission.agency_id = agency_id
     resolve_listing_agency_or_400(db, submission.agency_id)
     assert_owner_agency_rule(db, user_id=user_id, agency_id=submission.agency_id, roles=roles)
     record_owner_agency_mapping_for_submission(db, user_id=user_id, agency_id=submission.agency_id, roles=roles)
-    submission.status = "submitted"
+    submission.status = PENDING_APPROVAL_STATUS
     submission.submitted_at = utc_now()
     submission.step_completion = compute_step_completion(submission.payload or {})
     notify_agency_admins_for_submission(db, submission=submission, actor_user_id=user_id)
@@ -431,7 +440,7 @@ def review_submission(
     reason: str | None = None,
 ) -> PropertyListingSubmission:
     if action == "approve":
-        submission.status = "approved"
+        submission.status = ACTIVE_STATUS
         submission.review_reason = None
         if not submission.property_id:
             submission.property_id = uuid4()
@@ -473,8 +482,8 @@ def serialize_draft_list_item(submission: PropertyListingSubmission) -> dict:
         "last_completed_step": submission.last_completed_step,
         "title": _title(submission.payload or {}),
         "updated_at": _iso(submission.updated_at),
-        "can_edit": submission.status in {"draft", "rejected", "in_progress"},
-        "can_delete": submission.status in {"draft", "rejected", "in_progress"},
+        "can_edit": submission.status in WORKING_STATUSES,
+        "can_delete": submission.status in WORKING_STATUSES,
     }
 
 
@@ -512,9 +521,9 @@ def serialize_agent_property_item(submission: PropertyListingSubmission, submitt
         "submission_submitted_at": _iso(submission.submitted_at),
         "submission_reviewed_at": _iso(submission.reviewed_at),
         "submission_review_reason": submission.review_reason,
-        "submission_workflow_label": submission.status.replace("_", " ").title(),
-        "can_edit_submission": submission.status in {"draft", "rejected", "in_progress"},
-        "can_delete_submission": submission.status in {"draft", "rejected", "in_progress"},
+        "submission_workflow_label": submission.status.replace("_", " ").replace("-", " ").title(),
+        "can_edit_submission": submission.status in WORKING_STATUSES,
+        "can_delete_submission": submission.status in WORKING_STATUSES,
         "agency": agency,
         "submitted_by": str(submitter.id) if submitter else str(submission.submitted_by),
         "agent_user_id": workflow.get("assigned_agent_id"),
@@ -551,6 +560,7 @@ def list_submissions(
     statuses: set[str] | None = None,
     submitted_by: UUID | None = None,
     agency_id: UUID | None = None,
+    exclude_drafts: bool = False,
 ) -> tuple[list[tuple[PropertyListingSubmission, User | None]], dict]:
     page = max(page, 1)
     page_size = max(min(page_size, 100), 1)
@@ -561,6 +571,8 @@ def list_submissions(
     )
     if statuses:
         stmt = stmt.where(PropertyListingSubmission.status.in_(statuses))
+    if exclude_drafts:
+        stmt = stmt.where(PropertyListingSubmission.status.not_in(DRAFT_STATUSES))
     if submitted_by:
         stmt = stmt.where(PropertyListingSubmission.submitted_by == submitted_by)
     if agency_id:
