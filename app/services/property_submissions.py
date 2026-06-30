@@ -8,6 +8,7 @@ from uuid import UUID, uuid4
 from fastapi import HTTPException
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.attributes import flag_modified
 
 from app.core.config import get_settings
 from app.models.live_schema import AgencyMaster, PropertyListingSubmission, User
@@ -60,6 +61,31 @@ def _payload_workflow(payload: dict[str, Any]) -> dict[str, Any]:
         workflow = {}
         payload["_workflow"] = workflow
     return workflow
+
+
+def _assigned_agent_uuid(submission: PropertyListingSubmission) -> UUID | None:
+    value = _assigned_agent_id(submission)
+    if not value:
+        return None
+    try:
+        return UUID(str(value))
+    except ValueError:
+        return None
+
+
+def _assigned_agent_summary(db: Session, submission: PropertyListingSubmission) -> dict[str, str | None] | None:
+    agent_id = _assigned_agent_uuid(submission)
+    if not agent_id:
+        return None
+    agent = db.get(User, agent_id)
+    if not agent:
+        return {"id": str(agent_id), "name": None, "email": None, "phone": None}
+    return {
+        "id": str(agent.id),
+        "name": agent.full_name,
+        "email": agent.email,
+        "phone": agent.phone_number,
+    }
 
 
 def compute_step_completion(payload: dict[str, Any]) -> dict[str, bool]:
@@ -418,6 +444,7 @@ def notify_agency_admins_for_submission(db: Session, *, submission: PropertyList
             title="New property submission",
             message=f"New property submission received for {title}.",
             data={"submission_id": str(submission.id), "agency_id": str(submission.agency_id)},
+            action_url="/manage-listings",
         )
         send_email_notification(
             to_email=recipient.email,
@@ -469,6 +496,7 @@ def review_submission(
         title="Property submission reviewed",
         message=f"Your property submission was {submission.status}.",
         data={"submission_id": str(submission.id), "property_id": str(submission.property_id) if submission.property_id else None},
+        action_url="/my-listings",
     )
     return submission
 
@@ -491,7 +519,7 @@ def stable_property_hash(property_id: UUID) -> int:
     return property_id.int % 2147483647
 
 
-def serialize_agent_property_item(submission: PropertyListingSubmission, submitter: User | None = None) -> dict:
+def serialize_agent_property_item(submission: PropertyListingSubmission, submitter: User | None = None, *, db: Session | None = None) -> dict:
     payload = submission.payload or {}
     basic = payload.get("basic_information") or {}
     pricing = payload.get("pricing") or {}
@@ -500,6 +528,7 @@ def serialize_agent_property_item(submission: PropertyListingSubmission, submitt
     agency = None
     if submission.agency_id:
         agency = {"agency_id": str(submission.agency_id), "id": str(submission.agency_id)}
+    assigned_agent = _assigned_agent_summary(db, submission) if db is not None else None
     return {
         "property_id": str(property_id),
         "property_hash": stable_property_hash(property_id),
@@ -525,15 +554,19 @@ def serialize_agent_property_item(submission: PropertyListingSubmission, submitt
         "can_edit_submission": submission.status in WORKING_STATUSES,
         "can_delete_submission": submission.status in WORKING_STATUSES,
         "agency": agency,
-        "submitted_by": str(submitter.id) if submitter else str(submission.submitted_by),
+        "submitted_by": submitter.full_name if submitter and submitter.full_name else str(submission.submitted_by),
         "agent_user_id": workflow.get("assigned_agent_id"),
+        "agent_name": assigned_agent["name"] if assigned_agent else None,
+        "agent_email": assigned_agent["email"] if assigned_agent else None,
+        "agent_phone": assigned_agent["phone"] if assigned_agent else None,
     }
 
 
-def serialize_admin_submission_item(submission: PropertyListingSubmission, submitter: User | None = None) -> dict:
+def serialize_admin_submission_item(submission: PropertyListingSubmission, submitter: User | None = None, *, db: Session | None = None) -> dict:
     payload = submission.payload or {}
     workflow = payload.get("_workflow") or {}
     property_id = submission.property_id or submission.id
+    assigned_agent = _assigned_agent_summary(db, submission) if db is not None else None
     return {
         "submission_id": str(submission.id),
         "agency_id": str(submission.agency_id) if submission.agency_id else None,
@@ -542,6 +575,9 @@ def serialize_admin_submission_item(submission: PropertyListingSubmission, submi
         "status": submission.status,
         "property_id": str(property_id),
         "agent_user_id": workflow.get("assigned_agent_id"),
+        "agent_name": assigned_agent["name"] if assigned_agent else None,
+        "agent_email": assigned_agent["email"] if assigned_agent else None,
+        "agent_phone": assigned_agent["phone"] if assigned_agent else None,
         "has_assigned_agent": bool(workflow.get("assigned_agent_id")),
         "property_hash": stable_property_hash(property_id),
         "property_title": _title(payload) or "Untitled property",
@@ -559,6 +595,7 @@ def list_submissions(
     page_size: int,
     statuses: set[str] | None = None,
     submitted_by: UUID | None = None,
+    assigned_to: UUID | None = None,
     agency_id: UUID | None = None,
     exclude_drafts: bool = False,
 ) -> tuple[list[tuple[PropertyListingSubmission, User | None]], dict]:
@@ -573,8 +610,17 @@ def list_submissions(
         stmt = stmt.where(PropertyListingSubmission.status.in_(statuses))
     if exclude_drafts:
         stmt = stmt.where(PropertyListingSubmission.status.not_in(DRAFT_STATUSES))
-    if submitted_by:
+    if submitted_by and assigned_to:
+        stmt = stmt.where(
+            or_(
+                PropertyListingSubmission.submitted_by == submitted_by,
+                PropertyListingSubmission.payload["_workflow"]["assigned_agent_id"].astext == str(assigned_to),
+            )
+        )
+    elif submitted_by:
         stmt = stmt.where(PropertyListingSubmission.submitted_by == submitted_by)
+    elif assigned_to:
+        stmt = stmt.where(PropertyListingSubmission.payload["_workflow"]["assigned_agent_id"].astext == str(assigned_to))
     if agency_id:
         stmt = stmt.where(
             or_(
@@ -629,4 +675,5 @@ def assign_agent_to_property(
     workflow = _payload_workflow(payload)
     workflow["assigned_agent_id"] = str(agent_id) if agent_id else None
     submission.payload = payload
+    flag_modified(submission, "payload")
     return submission

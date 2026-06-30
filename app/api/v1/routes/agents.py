@@ -6,14 +6,21 @@ from uuid import UUID
 from fastapi import APIRouter, Depends
 
 from app.api.deps import DBSessionDep, RequestContext, require_any_role
-from app.schemas.agents import AgentInviteRequest, AgentStatusUpdateRequest, ManualOnboardAgentRequest
+from app.schemas.agents import (
+    AgentInvitationAcceptRequest,
+    AgentInviteRequest,
+    AgentStatusUpdateRequest,
+    ManualOnboardAgentRequest,
+)
 from app.services.agents import (
+    accept_agent_invitation,
     agent_summary,
     delete_agent,
     invite_agent,
     list_agents,
     manual_onboard_agent,
     resend_agent_invitation,
+    validate_agent_invitation,
     update_agent_status,
 )
 from app.utils.api_response import success_response
@@ -67,6 +74,18 @@ def create_agent_invite(payload: AgentInviteRequest, context: AgencyAdminContext
     )
     db.commit()
     return success_response(agent, "Agent invitation logged in dev mode")
+
+
+@router.get("/invitations/validate")
+def validate_invitation(token: str, db: DBSessionDep) -> dict:
+    return success_response(validate_agent_invitation(db, token=token))
+
+
+@router.post("/invitations/accept")
+def accept_invitation(payload: AgentInvitationAcceptRequest, db: DBSessionDep) -> dict:
+    agent = accept_agent_invitation(db, token=payload.token, password=payload.password)
+    db.commit()
+    return success_response(agent, "Agent account activated successfully")
 
 
 @router.post("/manual-onboard")

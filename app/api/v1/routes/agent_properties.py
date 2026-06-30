@@ -6,7 +6,6 @@ from fastapi import APIRouter, Depends
 
 from app.api.deps import DBSessionDep, RequestContext, require_authenticated_user
 from app.services.property_submissions import (
-    ACTIVE_STATUS,
     list_submissions,
     serialize_agent_property_item,
     serialize_draft_list_item,
@@ -27,16 +26,19 @@ def get_agent_properties(
     status: str | None = None,
     search: str | None = None,
 ) -> dict:
-    statuses = {status} if status else {ACTIVE_STATUS}
+    roles = {role.lower() for role in context.roles}
+    user_filter = None if "super_admin" in roles else context.user_id
+    assigned_filter = context.user_id if "agent" in roles else None
     rows, pagination = list_submissions(
         db,
         page=page,
         page_size=pageSize,
-        statuses=statuses,
-        submitted_by=context.user_id if "super_admin" not in {role.lower() for role in context.roles} else None,
+        statuses={status} if status else None,
+        submitted_by=user_filter,
+        assigned_to=assigned_filter,
         exclude_drafts=True,
     )
-    items = [serialize_agent_property_item(submission, submitter) for submission, submitter in rows]
+    items = [serialize_agent_property_item(submission, submitter, db=db) for submission, submitter in rows]
     if search:
         lowered = search.lower()
         items = [item for item in items if lowered in item["title"].lower()]

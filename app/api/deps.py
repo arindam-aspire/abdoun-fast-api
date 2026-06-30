@@ -89,6 +89,12 @@ def require_any_role(*allowed_roles: str):
             )
 
         user_roles = {role.casefold() for role in context.roles}
+        if "admin" in user_roles:
+            user_roles.add("agency")
+        if "agency" in user_roles:
+            user_roles.add("admin")
+        if "agency_admin" in user_roles:
+            user_roles.update({"admin", "agency"})
         if user_roles.isdisjoint(normalized_allowed):
             raise HTTPException(
                 status_code=STATUS_FORBIDDEN,

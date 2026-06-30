@@ -19,7 +19,7 @@ ACTIVE = "active"
 def role_relationship_types(roles: tuple[str, ...] | list[str] | set[str]) -> tuple[str, ...]:
     names = {role.lower() for role in roles}
     relationships: list[str] = []
-    if "admin" in names:
+    if {"admin", "agency", "agency_admin"} & names:
         relationships.append(REL_AGENCY_ADMIN)
     if "agent" in names:
         relationships.append(REL_AGENT)
@@ -96,6 +96,7 @@ def active_agencies(db: Session):
     return (
         db.query(AgencyMaster)
         .filter(AgencyMaster.is_active.is_(True))
+        .filter(AgencyMaster.is_verified.is_(True))
         .order_by(AgencyMaster.agency_name.asc())
     )
 
@@ -143,6 +144,7 @@ def ensure_user_agency_mapping(
 
 def agency_users_with_role(db: Session, *, agency_id: UUID, role_name: str) -> list[User]:
     relationship_type = REL_AGENCY_ADMIN if role_name == "admin" else role_name
+    role_names = ("admin", "agency", "agency_admin") if role_name == "admin" else (role_name,)
     return db.execute(
         select(User)
         .join(UserAgencyMapping, UserAgencyMapping.user_id == User.id)
@@ -154,7 +156,7 @@ def agency_users_with_role(db: Session, *, agency_id: UUID, role_name: str) -> l
             UserAgencyMapping.status == ACTIVE,
             UserAgencyMapping.deleted_at.is_(None),
             User.is_active.is_(True),
-            Role.name == role_name,
+            Role.name.in_(role_names),
         )
         .order_by(User.full_name.asc())
     ).scalars().all()

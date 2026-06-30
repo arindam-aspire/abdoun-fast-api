@@ -9,8 +9,9 @@ from fastapi import HTTPException
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.models.live_schema import AgentInvite, AgentProfile, User
-from app.services.auth import assign_role, normalize_username, utc_now
+from app.services.auth import assign_role, mark_password_set, normalize_username, utc_now
 from app.core.security import hash_secret
 from app.services.notifications import send_email_notification
 from app.services.user_agencies import REL_AGENT, agency_user_ids, ensure_user_agency_mapping, user_has_active_agency_mapping
@@ -26,6 +27,18 @@ def _iso(value) -> str | None:
 
 def _invite_link(token: str) -> str:
     return f"/agent-invite?token={token}"
+
+
+def _invite_expiry() -> timedelta:
+    return timedelta(seconds=get_settings().agent_invitation_ttl_seconds)
+
+
+def _is_expired(invite: AgentInvite) -> bool:
+    current_time = utc_now()
+    expires_at = invite.expires_at
+    if expires_at.tzinfo is None:
+        current_time = current_time.replace(tzinfo=None)
+    return expires_at < current_time
 
 
 def _active_invite_for_email(db: Session, email: str) -> AgentInvite | None:
@@ -62,6 +75,18 @@ def serialize_agent_invite(user: User, invite: AgentInvite) -> dict:
         "inviteLink": _invite_link(invite.token),
         "invitedAt": _iso(invite.invited_at) or _iso(invite.created_at),
         "invitedBy": str(invite.invited_by),
+    }
+
+
+def serialize_agent_invitation_preview(user: User, invite: AgentInvite, profile: AgentProfile | None) -> dict:
+    return {
+        "id": str(invite.id),
+        "email": invite.email,
+        "fullName": user.full_name,
+        "phone": user.phone_number or "",
+        "serviceArea": profile.service_area if profile else "",
+        "status": "EXPIRED" if _is_expired(invite) else (profile.status if profile else "INVITED"),
+        "expiresAt": _iso(invite.expires_at),
     }
 
 
@@ -244,7 +269,7 @@ def invite_agent(
         email=normalized_email,
         invited_by=invited_by,
         token=token,
-        expires_at=utc_now() + timedelta(days=7),
+        expires_at=utc_now() + _invite_expiry(),
         is_used=False,
         invited_at=utc_now(),
     )
@@ -256,6 +281,52 @@ def invite_agent(
     )
     db.flush()
     return serialize_agent_invite(user, invite)
+
+
+def get_agent_invitation_by_token(db: Session, token: str) -> tuple[AgentInvite, User, AgentProfile | None]:
+    invite = db.execute(select(AgentInvite).where(AgentInvite.token == token)).scalar_one_or_none()
+    if not invite:
+        raise HTTPException(status_code=STATUS_NOT_FOUND, detail="Invitation not found")
+    if invite.revoked_at is not None:
+        raise HTTPException(status_code=STATUS_BAD_REQUEST, detail="Invitation has been revoked")
+    if invite.is_used:
+        raise HTTPException(status_code=STATUS_BAD_REQUEST, detail="Invitation has already been used")
+    if _is_expired(invite):
+        raise HTTPException(status_code=STATUS_BAD_REQUEST, detail="Invitation link has expired")
+
+    user = db.execute(select(User).where(User.email == invite.email)).scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=STATUS_NOT_FOUND, detail="Invited agent account not found")
+    profile = db.get(AgentProfile, user.id)
+    return invite, user, profile
+
+
+def validate_agent_invitation(db: Session, *, token: str) -> dict:
+    invite, user, profile = get_agent_invitation_by_token(db, token)
+    return serialize_agent_invitation_preview(user, invite, profile)
+
+
+def accept_agent_invitation(db: Session, *, token: str, password: str) -> dict:
+    invite, user, profile = get_agent_invitation_by_token(db, token)
+    user.password_hash = hash_secret(password)
+    user.is_active = True
+    user.is_email_verified = True
+    invite.is_used = True
+
+    if not profile:
+        profile = AgentProfile(user_id=user.id)
+        db.add(profile)
+    profile.status = "ACTIVE"
+    profile.deleted_at = None
+    profile.decline_reason = None
+    profile.approved_by = invite.invited_by
+    profile.approved_at = utc_now()
+    profile.reviewed_by = invite.invited_by
+    profile.reviewed_at = utc_now()
+    profile.password_set_at = utc_now()
+    mark_password_set(db, user)
+    db.flush()
+    return serialize_agent(user, profile, invited_by=str(invite.invited_by), invited_at=invite.invited_at)
 
 
 def manual_onboard_agent(
@@ -353,7 +424,7 @@ def resend_agent_invitation(
         email=user.email,
         invited_by=actor_id,
         token=token,
-        expires_at=utc_now() + timedelta(days=7),
+        expires_at=utc_now() + _invite_expiry(),
         is_used=False,
         invited_at=utc_now(),
     )

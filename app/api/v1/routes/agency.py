@@ -170,6 +170,8 @@ def setup_agency_password(payload: AgencyPasswordSetupRequest, db: DBSessionDep)
 def list_agencies(db: DBSessionDep, context: AuthenticatedContext, skip: int = 0, limit: int = 20) -> dict:
     roles = _role_names(context)
     query = db.query(AgencyMaster).order_by(AgencyMaster.created_at.desc())
+    normalized_skip = max(skip, 0)
+    normalized_limit = max(min(limit, 100), 1)
 
     if "super_admin" in roles:
         pass
@@ -179,10 +181,31 @@ def list_agencies(db: DBSessionDep, context: AuthenticatedContext, skip: int = 0
         query = query.filter(false())
     else:
         agencies = selectable_owner_agencies(db, user_id=context.user_id)
-        return success_response([serialize_agency(agency) for agency in agencies])
+        total = len(agencies)
+        page_items = agencies[normalized_skip : normalized_skip + normalized_limit]
+        return success_response(
+            [serialize_agency(agency) for agency in page_items],
+            meta={
+                "pagination": {
+                    "total": total,
+                    "skip": normalized_skip,
+                    "limit": normalized_limit,
+                }
+            },
+        )
 
-    agencies = query.offset(max(skip, 0)).limit(max(min(limit, 100), 1)).all()
-    return success_response([serialize_agency(agency) for agency in agencies])
+    total = query.count()
+    agencies = query.offset(normalized_skip).limit(normalized_limit).all()
+    return success_response(
+        [serialize_agency(agency) for agency in agencies],
+        meta={
+            "pagination": {
+                "total": total,
+                "skip": normalized_skip,
+                "limit": normalized_limit,
+            }
+        },
+    )
 
 
 @router.get("/{agency_id}/owners")

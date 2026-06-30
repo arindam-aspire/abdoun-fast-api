@@ -13,6 +13,7 @@ from app.core.security import hash_secret, verify_secret
 from app.core.tokens import create_token, verify_token
 from app.models.live_schema import (
     AgencyMaster,
+    AgentProfile,
     Permission,
     Role,
     RolePermission,
@@ -196,6 +197,24 @@ def serialize_agency(agency: AgencyMaster | None) -> dict | None:
     }
 
 
+def requires_password_set(db: Session, user: User, roles: list[Role] | None = None) -> bool:
+    if not user.password_hash:
+        return True
+
+    role_names = {normalize_role_name(role.name) for role in (roles or load_user_roles(db, user.id))}
+    if "agent" not in role_names:
+        return False
+
+    profile = db.get(AgentProfile, user.id)
+    return bool(profile and profile.status == "ACTIVE" and profile.password_set_at is None)
+
+
+def mark_password_set(db: Session, user: User) -> None:
+    profile = db.get(AgentProfile, user.id)
+    if profile and profile.password_set_at is None:
+        profile.password_set_at = utc_now()
+
+
 def serialize_user(db: Session, user: User) -> dict:
     roles = load_user_roles(db, user.id)
     role_names = tuple(role.name for role in roles)
@@ -229,14 +248,15 @@ def serialize_user(db: Session, user: User) -> dict:
         "agencies": mapped_agencies,
         "has_agency": bool(mapped_agencies or agency),
         "created_at": _iso(user.created_at),
-        "requires_password_set": not bool(user.password_hash),
+        "requires_password_set": requires_password_set(db, user, roles),
         "status": "active" if user.is_active else "inactive",
     }
 
 
 def create_auth_tokens(db: Session, user: User, role_name: str | None = None) -> dict:
     settings = get_settings()
-    roles = [role.name for role in load_user_roles(db, user.id)]
+    loaded_roles = load_user_roles(db, user.id)
+    roles = [role.name for role in loaded_roles]
     primary_role = normalize_role_name(role_name) if role_name else (roles[0] if roles else None)
     return {
         "access_token": create_token(
@@ -262,7 +282,7 @@ def create_auth_tokens(db: Session, user: User, role_name: str | None = None) ->
         ),
         "token_type": "Bearer",
         "expires_in": settings.auth_access_token_seconds,
-        "requires_password_set": not bool(user.password_hash),
+        "requires_password_set": requires_password_set(db, user, loaded_roles),
         "remember_me_cookie": False,
     }
 

@@ -27,6 +27,7 @@ from app.services.auth import (
     create_user,
     find_user_by_username,
     get_user_or_404,
+    mark_password_set,
     normalize_username,
     send_dev_otp,
     serialize_user,
@@ -280,6 +281,7 @@ def reset_password(payload: ResetPasswordRequest, db: DBSessionDep) -> dict:
         new_value=normalize_username(user.email),
     )
     user.password_hash = hash_secret(payload.new_password)
+    mark_password_set(db, user)
     db.commit()
     return success_response({"updated": True}, "Password reset successfully")
 
@@ -290,6 +292,7 @@ def change_password(payload: ChangePasswordRequest, context: AuthenticatedContex
     if not user.password_hash or not verify_secret(payload.previous_password, user.password_hash):
         raise HTTPException(status_code=STATUS_UNAUTHORIZED, detail="Current password is invalid")
     user.password_hash = hash_secret(payload.password)
+    mark_password_set(db, user)
     db.commit()
     return success_response({"updated": True}, "Password changed successfully")
 

@@ -81,6 +81,16 @@ def _slug(value: Any) -> str:
     return str(value or "").strip().casefold()
 
 
+def _token(value: Any) -> str:
+    return _slug(value).replace("_", "-").replace(" ", "-")
+
+
+def _text_match(value: Any, query: str | None) -> bool:
+    if not query:
+        return True
+    return _slug(query) in _slug(value)
+
+
 def _empty_media_for_listing() -> dict[str, Any]:
     return {
         "thumbnail": None,
@@ -469,8 +479,17 @@ def apply_public_filters(
     rooms: int | None = None,
     bathrooms: int | None = None,
     parking: int | None = None,
+    propertyAge: str | None = None,
+    floorLevel: str | None = None,
+    furnitureStatus: str | None = None,
     minArea: float | None = None,
     maxArea: float | None = None,
+    minPlotArea: float | None = None,
+    maxPlotArea: float | None = None,
+    governorate: str | None = None,
+    directorate: str | None = None,
+    village: str | None = None,
+    parcelName: str | None = None,
     amenities: str | None = None,
     similar_to: str | None = None,
     db: Session,
@@ -518,10 +537,33 @@ def apply_public_filters(
             continue
         if parking is not None and _int(details.get("parking_spaces")) < parking:
             continue
+        if propertyAge and _token(details.get("property_age")) != _token(propertyAge):
+            continue
+        if floorLevel and _token(details.get("floor_level") or details.get("floor_number")) != _token(floorLevel):
+            continue
+        if furnitureStatus and _token(details.get("furniture_status")) != _token(furnitureStatus):
+            continue
         area_value = _float(details.get("built_up_area")) or 0
         if minArea is not None and area_value < minArea:
             continue
         if maxArea is not None and area_value > maxArea:
+            continue
+        plot_area_value = (
+            _float(details.get("land_area"))
+            or _float(details.get("plot_area"))
+            or (area_value if _token(category_obj.slug if category_obj else category) == "land" else 0)
+        )
+        if minPlotArea is not None and plot_area_value < minPlotArea:
+            continue
+        if maxPlotArea is not None and plot_area_value > maxPlotArea:
+            continue
+        if governorate and not _text_match(location.get("governorate") or location.get("state"), governorate):
+            continue
+        if directorate and not _text_match(location.get("directorate") or location.get("district"), directorate):
+            continue
+        if village and not _text_match(location.get("village"), village):
+            continue
+        if parcelName and not _text_match(location.get("parcel_name") or details.get("parcel_name"), parcelName):
             continue
         if required_features and not required_features.issubset(set(_feature_ids(payload))):
             continue
@@ -535,9 +577,10 @@ def apply_public_filters(
 
 
 def sort_public_rows(rows: list[tuple[PropertyListingSubmission, User | None]], sort: str | None) -> list[tuple[PropertyListingSubmission, User | None]]:
-    if sort == "price-asc":
+    normalized_sort = (sort or "").replace("_", "-")
+    if normalized_sort == "price-asc":
         return sorted(rows, key=lambda row: _float(((row[0].payload or {}).get("pricing") or {}).get("price")) or 0)
-    if sort == "price-desc":
+    if normalized_sort == "price-desc":
         return sorted(rows, key=lambda row: _float(((row[0].payload or {}).get("pricing") or {}).get("price")) or 0, reverse=True)
     return sorted(rows, key=lambda row: row[0].updated_at or row[0].created_at, reverse=True)
 

@@ -20,6 +20,11 @@ class AgentStatusUpdateRequest(BaseModel):
     reason: str | None = None
 
 
+class AgentInvitationAcceptRequest(BaseModel):
+    token: str
+    password: str = Field(min_length=8, max_length=128)
+
+
 class ManualOnboardAgentRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 

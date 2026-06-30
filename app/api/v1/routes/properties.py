@@ -40,8 +40,17 @@ def list_properties(
     rooms: int | None = None,
     bathrooms: int | None = None,
     parking: int | None = None,
+    propertyAge: str | None = None,
+    floorLevel: str | None = None,
+    furnitureStatus: str | None = None,
     minArea: float | None = None,
     maxArea: float | None = None,
+    minPlotArea: float | None = None,
+    maxPlotArea: float | None = None,
+    governorate: str | None = None,
+    directorate: str | None = None,
+    village: str | None = None,
+    parcelName: str | None = None,
     amenities: str | None = None,
     similar_to: str | None = None,
 ) -> dict:
@@ -61,8 +70,17 @@ def list_properties(
         rooms=rooms,
         bathrooms=bathrooms,
         parking=parking,
+        propertyAge=propertyAge,
+        floorLevel=floorLevel,
+        furnitureStatus=furnitureStatus,
         minArea=minArea,
         maxArea=maxArea,
+        minPlotArea=minPlotArea,
+        maxPlotArea=maxPlotArea,
+        governorate=governorate,
+        directorate=directorate,
+        village=village,
+        parcelName=parcelName,
         amenities=amenities,
         similar_to=similar_to,
         db=db,
@@ -112,4 +130,3 @@ def get_similar_properties(property_id: str, db: DBSessionDep, context: ContextD
 def get_property(property_id: str, db: DBSessionDep) -> dict:
     submission, user = get_public_submission_or_404(db, property_id)
     return success_response(serialize_property_detail(db, submission, submitter=user))
-

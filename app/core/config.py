@@ -56,12 +56,14 @@ class Settings(BaseModel):
     auth_otp_ttl_seconds: int = int(os.getenv("AUTH_OTP_TTL_SECONDS", "600"))
     agency_invitation_ttl_seconds: int = int(os.getenv("AGENCY_INVITATION_TTL_SECONDS", "900"))
     agency_password_setup_ttl_seconds: int = int(os.getenv("AGENCY_PASSWORD_SETUP_TTL_SECONDS", "900"))
+    agent_invitation_ttl_seconds: int = int(os.getenv("AGENT_INVITATION_TTL_SECONDS", "900"))
     allow_owner_multiple_agencies: bool = os.getenv("ALLOW_OWNER_MULTIPLE_AGENCIES", "false").lower() == "true"
 
     aws_s3_bucket: str | None = os.getenv("AWS_S3_BUCKET", "").strip().strip("\"'")
     aws_region: str = os.getenv("AWS_REGION", "us-west-2").strip().strip("\"'") or "us-west-2"
     media_url_presign_enabled: bool = os.getenv("MEDIA_URL_PRESIGN_ENABLED", "true").lower() == "true"
     media_url_presign_expires_seconds: int = int(os.getenv("MEDIA_URL_PRESIGN_EXPIRES_SECONDS", "3600"))
+    media_upload_presign_expires_seconds: int = int(os.getenv("MEDIA_UPLOAD_PRESIGN_EXPIRES_SECONDS", "900"))
     
     # Azure OpenAI settings (optional, for geocoding fallback)
     azure_openai_key: str | None = os.getenv("AZURE_OPENAI_KEY")
