@@ -38,7 +38,17 @@ def get_agent_properties(
         assigned_to=assigned_filter,
         exclude_drafts=True,
     )
-    items = [serialize_agent_property_item(submission, submitter, db=db) for submission, submitter in rows]
+    items = [
+        serialize_agent_property_item(
+            submission,
+            submitter,
+            db=db,
+            actor_user_id=context.user_id,
+            actor_roles=context.roles,
+            actor_agency_id=context.agency_id,
+        )
+        for submission, submitter in rows
+    ]
     if search:
         lowered = search.lower()
         items = [item for item in items if lowered in item["title"].lower()]

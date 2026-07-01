@@ -519,7 +519,44 @@ def stable_property_hash(property_id: UUID) -> int:
     return property_id.int % 2147483647
 
 
-def serialize_agent_property_item(submission: PropertyListingSubmission, submitter: User | None = None, *, db: Session | None = None) -> dict:
+def _can_edit_submission_for_actor(
+    db: Session | None,
+    submission: PropertyListingSubmission,
+    *,
+    actor_user_id: UUID | None = None,
+    actor_roles: tuple[str, ...] = (),
+    actor_agency_id: UUID | None = None,
+) -> bool:
+    if actor_user_id is None or db is None:
+        return submission.status in WORKING_STATUSES
+    if submission.status == ACTIVE_STATUS:
+        return can_edit_active_submission(
+            db,
+            submission,
+            user_id=actor_user_id,
+            roles=actor_roles,
+            agency_id=actor_agency_id,
+        )
+    if submission.status in WORKING_STATUSES:
+        return can_edit_working_submission(
+            db,
+            submission,
+            user_id=actor_user_id,
+            roles=actor_roles,
+            agency_id=actor_agency_id,
+        )
+    return False
+
+
+def serialize_agent_property_item(
+    submission: PropertyListingSubmission,
+    submitter: User | None = None,
+    *,
+    db: Session | None = None,
+    actor_user_id: UUID | None = None,
+    actor_roles: tuple[str, ...] = (),
+    actor_agency_id: UUID | None = None,
+) -> dict:
     payload = submission.payload or {}
     basic = payload.get("basic_information") or {}
     pricing = payload.get("pricing") or {}
@@ -529,6 +566,14 @@ def serialize_agent_property_item(submission: PropertyListingSubmission, submitt
     if submission.agency_id:
         agency = {"agency_id": str(submission.agency_id), "id": str(submission.agency_id)}
     assigned_agent = _assigned_agent_summary(db, submission) if db is not None else None
+    can_edit_submission = _can_edit_submission_for_actor(
+        db,
+        submission,
+        actor_user_id=actor_user_id,
+        actor_roles=actor_roles,
+        actor_agency_id=actor_agency_id,
+    )
+    can_delete_submission = submission.status in WORKING_STATUSES and can_edit_submission
     return {
         "property_id": str(property_id),
         "property_hash": stable_property_hash(property_id),
@@ -550,9 +595,9 @@ def serialize_agent_property_item(submission: PropertyListingSubmission, submitt
         "submission_submitted_at": _iso(submission.submitted_at),
         "submission_reviewed_at": _iso(submission.reviewed_at),
         "submission_review_reason": submission.review_reason,
-        "submission_workflow_label": submission.status.replace("_", " ").replace("-", " ").title(),
-        "can_edit_submission": submission.status in WORKING_STATUSES,
-        "can_delete_submission": submission.status in WORKING_STATUSES,
+        "submission_workflow_label": submission.status,
+        "can_edit_submission": can_edit_submission,
+        "can_delete_submission": can_delete_submission,
         "agency": agency,
         "submitted_by": submitter.full_name if submitter and submitter.full_name else str(submission.submitted_by),
         "agent_user_id": workflow.get("assigned_agent_id"),

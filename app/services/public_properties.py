@@ -22,7 +22,7 @@ from app.models.live_schema import (
     UserPropertyFavorite,
 )
 from app.services.media_urls import resolve_readable_media_url
-from app.services.property_submissions import stable_property_hash
+from app.services.property_submissions import can_view_submission, stable_property_hash
 from app.utils.status_codes import STATUS_NOT_FOUND
 
 
@@ -249,7 +249,7 @@ def serialize_property_listing(
         "title": localized_text(basic.get("title") or "Untitled property"),
         "description": localized_nullable_text(basic.get("description")),
         "price": str(pricing.get("price") or "0"),
-        "status": "active",
+        "status": submission.status,
         "category": category.slug if category else str(basic.get("category_id") or ""),
         "searchPropertyType": property_type.slug if property_type else str(basic.get("type_id") or ""),
         "city": city.name if city else "",
@@ -448,11 +448,59 @@ def find_public_submission_by_hash(db: Session, property_key: str | int) -> tupl
     return None
 
 
+def find_submission_by_hash(db: Session, property_key: str | int) -> tuple[PropertyListingSubmission, User | None] | None:
+    key = str(property_key)
+    try:
+        uuid_key = UUID(key)
+    except ValueError:
+        uuid_key = None
+
+    rows = db.execute(
+        select(PropertyListingSubmission, User)
+        .join(User, User.id == PropertyListingSubmission.submitted_by)
+        .where(PropertyListingSubmission.deleted_at.is_(None))
+        .order_by(PropertyListingSubmission.updated_at.desc())
+    ).all()
+    for submission, user in rows:
+        property_id = submission.property_id or submission.id
+        if uuid_key and (property_id == uuid_key or submission.id == uuid_key):
+            return submission, user
+        if str(stable_property_hash(property_id)) == key:
+            return submission, user
+    return None
+
+
 def get_public_submission_or_404(db: Session, property_key: str | int) -> tuple[PropertyListingSubmission, User | None]:
     match = find_public_submission_by_hash(db, property_key)
     if not match:
         raise HTTPException(status_code=STATUS_NOT_FOUND, detail="Property not found")
     return match
+
+
+def get_visible_submission_or_404(
+    db: Session,
+    property_key: str | int,
+    *,
+    user_id: UUID | None = None,
+    roles: tuple[str, ...] = (),
+    agency_id: UUID | None = None,
+) -> tuple[PropertyListingSubmission, User | None]:
+    public_match = find_public_submission_by_hash(db, property_key)
+    if public_match:
+        return public_match
+
+    if user_id is None:
+        raise HTTPException(status_code=STATUS_NOT_FOUND, detail="Property not found")
+
+    match = find_submission_by_hash(db, property_key)
+    if not match:
+        raise HTTPException(status_code=STATUS_NOT_FOUND, detail="Property not found")
+
+    submission, user = match
+    if can_view_submission(db, submission, user_id=user_id, roles=roles, agency_id=agency_id):
+        return submission, user
+
+    raise HTTPException(status_code=STATUS_NOT_FOUND, detail="Property not found")
 
 
 def resolve_property_uuid_or_404(db: Session, property_key: str | int) -> UUID:
@@ -497,6 +545,8 @@ def apply_public_filters(
     categories, types, cities, areas = _taxonomy_maps(db)
     required_features = {_int(value) for value in (amenities or "").replace("|", ",").split(",") if _int(value)}
     similar_match = find_public_submission_by_hash(db, similar_to) if similar_to else None
+    if similar_to and not similar_match:
+        return []
     similar_payload = similar_match[0].payload if similar_match else None
     similar_basic = (similar_payload or {}).get("basic_information") or {}
 

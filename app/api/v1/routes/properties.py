@@ -8,7 +8,7 @@ from app.api.deps import DBSessionDep, RequestContext, get_request_context
 from app.services.public_properties import (
     apply_public_filters,
     favorite_lookup,
-    get_public_submission_or_404,
+    get_visible_submission_or_404,
     list_public_submissions,
     pagination_meta,
     serialize_property_detail,
@@ -127,6 +127,12 @@ def get_similar_properties(property_id: str, db: DBSessionDep, context: ContextD
 
 
 @router.get("/{property_id}")
-def get_property(property_id: str, db: DBSessionDep) -> dict:
-    submission, user = get_public_submission_or_404(db, property_id)
+def get_property(property_id: str, db: DBSessionDep, context: ContextDep) -> dict:
+    submission, user = get_visible_submission_or_404(
+        db,
+        property_id,
+        user_id=context.user_id,
+        roles=context.roles,
+        agency_id=context.agency_id,
+    )
     return success_response(serialize_property_detail(db, submission, submitter=user))

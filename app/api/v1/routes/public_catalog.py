@@ -5,7 +5,6 @@ from sqlalchemy import select
 
 from app.api.deps import DBSessionDep
 from app.models.live_schema import Area, City, Feature, PropertyCategory, PropertyType
-from app.services.public_properties import serialize_feature_catalog_item
 from app.services.property_taxonomy import (
     is_dco_category,
     is_dco_property_type,
@@ -22,7 +21,55 @@ def list_features(db: DBSessionDep, is_active: bool | None = None) -> dict:
     stmt = select(Feature).order_by(Feature.display_order.asc(), Feature.name.asc())
     if is_active is not None:
         stmt = stmt.where(Feature.is_active.is_(is_active))
-    items = [serialize_feature_catalog_item(db, feature) for feature in db.execute(stmt).scalars().all()]
+    features = db.execute(stmt).scalars().all()
+    category_ids = {feature.category_id for feature in features if feature.category_id}
+    property_type_ids = {feature.property_type_id for feature in features if feature.property_type_id}
+    categories = (
+        db.execute(select(PropertyCategory).where(PropertyCategory.id.in_(category_ids))).scalars().all()
+        if category_ids
+        else []
+    )
+    property_types = (
+        db.execute(select(PropertyType).where(PropertyType.id.in_(property_type_ids))).scalars().all()
+        if property_type_ids
+        else []
+    )
+    categories_by_id = {category.id: category for category in categories}
+    property_types_by_id = {property_type.id: property_type for property_type in property_types}
+    items = [
+        {
+            "id": feature.id,
+            "name": feature.name,
+            "slug": feature.slug,
+            "category_id": feature.category_id,
+            "property_type_id": feature.property_type_id,
+            "feature_group": feature.feature_group,
+            "display_order": feature.display_order,
+            "is_active": bool(feature.is_active),
+            "created_at": feature.created_at.isoformat() if feature.created_at else None,
+            "updated_at": feature.updated_at.isoformat() if feature.updated_at else None,
+            "category": (
+                {
+                    "id": categories_by_id[feature.category_id].id,
+                    "name": categories_by_id[feature.category_id].name,
+                    "slug": categories_by_id[feature.category_id].slug,
+                }
+                if feature.category_id and feature.category_id in categories_by_id
+                else None
+            ),
+            "property_type": (
+                {
+                    "id": property_types_by_id[feature.property_type_id].id,
+                    "category_id": property_types_by_id[feature.property_type_id].category_id,
+                    "name": property_types_by_id[feature.property_type_id].name,
+                    "slug": property_types_by_id[feature.property_type_id].slug,
+                }
+                if feature.property_type_id and feature.property_type_id in property_types_by_id
+                else None
+            ),
+        }
+        for feature in features
+    ]
     return success_response({"items": items, "total": len(items)})
 
 
