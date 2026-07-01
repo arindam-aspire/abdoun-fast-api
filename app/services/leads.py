@@ -12,6 +12,7 @@ from app.models.live_schema import Lead, LeadMessage, LeadNote, LeadStatusHistor
 from app.schemas.leads import LeadCreate
 from app.services.audit import record_activity
 from app.services.notifications import create_in_app_notification, send_email_notification, send_sms_notification
+from app.services.property_submissions import DEAL_CLOSED_STATUS
 from app.services.public_properties import get_public_submission_or_404, pagination_meta, serialize_property_listing
 from app.services.user_agencies import REL_AGENT, agency_user_ids, agency_users_with_role, user_has_active_agency_mapping
 from app.utils.status_codes import STATUS_BAD_REQUEST, STATUS_FORBIDDEN, STATUS_NOT_FOUND
@@ -90,7 +91,15 @@ def _lead_property_submission(db: Session, lead: Lead) -> tuple[PropertyListingS
     try:
         return get_public_submission_or_404(db, lead.property_id)
     except HTTPException:
-        return None
+        return db.execute(
+            select(PropertyListingSubmission, User)
+            .join(User, User.id == PropertyListingSubmission.submitted_by)
+            .where(
+                PropertyListingSubmission.property_id == lead.property_id,
+                PropertyListingSubmission.deleted_at.is_(None),
+            )
+            .order_by(PropertyListingSubmission.updated_at.desc())
+        ).first()
 
 
 def _submission_agency_id(submission: PropertyListingSubmission | None, submitter: User | None = None) -> UUID | None:
@@ -141,6 +150,13 @@ def _can_access_lead(db: Session, lead: Lead, *, user_id: UUID, roles: tuple[str
 def assert_can_access_lead(db: Session, lead: Lead, *, user_id: UUID, roles: tuple[str, ...], agency_id: UUID | None) -> None:
     if not _can_access_lead(db, lead, user_id=user_id, roles=roles, agency_id=agency_id):
         raise HTTPException(status_code=STATUS_FORBIDDEN, detail="Insufficient permissions")
+
+
+def assert_lead_writable(db: Session, lead: Lead) -> None:
+    submission_match = _lead_property_submission(db, lead)
+    submission = submission_match[0] if submission_match else None
+    if submission and submission.status == DEAL_CLOSED_STATUS:
+        raise HTTPException(status_code=STATUS_BAD_REQUEST, detail="Leads for deal closed properties are read-only")
 
 
 def _lead_query_for_context(db: Session, *, user_id: UUID, roles: tuple[str, ...], agency_id: UUID | None):
@@ -328,6 +344,7 @@ def assign_lead(
     actor_roles: tuple[str, ...],
     actor_agency_id: UUID | None,
 ) -> Lead:
+    assert_lead_writable(db, lead)
     if AGENCY_ADMIN_ROLE not in actor_roles and SUPER_ADMIN_ROLE not in actor_roles:
         raise HTTPException(status_code=STATUS_FORBIDDEN, detail="Only Agency Admin or Super Admin can assign leads")
     if agent_id:
@@ -379,6 +396,7 @@ def update_lead_status(
     actor_roles: tuple[str, ...],
     reason: str | None = None,
 ) -> Lead:
+    assert_lead_writable(db, lead)
     if status not in LEAD_STATUSES:
         raise HTTPException(status_code=STATUS_BAD_REQUEST, detail="Invalid lead status")
     if lead.status == "CLOSED":
@@ -415,6 +433,7 @@ def update_lead_status(
 
 
 def add_lead_note(db: Session, *, lead: Lead, author_user_id: UUID, note: str) -> LeadNote:
+    assert_lead_writable(db, lead)
     record = LeadNote(
         id=uuid4(),
         lead_id=lead.id,
@@ -437,6 +456,7 @@ def add_lead_message(
     message: str,
     channel: str,
 ) -> LeadMessage:
+    assert_lead_writable(db, lead)
     persisted_channel = "EMAIL" if channel == "EMAIL" else "IN_APP"
     record = LeadMessage(
         id=uuid4(),

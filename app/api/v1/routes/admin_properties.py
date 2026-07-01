@@ -9,7 +9,8 @@ from app.api.deps import DBSessionDep, RequestContext, require_any_role
 from app.schemas.property_submissions import PropertyAssignAgentRequest, PropertySubmissionReviewRequest
 from app.services.property_submissions import (
     assign_agent_to_property,
-    assert_can_manage_submission,
+    assert_can_review_submission,
+    deactivate_submission,
     get_submission_or_404,
     list_submissions,
     review_submission,
@@ -52,11 +53,11 @@ def get_admin_property_submissions(
 def review_admin_property_submission(
     submission_id: UUID,
     payload: PropertySubmissionReviewRequest,
-    context: SuperAdminContext,
+    context: AdminContext,
     db: DBSessionDep,
 ) -> dict:
     submission = get_submission_or_404(db, submission_id)
-    assert_can_manage_submission(db, submission, roles=context.roles, agency_id=context.agency_id)
+    assert_can_review_submission(db, submission, roles=context.roles, agency_id=context.agency_id)
     review_submission(
         db,
         submission,
@@ -67,6 +68,19 @@ def review_admin_property_submission(
     db.commit()
     db.refresh(submission)
     return success_response(serialize_submission(submission), "Property submission reviewed")
+
+
+@router.post("/property-submissions/{submission_id}/deactivate")
+def deactivate_admin_property_submission(
+    submission_id: UUID,
+    context: SuperAdminContext,
+    db: DBSessionDep,
+) -> dict:
+    submission = get_submission_or_404(db, submission_id)
+    deactivate_submission(db, submission, actor_id=context.user_id)
+    db.commit()
+    db.refresh(submission)
+    return success_response(serialize_submission(submission), "Property deactivated")
 
 
 @router.patch("/properties/{property_id}/assign-agent")

@@ -39,6 +39,9 @@ SUBMISSION_SECTIONS = (
 DRAFT_STATUSES = {"draft"}
 PENDING_APPROVAL_STATUS = "pending-approval"
 ACTIVE_STATUS = "active"
+DEACTIVATED_STATUS = "deactivated"
+DEAL_CLOSED_STATUS = "deal_closed"
+DEAL_CLOSURE_REQUESTED_STATUS = "deal_closure_requested"
 WORKING_STATUSES = {"draft", "rejected", "in_progress"}
 
 
@@ -185,17 +188,6 @@ def can_edit_active_submission(
     roles: tuple[str, ...],
     agency_id: UUID | None,
 ) -> bool:
-    role_names = {role.lower() for role in roles}
-    if submission.submitted_by == user_id:
-        return True
-
-    workflow = (submission.payload or {}).get("_workflow") or {}
-    if workflow.get("assigned_agent_id") == str(user_id):
-        return True
-
-    if "admin" in role_names and agency_id:
-        return _submitter_agency_id(db, submission) == agency_id
-
     return False
 
 
@@ -245,6 +237,8 @@ def can_edit_working_submission(
     roles: tuple[str, ...],
     agency_id: UUID | None,
 ) -> bool:
+    if submission.status not in WORKING_STATUSES:
+        return False
     if submission.status in DRAFT_STATUSES:
         return submission.submitted_by == user_id
     if submission.submitted_by == user_id:
@@ -293,6 +287,34 @@ def assert_can_manage_submission(
     if "admin" in role_names and agency_id and _submitter_agency_id(db, submission) == agency_id:
         return
     raise HTTPException(status_code=STATUS_FORBIDDEN, detail="Insufficient permissions")
+
+
+def can_review_submission(
+    db: Session,
+    submission: PropertyListingSubmission,
+    *,
+    roles: tuple[str, ...],
+    agency_id: UUID | None,
+) -> bool:
+    role_names = _role_names(roles)
+    if "super_admin" in role_names:
+        return True
+    if "admin" in role_names and agency_id and _submitter_agency_id(db, submission) == agency_id:
+        return True
+    return False
+
+
+def assert_can_review_submission(
+    db: Session,
+    submission: PropertyListingSubmission,
+    *,
+    roles: tuple[str, ...],
+    agency_id: UUID | None,
+) -> None:
+    if submission.status != PENDING_APPROVAL_STATUS:
+        raise HTTPException(status_code=STATUS_BAD_REQUEST, detail="Only pending submissions can be reviewed")
+    if not can_review_submission(db, submission, roles=roles, agency_id=agency_id):
+        raise HTTPException(status_code=STATUS_FORBIDDEN, detail="Insufficient permissions")
 
 
 def create_revision_from_active(
@@ -466,6 +488,8 @@ def review_submission(
     action: str,
     reason: str | None = None,
 ) -> PropertyListingSubmission:
+    if submission.status != PENDING_APPROVAL_STATUS:
+        raise HTTPException(status_code=STATUS_BAD_REQUEST, detail="Only pending submissions can be reviewed")
     if action == "approve":
         submission.status = ACTIVE_STATUS
         submission.review_reason = None
@@ -530,13 +554,7 @@ def _can_edit_submission_for_actor(
     if actor_user_id is None or db is None:
         return submission.status in WORKING_STATUSES
     if submission.status == ACTIVE_STATUS:
-        return can_edit_active_submission(
-            db,
-            submission,
-            user_id=actor_user_id,
-            roles=actor_roles,
-            agency_id=actor_agency_id,
-        )
+        return False
     if submission.status in WORKING_STATUSES:
         return can_edit_working_submission(
             db,
@@ -546,6 +564,29 @@ def _can_edit_submission_for_actor(
             agency_id=actor_agency_id,
         )
     return False
+
+
+def _workflow_label_for_submission(submission: PropertyListingSubmission) -> str:
+    workflow = (submission.payload or {}).get("_workflow") or {}
+    if submission.status == ACTIVE_STATUS and workflow.get("deal_closure_status") == DEAL_CLOSURE_REQUESTED_STATUS:
+        return DEAL_CLOSURE_REQUESTED_STATUS
+    if submission.status == ACTIVE_STATUS and workflow.get("deal_closure_status") == DEAL_CLOSED_STATUS:
+        return DEAL_CLOSED_STATUS
+    return submission.status
+
+
+def _status_display_name(status: str) -> str:
+    labels = {
+        ACTIVE_STATUS: "Active",
+        DEACTIVATED_STATUS: "Deactivated",
+        DEAL_CLOSED_STATUS: "Deal Closed",
+        DEAL_CLOSURE_REQUESTED_STATUS: "Deal Closure Requested",
+        PENDING_APPROVAL_STATUS: "Pending Approval",
+        "draft": "Draft",
+        "rejected": "Rejected",
+        "in_progress": "In Progress",
+    }
+    return labels.get(status, status)
 
 
 def serialize_agent_property_item(
@@ -566,6 +607,7 @@ def serialize_agent_property_item(
     if submission.agency_id:
         agency = {"agency_id": str(submission.agency_id), "id": str(submission.agency_id)}
     assigned_agent = _assigned_agent_summary(db, submission) if db is not None else None
+    workflow_label = _workflow_label_for_submission(submission)
     can_edit_submission = _can_edit_submission_for_actor(
         db,
         submission,
@@ -583,7 +625,7 @@ def serialize_agent_property_item(
         "type_slug": str(basic.get("type_id") or ""),
         "category_name": str(basic.get("category_id") or ""),
         "category_slug": str(basic.get("category_id") or ""),
-        "status_name": submission.status,
+        "status_name": _status_display_name(workflow_label),
         "status_slug": submission.status,
         "price": str(pricing.get("price") or "0"),
         "currency": pricing.get("currency") or "JOD",
@@ -595,7 +637,7 @@ def serialize_agent_property_item(
         "submission_submitted_at": _iso(submission.submitted_at),
         "submission_reviewed_at": _iso(submission.reviewed_at),
         "submission_review_reason": submission.review_reason,
-        "submission_workflow_label": submission.status,
+        "submission_workflow_label": workflow_label,
         "can_edit_submission": can_edit_submission,
         "can_delete_submission": can_delete_submission,
         "agency": agency,
@@ -612,12 +654,14 @@ def serialize_admin_submission_item(submission: PropertyListingSubmission, submi
     workflow = payload.get("_workflow") or {}
     property_id = submission.property_id or submission.id
     assigned_agent = _assigned_agent_summary(db, submission) if db is not None else None
+    workflow_label = _workflow_label_for_submission(submission)
     return {
         "submission_id": str(submission.id),
         "agency_id": str(submission.agency_id) if submission.agency_id else None,
         "submitted_by": str(submission.submitted_by),
         "submitted_by_name": submitter.full_name if submitter else "",
-        "status": submission.status,
+        "status": workflow_label,
+        "status_label": _status_display_name(workflow_label),
         "property_id": str(property_id),
         "agent_user_id": workflow.get("assigned_agent_id"),
         "agent_name": assigned_agent["name"] if assigned_agent else None,
@@ -630,6 +674,7 @@ def serialize_admin_submission_item(submission: PropertyListingSubmission, submi
         "current_step": submission.current_step,
         "submitted_at": _iso(submission.submitted_at) or _iso(submission.created_at),
         "reviewed_at": _iso(submission.reviewed_at),
+        "review_reason": submission.review_reason,
     }
 
 
@@ -698,7 +743,12 @@ def assign_agent_to_property(
     ).scalars().first()
     if not submission:
         raise HTTPException(status_code=STATUS_NOT_FOUND, detail="Property submission not found")
+    role_names = _role_names(actor_roles)
+    if "admin" not in role_names or "super_admin" in role_names:
+        raise HTTPException(status_code=STATUS_FORBIDDEN, detail="Only Agency Admin can assign agents")
     assert_can_manage_submission(db, submission, roles=actor_roles, agency_id=actor_agency_id)
+    if _workflow_label_for_submission(submission) != ACTIVE_STATUS:
+        raise HTTPException(status_code=STATUS_BAD_REQUEST, detail="Agents can be assigned only to active properties")
     submission_agency_id = _submitter_agency_id(db, submission)
     if agent_id:
         agent = db.get(User, agent_id)
@@ -721,4 +771,33 @@ def assign_agent_to_property(
     workflow["assigned_agent_id"] = str(agent_id) if agent_id else None
     submission.payload = payload
     flag_modified(submission, "payload")
+    return submission
+
+
+def deactivate_submission(
+    db: Session,
+    submission: PropertyListingSubmission,
+    *,
+    actor_id: UUID,
+) -> PropertyListingSubmission:
+    if _workflow_label_for_submission(submission) != ACTIVE_STATUS:
+        raise HTTPException(status_code=STATUS_BAD_REQUEST, detail="Only active properties can be deactivated")
+    submission.status = DEACTIVATED_STATUS
+    record_activity(
+        db,
+        activity_type="property_deactivated",
+        message=f"Property submission {submission.id} deactivated",
+        user_id=actor_id,
+        property_id=submission.property_id,
+    )
+    create_in_app_notification(
+        db,
+        recipient_user_id=submission.submitted_by,
+        actor_user_id=actor_id,
+        type_key="property_deactivated",
+        title="Property deactivated",
+        message="Your property listing was deactivated.",
+        data={"submission_id": str(submission.id), "property_id": str(submission.property_id) if submission.property_id else None},
+        action_url="/my-listings",
+    )
     return submission

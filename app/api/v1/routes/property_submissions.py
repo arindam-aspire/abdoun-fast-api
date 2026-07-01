@@ -15,7 +15,6 @@ from app.schemas.property_submissions import (
 from app.services.property_submissions import (
     assert_can_edit_working_submission,
     assert_can_view_submission,
-    create_revision_from_active,
     create_submission,
     get_submission_or_404,
     serialize_submission,
@@ -93,21 +92,6 @@ def update_property_submission(
     db: DBSessionDep,
 ) -> dict:
     submission = get_submission_or_404(db, submission_id)
-    if submission.status == "active":
-        revision = create_revision_from_active(
-            db,
-            source=submission,
-            user_id=context.user_id,
-            roles=context.roles,
-            agency_id=context.agency_id,
-            payload=payload.payload,
-            current_step=payload.current_step,
-            last_completed_step=payload.last_completed_step,
-        )
-        db.commit()
-        db.refresh(revision)
-        return success_response(serialize_submission(revision), "Property revision submitted for reapproval")
-
     assert_can_edit_working_submission(db, submission, user_id=context.user_id, roles=context.roles, agency_id=context.agency_id)
     update_submission(
         submission,

@@ -7,6 +7,7 @@ from uuid import UUID, uuid4
 from fastapi import HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.attributes import flag_modified
 
 from app.models.deal_closure import PropertyDealClosure
 from app.models.live_schema import Lead, PropertyListingSubmission, User
@@ -14,7 +15,7 @@ from app.schemas.deal_closures import DealClosureCreate
 from app.services.audit import record_activity
 from app.services.notifications import create_in_app_notification
 from app.services.public_properties import get_public_submission_or_404, pagination_meta, serialize_property_listing
-from app.services.property_submissions import _payload_workflow
+from app.services.property_submissions import ACTIVE_STATUS, DEAL_CLOSED_STATUS, DEAL_CLOSURE_REQUESTED_STATUS, _payload_workflow
 from app.utils.status_codes import STATUS_BAD_REQUEST, STATUS_FORBIDDEN, STATUS_NOT_FOUND
 
 
@@ -74,10 +75,10 @@ def _can_request_closure(
         return False
     submission, submitter = match
     role_names = {role.lower() for role in roles}
-    if submission.submitted_by == user_id:
+    if "agent" in role_names and submission.submitted_by == user_id:
         return True
     workflow = (submission.payload or {}).get("_workflow") or {}
-    if workflow.get("assigned_agent_id") == str(user_id):
+    if "agent" in role_names and workflow.get("assigned_agent_id") == str(user_id):
         return True
     property_agency_id = submission.agency_id or (submitter.agency_id if submitter else None)
     if "admin" in role_names and agency_id and property_agency_id == agency_id:
@@ -117,7 +118,14 @@ def _assert_can_view(
     raise HTTPException(status_code=STATUS_FORBIDDEN, detail="Insufficient permissions")
 
 
-def _mark_submission_deal_status(db: Session, property_id: UUID, *, status: str, closure_id: UUID) -> None:
+def _mark_submission_deal_status(
+    db: Session,
+    property_id: UUID,
+    *,
+    workflow_status: str,
+    closure_id: UUID,
+    property_status: str | None = None,
+) -> None:
     submissions = db.execute(
         select(PropertyListingSubmission).where(
             PropertyListingSubmission.property_id == property_id,
@@ -127,9 +135,12 @@ def _mark_submission_deal_status(db: Session, property_id: UUID, *, status: str,
     for submission in submissions:
         payload = dict(submission.payload or {})
         workflow = _payload_workflow(payload)
-        workflow["deal_closure_status"] = status
+        workflow["deal_closure_status"] = workflow_status
         workflow["deal_closure_id"] = str(closure_id)
         submission.payload = payload
+        flag_modified(submission, "payload")
+        if property_status:
+            submission.status = property_status
 
 
 def create_deal_closure(
@@ -166,7 +177,12 @@ def create_deal_closure(
         updated_at=utc_now(),
     )
     db.add(closure)
-    _mark_submission_deal_status(db, property_id, status="deal_closure_requested", closure_id=closure.id)
+    _mark_submission_deal_status(
+        db,
+        property_id,
+        workflow_status=DEAL_CLOSURE_REQUESTED_STATUS,
+        closure_id=closure.id,
+    )
     record_activity(
         db,
         activity_type="deal_closure_requested",
@@ -198,7 +214,13 @@ def review_deal_closure(
         raise HTTPException(status_code=STATUS_BAD_REQUEST, detail="Deal closure request is already reviewed")
     if action == "approve":
         closure.status = APPROVED
-        _mark_submission_deal_status(db, closure.property_id, status="deal_closed", closure_id=closure.id)
+        _mark_submission_deal_status(
+            db,
+            closure.property_id,
+            workflow_status=DEAL_CLOSED_STATUS,
+            property_status=DEAL_CLOSED_STATUS,
+            closure_id=closure.id,
+        )
         if closure.lead_id:
             lead = db.get(Lead, closure.lead_id)
             if lead and lead.status != "CLOSED":
@@ -207,7 +229,13 @@ def review_deal_closure(
                 lead.closed_by_admin_id = actor_user_id
     elif action == "reject":
         closure.status = REJECTED
-        _mark_submission_deal_status(db, closure.property_id, status="active", closure_id=closure.id)
+        _mark_submission_deal_status(
+            db,
+            closure.property_id,
+            workflow_status=ACTIVE_STATUS,
+            property_status=ACTIVE_STATUS,
+            closure_id=closure.id,
+        )
     else:
         raise HTTPException(status_code=STATUS_BAD_REQUEST, detail="Invalid review action")
     closure.review_reason = reason
