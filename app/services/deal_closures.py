@@ -181,6 +181,7 @@ def create_deal_closure(
         db,
         property_id,
         workflow_status=DEAL_CLOSURE_REQUESTED_STATUS,
+        property_status=DEAL_CLOSURE_REQUESTED_STATUS,
         closure_id=closure.id,
     )
     record_activity(
