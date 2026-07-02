@@ -485,20 +485,27 @@ def get_visible_submission_or_404(
     roles: tuple[str, ...] = (),
     agency_id: UUID | None = None,
 ) -> tuple[PropertyListingSubmission, User | None]:
+    match = find_submission_by_hash(db, property_key)
+    if user_id is None:
+        public_match = find_public_submission_by_hash(db, property_key)
+        if public_match:
+            return public_match
+        raise HTTPException(status_code=STATUS_NOT_FOUND, detail="Property not found")
+
+    if match:
+        submission, user = match
+        if can_view_submission(
+            db,
+            submission,
+            user_id=user_id,
+            roles=roles,
+            agency_id=agency_id,
+        ):
+            return submission, user
+
     public_match = find_public_submission_by_hash(db, property_key)
     if public_match:
         return public_match
-
-    if user_id is None:
-        raise HTTPException(status_code=STATUS_NOT_FOUND, detail="Property not found")
-
-    match = find_submission_by_hash(db, property_key)
-    if not match:
-        raise HTTPException(status_code=STATUS_NOT_FOUND, detail="Property not found")
-
-    submission, user = match
-    if can_view_submission(db, submission, user_id=user_id, roles=roles, agency_id=agency_id):
-        return submission, user
 
     raise HTTPException(status_code=STATUS_NOT_FOUND, detail="Property not found")
 
