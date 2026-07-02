@@ -95,6 +95,7 @@ def assign_admin_property_agent(
         db,
         property_id=property_id,
         agent_id=agent_id,
+        actor_user_id=context.user_id,
         actor_roles=context.roles,
         actor_agency_id=context.agency_id,
     )

@@ -11,6 +11,41 @@ load_dotenv()
 
 from app.utils.constants import SystemMessages
 
+LOCAL_CORS_ALLOWED_ORIGIN_REGEX = (
+    r"^https?://("
+    r"localhost|127\.0\.0\.1|0\.0\.0\.0|"
+    r"10(?:\.\d{1,3}){3}|"
+    r"192\.168(?:\.\d{1,3}){2}|"
+    r"172\.(?:1[6-9]|2\d|3[01])(?:\.\d{1,3}){2}"
+    r")(?::\d+)?$"
+)
+
+
+def _csv_values(raw_value: str | None) -> list[str]:
+    if not raw_value:
+        return []
+    return [item.strip().strip("\"'") for item in raw_value.split(",") if item.strip().strip("\"'")]
+
+
+def _get_cors_allowed_origins() -> str:
+    values: list[str] = []
+    for env_name in ("CORS_ALLOWED_ORIGINS", "CORS_ORIGINS"):
+        values.extend(_csv_values(os.getenv(env_name)))
+    if not values:
+        values = ["http://localhost:3000", "http://127.0.0.1:3000"]
+    return ",".join(dict.fromkeys(values))
+
+
+def _get_cors_allowed_origin_regex() -> str | None:
+    configured = os.getenv("CORS_ALLOWED_ORIGIN_REGEX")
+    if configured is not None:
+        return configured.strip().strip("\"'") or None
+
+    environment = os.getenv("ENVIRONMENT", "local").lower()
+    if environment in {"local", "dev", "development", "test"}:
+        return LOCAL_CORS_ALLOWED_ORIGIN_REGEX
+    return None
+
 
 def _get_database_url() -> str:
     """Get database URL from environment variable."""
@@ -40,10 +75,8 @@ class Settings(BaseModel):
     db_sslmode: str = os.getenv("DB_SSLMODE", "require")
 
     api_v1_prefix: str = SystemMessages.API_V1_PREFIX
-    cors_allowed_origins: str = os.getenv(
-        "CORS_ALLOWED_ORIGINS",
-        "http://localhost:3000,http://127.0.0.1:3000",
-    )
+    cors_allowed_origins: str = _get_cors_allowed_origins()
+    cors_allowed_origin_regex: str | None = _get_cors_allowed_origin_regex()
 
     notification_email_mode: str = os.getenv("NOTIFICATION_EMAIL_MODE", "log")
     notification_sms_mode: str = os.getenv("NOTIFICATION_SMS_MODE", "log")

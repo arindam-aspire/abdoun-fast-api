@@ -43,6 +43,38 @@ DEACTIVATED_STATUS = "deactivated"
 DEAL_CLOSED_STATUS = "deal_closed"
 DEAL_CLOSURE_REQUESTED_STATUS = "deal_closure_requested"
 WORKING_STATUSES = {"draft", "rejected", "in_progress"}
+WORKFLOW_STAGE_AWAITING_AGENCY_ASSIGNMENT = "awaiting_agency_assignment"
+WORKFLOW_STAGE_WITH_AGENT = "with_agent"
+WORKFLOW_STAGE_AWAITING_AGENCY_REVIEW = "awaiting_agency_review"
+WORKFLOW_STAGE_RETURNED_TO_OWNER = "returned_to_owner"
+WORKFLOW_STAGE_RETURNED_TO_AGENT = "returned_to_agent"
+WORKFLOW_STAGE_APPROVED = "approved"
+
+CURRENT_ACTOR_OWNER = "owner"
+CURRENT_ACTOR_ASSIGNED_AGENT = "assigned_agent"
+CURRENT_ACTOR_AGENCY_ADMIN = "agency_admin"
+CURRENT_ACTOR_NONE = None
+
+SUBMISSION_ORIGIN_OWNER = "owner"
+SUBMISSION_ORIGIN_AGENCY_ADMIN = "agency_admin"
+SUBMISSION_ORIGIN_AGENT = "agent"
+SUBMISSION_ORIGIN_SUPER_ADMIN = "super_admin"
+
+ASSIGNMENT_READY_STAGES = {
+    WORKFLOW_STAGE_AWAITING_AGENCY_ASSIGNMENT,
+    WORKFLOW_STAGE_AWAITING_AGENCY_REVIEW,
+}
+AGENCY_REVIEW_STAGES = {WORKFLOW_STAGE_AWAITING_AGENCY_REVIEW}
+AGENT_EDIT_STAGES = {WORKFLOW_STAGE_WITH_AGENT, WORKFLOW_STAGE_RETURNED_TO_AGENT}
+OWNER_EDIT_STAGES = {WORKFLOW_STAGE_RETURNED_TO_OWNER}
+KNOWN_WORKFLOW_STAGES = {
+    WORKFLOW_STAGE_AWAITING_AGENCY_ASSIGNMENT,
+    WORKFLOW_STAGE_WITH_AGENT,
+    WORKFLOW_STAGE_AWAITING_AGENCY_REVIEW,
+    WORKFLOW_STAGE_RETURNED_TO_OWNER,
+    WORKFLOW_STAGE_RETURNED_TO_AGENT,
+    WORKFLOW_STAGE_APPROVED,
+}
 
 
 def utc_now() -> datetime:
@@ -64,6 +96,92 @@ def _payload_workflow(payload: dict[str, Any]) -> dict[str, Any]:
         workflow = {}
         payload["_workflow"] = workflow
     return workflow
+
+
+def _role_names(roles: tuple[str, ...]) -> set[str]:
+    return {role.lower() for role in roles}
+
+
+def _workflow_from_submission(submission: PropertyListingSubmission) -> dict[str, Any]:
+    workflow = (submission.payload or {}).get("_workflow") or {}
+    return workflow if isinstance(workflow, dict) else {}
+
+
+def _current_actor_for_workflow_stage(stage: str | None) -> str | None:
+    if stage == WORKFLOW_STAGE_AWAITING_AGENCY_ASSIGNMENT:
+        return CURRENT_ACTOR_AGENCY_ADMIN
+    if stage in AGENCY_REVIEW_STAGES:
+        return CURRENT_ACTOR_AGENCY_ADMIN
+    if stage in AGENT_EDIT_STAGES:
+        return CURRENT_ACTOR_ASSIGNED_AGENT
+    if stage in OWNER_EDIT_STAGES:
+        return CURRENT_ACTOR_OWNER
+    return CURRENT_ACTOR_NONE
+
+
+def _workflow_stage_for_submission(submission: PropertyListingSubmission) -> str | None:
+    workflow = _workflow_from_submission(submission)
+    stage = workflow.get("workflow_stage")
+    if isinstance(stage, str) and stage in KNOWN_WORKFLOW_STAGES:
+        return stage
+    if submission.status == PENDING_APPROVAL_STATUS:
+        if workflow.get("assigned_agent_id"):
+            return WORKFLOW_STAGE_WITH_AGENT
+        return WORKFLOW_STAGE_AWAITING_AGENCY_ASSIGNMENT
+    if submission.status == "rejected":
+        if workflow.get("assigned_agent_id"):
+            return WORKFLOW_STAGE_RETURNED_TO_AGENT
+        return WORKFLOW_STAGE_RETURNED_TO_OWNER
+    if submission.status == ACTIVE_STATUS:
+        return WORKFLOW_STAGE_APPROVED
+    return None
+
+
+def _submission_origin_for_roles(roles: tuple[str, ...]) -> str:
+    role_names = _role_names(roles)
+    if "agent" in role_names:
+        return SUBMISSION_ORIGIN_AGENT
+    if "super_admin" in role_names:
+        return SUBMISSION_ORIGIN_SUPER_ADMIN
+    if "admin" in role_names:
+        return SUBMISSION_ORIGIN_AGENCY_ADMIN
+    return SUBMISSION_ORIGIN_OWNER
+
+
+def _set_submission_workflow(
+    submission: PropertyListingSubmission,
+    *,
+    stage: str | None = None,
+    origin: str | None = None,
+    assigned_agent_id: UUID | str | None | object = ...,
+    actor_user_id: UUID | None = None,
+) -> dict[str, Any]:
+    payload = dict(submission.payload or {})
+    workflow = _payload_workflow(payload)
+    if stage is not None:
+        workflow["workflow_stage"] = stage
+        workflow["current_actor"] = _current_actor_for_workflow_stage(stage)
+    if origin is not None:
+        workflow["submission_origin"] = origin
+    if assigned_agent_id is not ...:
+        workflow["assigned_agent_id"] = str(assigned_agent_id) if assigned_agent_id else None
+    if actor_user_id is not None:
+        workflow["last_actor_user_id"] = str(actor_user_id)
+    workflow["last_transition_at"] = utc_now().isoformat()
+    submission.payload = payload
+    flag_modified(submission, "payload")
+    return workflow
+
+
+def _submission_workflow_summary(submission: PropertyListingSubmission) -> dict[str, Any]:
+    workflow = _workflow_from_submission(submission)
+    stage = _workflow_stage_for_submission(submission)
+    return {
+        "workflow_stage": stage,
+        "current_actor": workflow.get("current_actor") or _current_actor_for_workflow_stage(stage),
+        "submission_origin": workflow.get("submission_origin"),
+        "assigned_agent_id": workflow.get("assigned_agent_id"),
+    }
 
 
 def _assigned_agent_uuid(submission: PropertyListingSubmission) -> UUID | None:
@@ -97,10 +215,12 @@ def compute_step_completion(payload: dict[str, Any]) -> dict[str, bool]:
 
 def serialize_submission(submission: PropertyListingSubmission) -> dict:
     payload = submission.payload or {}
+    workflow_summary = _submission_workflow_summary(submission)
     return {
         "submission_id": str(submission.id),
         "agency_id": str(submission.agency_id) if submission.agency_id else None,
         "status": submission.status,
+        **workflow_summary,
         "current_step": submission.current_step,
         "last_completed_step": submission.last_completed_step,
         "step_completion": submission.step_completion or compute_step_completion(payload),
@@ -168,15 +288,25 @@ def update_submission(
     current_step: int,
     last_completed_step: int,
 ) -> PropertyListingSubmission:
-    if submission.status not in {"draft", "rejected", "in_progress"}:
-        raise HTTPException(status_code=STATUS_BAD_REQUEST, detail="Only draft or rejected submissions can be edited")
-    submission.payload = payload
+    workflow_stage = _workflow_stage_for_submission(submission)
+    is_editable_status = submission.status in {"draft", "rejected", "in_progress"} or (
+        submission.status == PENDING_APPROVAL_STATUS and workflow_stage == WORKFLOW_STAGE_WITH_AGENT
+    )
+    if not is_editable_status:
+        raise HTTPException(status_code=STATUS_BAD_REQUEST, detail="This property submission is not editable in its current workflow stage")
+    next_payload = dict(payload)
+    existing_workflow = _workflow_from_submission(submission)
+    if existing_workflow:
+        next_payload["_workflow"] = existing_workflow
+    submission.payload = next_payload
     if agency_id is not None:
         submission.agency_id = agency_id
     submission.current_step = current_step
     submission.last_completed_step = last_completed_step
-    submission.step_completion = compute_step_completion(payload)
-    submission.status = "draft"
+    submission.step_completion = compute_step_completion(next_payload)
+    if submission.status in DRAFT_STATUSES:
+        submission.status = "draft"
+    flag_modified(submission, "payload")
     return submission
 
 
@@ -191,12 +321,8 @@ def can_edit_active_submission(
     return False
 
 
-def _role_names(roles: tuple[str, ...]) -> set[str]:
-    return {role.lower() for role in roles}
-
-
 def _assigned_agent_id(submission: PropertyListingSubmission) -> str | None:
-    workflow = (submission.payload or {}).get("_workflow") or {}
+    workflow = _workflow_from_submission(submission)
     return workflow.get("assigned_agent_id")
 
 
@@ -237,15 +363,22 @@ def can_edit_working_submission(
     roles: tuple[str, ...],
     agency_id: UUID | None,
 ) -> bool:
-    if submission.status not in WORKING_STATUSES:
+    if submission.status in {ACTIVE_STATUS, DEACTIVATED_STATUS, DEAL_CLOSED_STATUS, DEAL_CLOSURE_REQUESTED_STATUS}:
         return False
     if submission.status in DRAFT_STATUSES:
         return submission.submitted_by == user_id
-    if submission.submitted_by == user_id:
-        return True
-    if _assigned_agent_id(submission) == str(user_id):
-        return True
-    if "admin" in _role_names(roles) and agency_id and _submitter_agency_id(db, submission) == agency_id:
+    workflow_stage = _workflow_stage_for_submission(submission)
+    role_names = _role_names(roles)
+    assigned_agent_id = _assigned_agent_id(submission)
+    if workflow_stage in OWNER_EDIT_STAGES:
+        return submission.submitted_by == user_id
+    if workflow_stage in AGENT_EDIT_STAGES:
+        if assigned_agent_id == str(user_id):
+            return True
+        if "agent" in role_names and submission.submitted_by == user_id:
+            return True
+        return False
+    if submission.status in WORKING_STATUSES and submission.submitted_by == user_id and "admin" not in role_names:
         return True
     return False
 
@@ -297,8 +430,6 @@ def can_review_submission(
     agency_id: UUID | None,
 ) -> bool:
     role_names = _role_names(roles)
-    if "super_admin" in role_names:
-        return True
     if "admin" in role_names and agency_id and _submitter_agency_id(db, submission) == agency_id:
         return True
     return False
@@ -313,6 +444,8 @@ def assert_can_review_submission(
 ) -> None:
     if submission.status != PENDING_APPROVAL_STATUS:
         raise HTTPException(status_code=STATUS_BAD_REQUEST, detail="Only pending submissions can be reviewed")
+    if _workflow_stage_for_submission(submission) not in AGENCY_REVIEW_STAGES:
+        raise HTTPException(status_code=STATUS_BAD_REQUEST, detail="Submission must be returned by the assigned agent before review")
     if not can_review_submission(db, submission, roles=roles, agency_id=agency_id):
         raise HTTPException(status_code=STATUS_FORBIDDEN, detail="Insufficient permissions")
 
@@ -366,6 +499,24 @@ def create_revision_from_active(
     return revision
 
 
+def _next_workflow_stage_on_submit(
+    submission: PropertyListingSubmission,
+    *,
+    user_id: UUID,
+    roles: tuple[str, ...],
+) -> str:
+    role_names = _role_names(roles)
+    current_stage = _workflow_stage_for_submission(submission)
+    assigned_agent_id = _assigned_agent_id(submission)
+    if current_stage in AGENT_EDIT_STAGES and (assigned_agent_id == str(user_id) or "agent" in role_names):
+        return WORKFLOW_STAGE_AWAITING_AGENCY_REVIEW
+    if current_stage in OWNER_EDIT_STAGES and assigned_agent_id:
+        return WORKFLOW_STAGE_WITH_AGENT
+    if "agent" in role_names:
+        return WORKFLOW_STAGE_AWAITING_AGENCY_REVIEW
+    return WORKFLOW_STAGE_AWAITING_AGENCY_ASSIGNMENT
+
+
 def submit_submission(
     db: Session,
     submission: PropertyListingSubmission,
@@ -381,10 +532,25 @@ def submit_submission(
     resolve_listing_agency_or_400(db, submission.agency_id)
     assert_owner_agency_rule(db, user_id=user_id, agency_id=submission.agency_id, roles=roles)
     record_owner_agency_mapping_for_submission(db, user_id=user_id, agency_id=submission.agency_id, roles=roles)
+    origin = _workflow_from_submission(submission).get("submission_origin") or _submission_origin_for_roles(roles)
+    next_stage = _next_workflow_stage_on_submit(submission, user_id=user_id, roles=roles)
+    assigned_agent_id = _assigned_agent_id(submission)
+    if "agent" in _role_names(roles) and assigned_agent_id is None:
+        assigned_agent_id = str(user_id)
     submission.status = PENDING_APPROVAL_STATUS
     submission.submitted_at = utc_now()
     submission.step_completion = compute_step_completion(submission.payload or {})
-    notify_agency_admins_for_submission(db, submission=submission, actor_user_id=user_id)
+    _set_submission_workflow(
+        submission,
+        stage=next_stage,
+        origin=origin,
+        assigned_agent_id=assigned_agent_id,
+        actor_user_id=user_id,
+    )
+    if next_stage == WORKFLOW_STAGE_WITH_AGENT:
+        notify_assigned_agent_for_submission(db, submission=submission, actor_user_id=user_id)
+    else:
+        notify_agency_admins_for_submission(db, submission=submission, actor_user_id=user_id)
     return submission
 
 
@@ -480,6 +646,37 @@ def notify_agency_admins_for_submission(db: Session, *, submission: PropertyList
             )
 
 
+def notify_assigned_agent_for_submission(db: Session, *, submission: PropertyListingSubmission, actor_user_id: UUID) -> None:
+    agent_id = _assigned_agent_uuid(submission)
+    if not agent_id:
+        return
+    recipient = db.get(User, agent_id)
+    if not recipient:
+        return
+    payload = submission.payload or {}
+    title = ((payload.get("basic_information") or {}).get("title")) or "property listing"
+    create_in_app_notification(
+        db,
+        recipient_user_id=recipient.id,
+        actor_user_id=actor_user_id,
+        type_key="property_submission_assigned_for_update",
+        title="Property submission assigned",
+        message=f"Property submission for {title} is assigned to you for completion.",
+        data={"submission_id": str(submission.id), "agency_id": str(submission.agency_id) if submission.agency_id else None},
+        action_url="/my-listings",
+    )
+    send_email_notification(
+        to_email=recipient.email,
+        subject="Property submission assigned",
+        body=f"Property submission for {title} is assigned to you for completion.",
+    )
+    if recipient.phone_number:
+        send_sms_notification(
+            to_phone=recipient.phone_number,
+            body=f"Property submission for {title} is assigned to you for completion.",
+        )
+
+
 def review_submission(
     db: Session,
     submission: PropertyListingSubmission,
@@ -490,16 +687,36 @@ def review_submission(
 ) -> PropertyListingSubmission:
     if submission.status != PENDING_APPROVAL_STATUS:
         raise HTTPException(status_code=STATUS_BAD_REQUEST, detail="Only pending submissions can be reviewed")
+    workflow = _workflow_from_submission(submission)
+    submission_origin = workflow.get("submission_origin") or SUBMISSION_ORIGIN_OWNER
+    recipient_user_id = submission.submitted_by
     if action == "approve":
         submission.status = ACTIVE_STATUS
         submission.review_reason = None
         if not submission.property_id:
             submission.property_id = uuid4()
+        _set_submission_workflow(
+            submission,
+            stage=WORKFLOW_STAGE_APPROVED,
+            origin=submission_origin,
+            actor_user_id=actor_id,
+        )
     elif action == "reject":
         if not reason:
             raise HTTPException(status_code=STATUS_BAD_REQUEST, detail="Rejection reason is required")
         submission.status = "rejected"
         submission.review_reason = reason
+        assigned_agent_id = _assigned_agent_uuid(submission)
+        rejected_stage = WORKFLOW_STAGE_RETURNED_TO_OWNER
+        if submission_origin in {SUBMISSION_ORIGIN_AGENT, SUBMISSION_ORIGIN_AGENCY_ADMIN} and assigned_agent_id:
+            rejected_stage = WORKFLOW_STAGE_RETURNED_TO_AGENT
+            recipient_user_id = assigned_agent_id
+        _set_submission_workflow(
+            submission,
+            stage=rejected_stage,
+            origin=submission_origin,
+            actor_user_id=actor_id,
+        )
     else:
         raise HTTPException(status_code=STATUS_BAD_REQUEST, detail="Invalid review action")
 
@@ -514,7 +731,7 @@ def review_submission(
     )
     create_in_app_notification(
         db,
-        recipient_user_id=submission.submitted_by,
+        recipient_user_id=recipient_user_id,
         actor_user_id=actor_id,
         type_key=f"property_submission_{submission.status}",
         title="Property submission reviewed",
@@ -553,17 +770,15 @@ def _can_edit_submission_for_actor(
 ) -> bool:
     if actor_user_id is None or db is None:
         return submission.status in WORKING_STATUSES
-    if submission.status == ACTIVE_STATUS:
+    if submission.status in {ACTIVE_STATUS, DEACTIVATED_STATUS}:
         return False
-    if submission.status in WORKING_STATUSES:
-        return can_edit_working_submission(
-            db,
-            submission,
-            user_id=actor_user_id,
-            roles=actor_roles,
-            agency_id=actor_agency_id,
-        )
-    return False
+    return can_edit_working_submission(
+        db,
+        submission,
+        user_id=actor_user_id,
+        roles=actor_roles,
+        agency_id=actor_agency_id,
+    )
 
 
 def _workflow_label_for_submission(submission: PropertyListingSubmission) -> str:
@@ -608,6 +823,7 @@ def serialize_agent_property_item(
         agency = {"agency_id": str(submission.agency_id), "id": str(submission.agency_id)}
     assigned_agent = _assigned_agent_summary(db, submission) if db is not None else None
     workflow_label = _workflow_label_for_submission(submission)
+    workflow_summary = _submission_workflow_summary(submission)
     can_edit_submission = _can_edit_submission_for_actor(
         db,
         submission,
@@ -615,7 +831,7 @@ def serialize_agent_property_item(
         actor_roles=actor_roles,
         actor_agency_id=actor_agency_id,
     )
-    can_delete_submission = submission.status in WORKING_STATUSES and can_edit_submission
+    can_delete_submission = submission.status in DRAFT_STATUSES and can_edit_submission
     return {
         "property_id": str(property_id),
         "property_hash": stable_property_hash(property_id),
@@ -638,6 +854,7 @@ def serialize_agent_property_item(
         "submission_reviewed_at": _iso(submission.reviewed_at),
         "submission_review_reason": submission.review_reason,
         "submission_workflow_label": workflow_label,
+        **workflow_summary,
         "can_edit_submission": can_edit_submission,
         "can_delete_submission": can_delete_submission,
         "agency": agency,
@@ -655,6 +872,7 @@ def serialize_admin_submission_item(submission: PropertyListingSubmission, submi
     property_id = submission.property_id or submission.id
     assigned_agent = _assigned_agent_summary(db, submission) if db is not None else None
     workflow_label = _workflow_label_for_submission(submission)
+    workflow_summary = _submission_workflow_summary(submission)
     return {
         "submission_id": str(submission.id),
         "agency_id": str(submission.agency_id) if submission.agency_id else None,
@@ -662,6 +880,7 @@ def serialize_admin_submission_item(submission: PropertyListingSubmission, submi
         "submitted_by_name": submitter.full_name if submitter else "",
         "status": workflow_label,
         "status_label": _status_display_name(workflow_label),
+        **workflow_summary,
         "property_id": str(property_id),
         "agent_user_id": workflow.get("assigned_agent_id"),
         "agent_name": assigned_agent["name"] if assigned_agent else None,
@@ -729,6 +948,7 @@ def assign_agent_to_property(
     *,
     property_id: UUID,
     agent_id: UUID | None,
+    actor_user_id: UUID,
     actor_roles: tuple[str, ...],
     actor_agency_id: UUID | None,
 ) -> PropertyListingSubmission:
@@ -747,8 +967,11 @@ def assign_agent_to_property(
     if "admin" not in role_names or "super_admin" in role_names:
         raise HTTPException(status_code=STATUS_FORBIDDEN, detail="Only Agency Admin can assign agents")
     assert_can_manage_submission(db, submission, roles=actor_roles, agency_id=actor_agency_id)
-    if _workflow_label_for_submission(submission) != ACTIVE_STATUS:
-        raise HTTPException(status_code=STATUS_BAD_REQUEST, detail="Agents can be assigned only to active properties")
+    workflow_stage = _workflow_stage_for_submission(submission)
+    can_assign_active = _workflow_label_for_submission(submission) == ACTIVE_STATUS
+    can_assign_pending = submission.status == PENDING_APPROVAL_STATUS and workflow_stage in ASSIGNMENT_READY_STAGES
+    if not can_assign_active and not can_assign_pending:
+        raise HTTPException(status_code=STATUS_BAD_REQUEST, detail="Agent assignment is not available in the current workflow stage")
     submission_agency_id = _submitter_agency_id(db, submission)
     if agent_id:
         agent = db.get(User, agent_id)
@@ -769,8 +992,19 @@ def assign_agent_to_property(
     payload = dict(submission.payload or {})
     workflow = _payload_workflow(payload)
     workflow["assigned_agent_id"] = str(agent_id) if agent_id else None
+    if submission.status == PENDING_APPROVAL_STATUS:
+        if agent_id:
+            workflow["workflow_stage"] = WORKFLOW_STAGE_WITH_AGENT
+            workflow["current_actor"] = CURRENT_ACTOR_ASSIGNED_AGENT
+            workflow.setdefault("submission_origin", SUBMISSION_ORIGIN_OWNER)
+        else:
+            workflow["workflow_stage"] = WORKFLOW_STAGE_AWAITING_AGENCY_ASSIGNMENT
+            workflow["current_actor"] = CURRENT_ACTOR_AGENCY_ADMIN
+        workflow["last_transition_at"] = utc_now().isoformat()
     submission.payload = payload
     flag_modified(submission, "payload")
+    if submission.status == PENDING_APPROVAL_STATUS and agent_id:
+        notify_assigned_agent_for_submission(db, submission=submission, actor_user_id=actor_user_id)
     return submission
 
 
