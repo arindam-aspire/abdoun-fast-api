@@ -135,4 +135,13 @@ def get_property(property_id: str, db: DBSessionDep, context: ContextDep) -> dic
         roles=context.roles,
         agency_id=context.agency_id,
     )
-    return success_response(serialize_property_detail(db, submission, submitter=user))
+    return success_response(
+        serialize_property_detail(
+            db,
+            submission,
+            submitter=user,
+            actor_user_id=context.user_id,
+            actor_roles=context.roles,
+            actor_agency_id=context.agency_id,
+        )
+    )

@@ -804,6 +804,83 @@ def _status_display_name(status: str) -> str:
     return labels.get(status, status)
 
 
+def serialize_property_detail_workflow(
+    db: Session,
+    submission: PropertyListingSubmission,
+    *,
+    actor_user_id: UUID | None = None,
+    actor_roles: tuple[str, ...] = (),
+    actor_agency_id: UUID | None = None,
+) -> dict[str, Any]:
+    workflow_label = _workflow_label_for_submission(submission)
+    workflow_stage = _workflow_stage_for_submission(submission)
+    workflow = _workflow_from_submission(submission)
+    assigned_agent_id = _assigned_agent_id(submission)
+    role_names = _role_names(actor_roles)
+    status_label = _status_display_name(workflow_label)
+    actions: list[dict[str, Any]] = []
+
+    if actor_user_id is not None:
+        can_manage_agency_submission = (
+            "admin" in role_names
+            and actor_agency_id is not None
+            and _submitter_agency_id(db, submission) == actor_agency_id
+        )
+
+        if workflow_label == ACTIVE_STATUS:
+            if "super_admin" in role_names:
+                actions.append({"id": "deactivate", "label": "Deactivate", "tone": "danger"})
+            if can_manage_agency_submission:
+                if assigned_agent_id:
+                    actions.extend(
+                        [
+                            {"id": "reassign", "label": "Reassign Agent"},
+                            {"id": "unassign", "label": "Unassign Agent", "tone": "danger"},
+                        ]
+                    )
+                else:
+                    actions.append({"id": "assign", "label": "Assign Agent"})
+        elif workflow_label == PENDING_APPROVAL_STATUS and can_manage_agency_submission:
+            if workflow_stage == WORKFLOW_STAGE_AWAITING_AGENCY_ASSIGNMENT:
+                actions.append({"id": "assign", "label": "Assign Agent"})
+            elif workflow_stage == WORKFLOW_STAGE_AWAITING_AGENCY_REVIEW:
+                if not assigned_agent_id:
+                    actions.append({"id": "assign", "label": "Assign Agent"})
+                else:
+                    actions.extend(
+                        [
+                            {"id": "approve", "label": "Approve"},
+                            {"id": "reject", "label": "Reject", "tone": "danger"},
+                        ]
+                    )
+        elif workflow_label == DEAL_CLOSURE_REQUESTED_STATUS and can_manage_agency_submission:
+            actions.append({"id": "review_deal_closure", "label": "Review Deal Closure"})
+        elif workflow_label == "rejected" and can_edit_working_submission(
+            db,
+            submission,
+            user_id=actor_user_id,
+            roles=actor_roles,
+            agency_id=actor_agency_id,
+        ):
+            actions.append({"id": "edit", "label": "Update and Resubmit"})
+
+    pending_actions = [action["label"] for action in actions if action.get("label")]
+    return {
+        "submission_id": str(submission.id),
+        "status_label": status_label,
+        "workflow_status": workflow_label,
+        "workflow_stage": workflow_stage,
+        "current_actor": _current_actor_for_workflow_stage(workflow_stage),
+        "assigned_agent_id": assigned_agent_id,
+        "deal_closure_id": workflow.get("deal_closure_id"),
+        "status_action_card": {
+            "status_label": status_label,
+            "pending_actions": pending_actions,
+        },
+        "workflow_actions": actions,
+    }
+
+
 def serialize_agent_property_item(
     submission: PropertyListingSubmission,
     submitter: User | None = None,

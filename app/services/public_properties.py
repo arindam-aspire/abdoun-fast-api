@@ -22,7 +22,11 @@ from app.models.live_schema import (
     UserPropertyFavorite,
 )
 from app.services.media_urls import resolve_readable_media_url
-from app.services.property_submissions import can_view_submission, stable_property_hash
+from app.services.property_submissions import (
+    can_view_submission,
+    serialize_property_detail_workflow,
+    stable_property_hash,
+)
 from app.utils.status_codes import STATUS_NOT_FOUND
 
 
@@ -304,7 +308,15 @@ def serialize_property_listing(
     }
 
 
-def serialize_property_detail(db: Session, submission: PropertyListingSubmission, *, submitter: User | None = None) -> dict[str, Any]:
+def serialize_property_detail(
+    db: Session,
+    submission: PropertyListingSubmission,
+    *,
+    submitter: User | None = None,
+    actor_user_id: UUID | None = None,
+    actor_roles: tuple[str, ...] = (),
+    actor_agency_id: UUID | None = None,
+) -> dict[str, Any]:
     listing = serialize_property_listing(db, submission, submitter=submitter)
     payload = submission.payload or {}
     basic = payload.get("basic_information") or {}
@@ -314,9 +326,17 @@ def serialize_property_detail(db: Session, submission: PropertyListingSubmission
     owners = _owners(payload)
     property_hash = listing["id"]
     listing_type = listing["listing_type"]
+    workflow = serialize_property_detail_workflow(
+        db,
+        submission,
+        actor_user_id=actor_user_id,
+        actor_roles=actor_roles,
+        actor_agency_id=actor_agency_id,
+    )
 
     return {
         **listing,
+        **workflow,
         "id": property_hash,
         "url": None,
         "property_type": listing["propertyType"],
