@@ -4,7 +4,19 @@ Run this after starting the FastAPI server with: uvicorn app.main:app --reload
 """
 import sys
 import requests
+import os
 from pathlib import Path
+
+try:
+    import pytest
+except ImportError:  # pragma: no cover - manual script usage does not require pytest.
+    pytest = None
+
+if pytest is not None:
+    pytestmark = pytest.mark.skipif(
+        os.getenv("RUN_ENDPOINT_TESTS") != "1",
+        reason="Endpoint smoke script requires a running API; set RUN_ENDPOINT_TESTS=1 to run under pytest.",
+    )
 
 # Add parent directory to path to import app modules
 sys.path.insert(0, str(Path(__file__).parent.parent))
