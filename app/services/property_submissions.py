@@ -232,6 +232,16 @@ def _assigned_agent_summary(db: Session, submission: PropertyListingSubmission) 
     }
 
 
+def _has_property_image(payload: dict[str, Any]) -> bool:
+    media = payload.get("media_documents") or {}
+    if not isinstance(media, dict):
+        return False
+    images = media.get("images") or []
+    if not isinstance(images, list):
+        return False
+    return any(isinstance(image, dict) and bool(str(image.get("url") or "").strip()) for image in images)
+
+
 def compute_step_completion(payload: dict[str, Any]) -> dict[str, bool]:
     return {section: bool(payload.get(section)) for section in SUBMISSION_SECTIONS}
 
@@ -558,6 +568,8 @@ def submit_submission(
 ) -> PropertyListingSubmission:
     if submission.status in {ACTIVE_STATUS}:
         raise HTTPException(status_code=STATUS_BAD_REQUEST, detail="Active submissions cannot be resubmitted")
+    if not _has_property_image(submission.payload or {}):
+        raise HTTPException(status_code=STATUS_BAD_REQUEST, detail="At least one property image is required before submitting")
     if agency_id is not None and submission.status in {"draft", REJECTED_STATUS, "in_progress"}:
         submission.agency_id = agency_id
     resolve_listing_agency_or_400(db, submission.agency_id)
