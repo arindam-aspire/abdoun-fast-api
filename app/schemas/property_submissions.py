@@ -29,6 +29,7 @@ class PropertySubmissionDirectSubmitRequest(BaseModel):
 
 class PropertySubmissionSubmitRequest(BaseModel):
     confirm_submit: bool
+    review_comment: str | None = None
 
 
 class PropertySubmissionReviewRequest(BaseModel):

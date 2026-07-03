@@ -129,6 +129,7 @@ def submit_existing_property_submission(
         user_id=context.user_id,
         roles=context.roles,
         agency_id=context.agency_id,
+        review_comment=payload.review_comment,
     )
     db.commit()
     db.refresh(submission)

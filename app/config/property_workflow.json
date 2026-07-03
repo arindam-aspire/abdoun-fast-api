@@ -1,0 +1,46 @@
+{
+  "version": 1,
+  "statuses": {
+    "draft": "draft",
+    "submitted": "submitted",
+    "agent_assigned": "agent-assigned",
+    "pending_approval": "pending-approval",
+    "active": "active",
+    "rejected": "rejected",
+    "deactivated": "deactivated",
+    "deal_closure_requested": "deal-closure-requested",
+    "deal_closed": "deal-closed"
+  },
+  "labels": {
+    "draft": "Draft",
+    "submitted": "Submitted",
+    "agent-assigned": "Agent Assigned",
+    "pending-approval": "Pending Approval",
+    "active": "Active",
+    "rejected": "Rejected",
+    "deactivated": "Deactivated",
+    "deal-closure-requested": "Deal Closure Requested",
+    "deal-closed": "Deal Closed",
+    "in_progress": "In Progress"
+  },
+  "transitions": {
+    "owner_submit": "submitted",
+    "agency_admin_submit": "submitted",
+    "super_admin_submit": "submitted",
+    "agent_submit_from_draft": "pending-approval",
+    "assigned_agent_submit": "pending-approval",
+    "rejected_resubmit": "submitted",
+    "assign_agent": "agent-assigned",
+    "unassign_agent": "submitted",
+    "approve": "active",
+    "reject": "rejected"
+  },
+  "rules": {
+    "active_editable": false,
+    "agent_submission_auto_assigns_self": true,
+    "agent_assignment_required_before_activation": true,
+    "agency_admin_can_direct_approve_after_assignment": true,
+    "rejection_requires_reason": true,
+    "clear_agent_on_rejected_resubmit": true
+  }
+}
