@@ -4,11 +4,12 @@ from typing import Annotated
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
-from sqlalchemy import false
+from sqlalchemy import false, or_
 
 from app.api.deps import DBSessionDep, RequestContext, require_any_role, require_authenticated_user
 from app.models.live_schema import AgencyMaster
 from app.schemas.agency import (
+    AgencyActivationRequest,
     AgencyInvitationAcceptRequest,
     AgencyInvitationCreateRequest,
     AgencyOfflineRegistrationRequest,
@@ -29,6 +30,7 @@ from app.services.agency_workflows import (
     resend_agency_password_setup,
     revoke_agency_invitation,
     serialize_invitation,
+    set_agency_activation,
     PENDING_APPROVAL,
 )
 from app.services.auth import create_otp_challenge, create_user, send_dev_otp, serialize_agency
@@ -119,7 +121,7 @@ def create_offline_agency(
     db.refresh(agency)
     return success_response(
         agency_response(agency, password_setup_token=password_setup_token),
-        "Agency created and password creation link logged in dev mode.",
+        "Agency created and submitted for verification.",
     )
 
 
@@ -167,9 +169,19 @@ def setup_agency_password(payload: AgencyPasswordSetupRequest, db: DBSessionDep)
 
 
 @router.get("/list")
-def list_agencies(db: DBSessionDep, context: AuthenticatedContext, skip: int = 0, limit: int = 20) -> dict:
+def list_agencies(
+    db: DBSessionDep,
+    context: AuthenticatedContext,
+    skip: int = 0,
+    limit: int = 20,
+    search: str | None = None,
+    agencyStatus: str | None = None,
+    verificationStatus: str | None = None,
+    sortBy: str = "created_at",
+    sortOrder: str = "desc",
+) -> dict:
     roles = _role_names(context)
-    query = db.query(AgencyMaster).order_by(AgencyMaster.created_at.desc())
+    query = db.query(AgencyMaster)
     normalized_skip = max(skip, 0)
     normalized_limit = max(min(limit, 100), 1)
 
@@ -181,6 +193,31 @@ def list_agencies(db: DBSessionDep, context: AuthenticatedContext, skip: int = 0
         query = query.filter(false())
     else:
         agencies = selectable_owner_agencies(db, user_id=context.user_id)
+        if search:
+            term = search.strip().lower()
+            agencies = [
+                agency
+                for agency in agencies
+                if term in (agency.agency_name or "").lower()
+                or term in (agency.agency_trade_name or "").lower()
+                or term in (agency.email or "").lower()
+                or term in (agency.phone or "").lower()
+            ]
+        if agencyStatus:
+            requested_active = agencyStatus.strip().lower() == "active"
+            agencies = [agency for agency in agencies if bool(agency.is_active) is requested_active]
+        if verificationStatus:
+            normalized_verification = verificationStatus.strip().lower().replace("_", " ")
+            if normalized_verification == "verified":
+                agencies = [agency for agency in agencies if bool(agency.is_verified)]
+            elif normalized_verification == "rejected":
+                agencies = [agency for agency in agencies if getattr(agency, "status", "") == "REJECTED"]
+            elif normalized_verification in {"pending verification", "pending"}:
+                agencies = [
+                    agency
+                    for agency in agencies
+                    if not agency.is_verified and getattr(agency, "status", "") != "REJECTED"
+                ]
         total = len(agencies)
         page_items = agencies[normalized_skip : normalized_skip + normalized_limit]
         return success_response(
@@ -193,6 +230,38 @@ def list_agencies(db: DBSessionDep, context: AuthenticatedContext, skip: int = 0
                 }
             },
         )
+
+    if search:
+        term = f"%{search.strip()}%"
+        query = query.filter(
+            or_(
+                AgencyMaster.agency_name.ilike(term),
+                AgencyMaster.agency_trade_name.ilike(term),
+                AgencyMaster.email.ilike(term),
+                AgencyMaster.phone.ilike(term),
+            )
+        )
+    if agencyStatus:
+        normalized_agency_status = agencyStatus.strip().lower()
+        if normalized_agency_status in {"active", "inactive"}:
+            query = query.filter(AgencyMaster.is_active.is_(normalized_agency_status == "active"))
+    if verificationStatus:
+        normalized_verification = verificationStatus.strip().lower().replace("_", " ")
+        if normalized_verification == "verified":
+            query = query.filter(AgencyMaster.is_verified.is_(True))
+        elif normalized_verification == "rejected":
+            query = query.filter(AgencyMaster.status == "REJECTED")
+        elif normalized_verification in {"pending verification", "pending"}:
+            query = query.filter(AgencyMaster.is_verified.is_(False), AgencyMaster.status != "REJECTED")
+
+    sortable_columns = {
+        "created_at": AgencyMaster.created_at,
+        "agency_name": AgencyMaster.agency_name,
+        "email": AgencyMaster.email,
+        "status": AgencyMaster.status,
+    }
+    sort_column = sortable_columns.get(sortBy, AgencyMaster.created_at)
+    query = query.order_by(sort_column.asc() if sortOrder.strip().lower() == "asc" else sort_column.desc())
 
     total = query.count()
     agencies = query.offset(normalized_skip).limit(normalized_limit).all()
@@ -312,6 +381,28 @@ def review_agency_registration(
     db.refresh(agency)
     message = "Agency approved and password creation link logged in dev mode" if password_setup_token else "Agency rejected"
     return success_response(agency_response(agency, password_setup_token=password_setup_token), message)
+
+
+@router.post("/{agency_id}/activation")
+def update_agency_activation(
+    agency_id: UUID,
+    payload: AgencyActivationRequest,
+    context: SuperAdminContext,
+    db: DBSessionDep,
+) -> dict:
+    agency = db.get(AgencyMaster, agency_id)
+    if not agency:
+        raise HTTPException(status_code=STATUS_NOT_FOUND, detail="Agency not found")
+    agency = set_agency_activation(
+        db,
+        agency=agency,
+        actor_id=context.user_id,
+        is_active=payload.is_active,
+    )
+    db.commit()
+    db.refresh(agency)
+    message = "Agency activated" if agency.is_active else "Agency deactivated"
+    return success_response(agency_response(agency), message)
 
 
 @router.post("/{agency_id}/password-link")

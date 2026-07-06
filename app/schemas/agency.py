@@ -60,6 +60,10 @@ class AgencyReviewRequest(BaseModel):
     reason: str | None = None
 
 
+class AgencyActivationRequest(BaseModel):
+    is_active: bool
+
+
 class AgencyPasswordSetupRequest(BaseModel):
     token: str
     password: str

@@ -171,6 +171,11 @@ def load_user_roles(db: Session, user_id: UUID) -> list[Role]:
 def serialize_agency(agency: AgencyMaster | None) -> dict | None:
     if not agency:
         return None
+    verification_status = (
+        "Verified"
+        if agency.is_verified
+        else "Rejected" if getattr(agency, "status", "") == "REJECTED" else "Pending Verification"
+    )
     return {
         "id": str(agency.id),
         "agency_id": str(agency.id),
@@ -190,6 +195,8 @@ def serialize_agency(agency: AgencyMaster | None) -> dict | None:
         "is_active": bool(agency.is_active),
         "is_verified": bool(agency.is_verified),
         "status": getattr(agency, "status", "ACTIVE" if agency.is_active else "PENDING_APPROVAL"),
+        "agency_status": "Active" if agency.is_active else "Inactive",
+        "verification_status": verification_status,
         "currency": agency.currency or "JOD",
         "measurement_unit": agency.measurement_unit or "sqm",
         "created_at": _iso(agency.created_at),

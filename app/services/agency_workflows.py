@@ -7,10 +7,11 @@ from uuid import UUID, uuid4
 from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.attributes import flag_modified
 
 from app.core.config import get_settings
 from app.core.security import hash_secret, verify_secret
-from app.models.live_schema import AgencyInvitation, AgencyMaster, User, UserProfileChangeChallenge
+from app.models.live_schema import AgencyInvitation, AgencyMaster, PropertyListingSubmission, User, UserProfileChangeChallenge
 from app.schemas.agency import (
     AgencyInvitationAcceptRequest,
     AgencyInvitationCreateRequest,
@@ -22,15 +23,18 @@ from app.services.notifications import send_email_notification
 from app.utils.status_codes import STATUS_BAD_REQUEST, STATUS_CONFLICT, STATUS_NOT_FOUND
 
 
+PENDING_INVITATION = "PENDING"
 INVITED = "INVITED"
 ACCEPTED = "ACCEPTED"
 EXPIRED = "EXPIRED"
 REVOKED = "REVOKED"
+PENDING_INVITATION_STATUSES = {PENDING_INVITATION, INVITED}
 
 PENDING_APPROVAL = "PENDING_APPROVAL"
 APPROVED = "APPROVED"
 REJECTED = "REJECTED"
 ACTIVE = "ACTIVE"
+INACTIVE = "INACTIVE"
 
 PASSWORD_SETUP_PURPOSE = "password_setup"
 
@@ -65,7 +69,7 @@ def _agency_invitation_link(token: str) -> str:
 
 
 def _expire_invitation_if_needed(db: Session, invitation: AgencyInvitation) -> AgencyInvitation:
-    if invitation.status == INVITED and is_expired(invitation.expires_at):
+    if invitation.status in PENDING_INVITATION_STATUSES and is_expired(invitation.expires_at):
         invitation.status = EXPIRED
         invitation.updated_at = utc_now()
         record_activity(
@@ -84,8 +88,8 @@ def serialize_invitation(db: Session, invitation: AgencyInvitation) -> dict:
         "agency_name": invitation.agency_name,
         "agency_trade_name": invitation.agency_trade_name,
         "phone": invitation.phone,
-        "status": invitation.status,
-        "invitation_link": _agency_invitation_link(invitation.token) if invitation.status == INVITED else None,
+        "status": PENDING_INVITATION if invitation.status in PENDING_INVITATION_STATUSES else invitation.status,
+        "invitation_link": _agency_invitation_link(invitation.token) if invitation.status in PENDING_INVITATION_STATUSES else None,
         "expires_at": _iso(invitation.expires_at),
         "accepted_at": _iso(invitation.accepted_at),
         "revoked_at": _iso(invitation.revoked_at),
@@ -107,11 +111,11 @@ def create_agency_invitation(
 
     db.execute(
         select(AgencyInvitation)
-        .where(AgencyInvitation.email == email, AgencyInvitation.status == INVITED)
+        .where(AgencyInvitation.email == email, AgencyInvitation.status.in_(PENDING_INVITATION_STATUSES))
         .with_for_update()
     )
     for invitation in db.execute(
-        select(AgencyInvitation).where(AgencyInvitation.email == email, AgencyInvitation.status == INVITED)
+        select(AgencyInvitation).where(AgencyInvitation.email == email, AgencyInvitation.status.in_(PENDING_INVITATION_STATUSES))
     ).scalars().all():
         invitation.status = REVOKED
         invitation.revoked_by = invited_by
@@ -126,7 +130,7 @@ def create_agency_invitation(
         agency_trade_name=payload.agency_trade_name,
         phone=payload.phone,
         token=_token(),
-        status=INVITED,
+        status=PENDING_INVITATION,
         invited_by=invited_by,
         expires_at=utc_now() + timedelta(seconds=settings.agency_invitation_ttl_seconds),
     )
@@ -157,7 +161,7 @@ def revoke_agency_invitation(db: Session, *, invitation_id: UUID, actor_id: UUID
     if not invitation:
         raise HTTPException(status_code=STATUS_NOT_FOUND, detail="Invitation not found")
     _expire_invitation_if_needed(db, invitation)
-    if invitation.status != INVITED:
+    if invitation.status not in PENDING_INVITATION_STATUSES:
         raise HTTPException(status_code=STATUS_BAD_REQUEST, detail="Only active invitations can be revoked")
     invitation.status = REVOKED
     invitation.revoked_by = actor_id
@@ -262,7 +266,7 @@ def offline_register_agency(
     *,
     payload: AgencyOfflineRegistrationRequest,
     actor_id: UUID,
-) -> tuple[AgencyMaster, str]:
+) -> tuple[AgencyMaster, str | None]:
     agency = create_agency_record(
         db,
         agency_name=payload.agency_name,
@@ -270,7 +274,7 @@ def offline_register_agency(
         email=payload.email,
         phone=payload.phone,
         legal_document_s3_link=payload.legal_document_s3_link,
-        status=APPROVED,
+        status=PENDING_APPROVAL,
         website=payload.website,
         address=payload.address,
         city=payload.city,
@@ -281,19 +285,19 @@ def offline_register_agency(
         measurement_unit=payload.measurement_unit,
     )
     user = create_agency_admin_user(db, agency=agency)
-    token = create_password_setup_challenge(db, user=user, agency=agency, actor_id=actor_id)
+    user.is_active = False
     record_activity(
         db,
         activity_type="agency_offline_registered",
-        message=f"Agency {agency.id} created offline and approved",
+        message=f"Agency {agency.id} created offline and pending verification",
         user_id=actor_id,
     )
-    return agency, token
+    return agency, None
 
 
 def accept_agency_invitation(db: Session, *, payload: AgencyInvitationAcceptRequest) -> AgencyMaster:
     invitation = get_invitation_by_token_or_404(db, payload.token)
-    if invitation.status != INVITED:
+    if invitation.status not in PENDING_INVITATION_STATUSES:
         raise HTTPException(status_code=STATUS_BAD_REQUEST, detail=f"Invitation is {invitation.status.lower()}")
     agency = create_agency_record(
         db,
@@ -311,6 +315,7 @@ def accept_agency_invitation(db: Session, *, payload: AgencyInvitationAcceptRequ
         zip_code=payload.zip_code,
     )
     user = create_agency_admin_user(db, agency=agency)
+    user.is_active = False
     invitation.status = ACCEPTED
     invitation.accepted_by = user.id
     invitation.accepted_at = utc_now()
@@ -341,10 +346,11 @@ def approve_or_reject_agency(
     if normalized == "approve":
         agency.status = APPROVED
         agency.is_verified = True
-        agency.is_active = False
+        agency.is_active = True
         user = find_user_by_username(db, agency.email)
         if not user:
             user = create_agency_admin_user(db, agency=agency)
+        user.is_active = False
         token = create_password_setup_challenge(db, user=user, agency=agency, actor_id=actor_id)
         record_activity(db, activity_type="agency_registration_approved", message=f"Agency {agency.id} approved", user_id=actor_id)
         return agency, token
@@ -373,7 +379,69 @@ def resend_agency_password_setup(db: Session, *, agency: AgencyMaster, actor_id:
     user = find_user_by_username(db, agency.email)
     if not user:
         user = create_agency_admin_user(db, agency=agency)
+    user.is_active = False
     return create_password_setup_challenge(db, user=user, agency=agency, actor_id=actor_id)
+
+
+def set_agency_activation(
+    db: Session,
+    *,
+    agency: AgencyMaster,
+    actor_id: UUID,
+    is_active: bool,
+) -> AgencyMaster:
+    if is_active and not agency.is_verified:
+        raise HTTPException(status_code=STATUS_BAD_REQUEST, detail="Agency must be verified before activation")
+
+    agency.is_active = is_active
+    agency.status = ACTIVE if is_active else INACTIVE
+
+    users = db.execute(select(User).where(User.agency_id == agency.id)).scalars().all()
+    for user in users:
+        user.is_active = is_active and bool(user.password_hash)
+
+    if is_active:
+        submissions = db.execute(
+            select(PropertyListingSubmission).where(
+                PropertyListingSubmission.agency_id == agency.id,
+                PropertyListingSubmission.status == "deactivated",
+            )
+        ).scalars().all()
+        for submission in submissions:
+            payload = dict(submission.payload or {})
+            agency_deactivation = payload.get("_agency_deactivation") or {}
+            if agency_deactivation.get("deactivated_by_agency_id") != str(agency.id):
+                continue
+            previous_status = agency_deactivation.get("previous_status") or "active"
+            submission.status = previous_status
+            payload.pop("_agency_deactivation", None)
+            submission.payload = payload
+            flag_modified(submission, "payload")
+    else:
+        submissions = db.execute(
+            select(PropertyListingSubmission).where(
+                PropertyListingSubmission.agency_id == agency.id,
+                PropertyListingSubmission.status == "active",
+            )
+        ).scalars().all()
+        for submission in submissions:
+            payload = dict(submission.payload or {})
+            payload["_agency_deactivation"] = {
+                "deactivated_by_agency_id": str(agency.id),
+                "previous_status": submission.status,
+                "deactivated_at": utc_now().isoformat(),
+            }
+            submission.status = "deactivated"
+            submission.payload = payload
+            flag_modified(submission, "payload")
+
+    record_activity(
+        db,
+        activity_type="agency_activated" if is_active else "agency_deactivated",
+        message=f"Agency {agency.id} {'activated' if is_active else 'deactivated'}",
+        user_id=actor_id,
+    )
+    return agency
 
 
 def complete_agency_password_setup(db: Session, *, token: str, password: str) -> AgencyMaster:

@@ -502,7 +502,7 @@ def can_review_submission(
 ) -> bool:
     role_names = _role_names(roles)
     if "super_admin" in role_names:
-        return True
+        return False
     if "admin" in role_names and agency_id and _submitter_agency_id(db, submission) == agency_id:
         return True
     return False
@@ -930,12 +930,10 @@ def serialize_property_detail_workflow(
 
     if actor_user_id is not None:
         can_manage_agency_submission = (
-            "super_admin" in role_names
-            or (
-                "admin" in role_names
-                and actor_agency_id is not None
-                and _submitter_agency_id(db, submission) == actor_agency_id
-            )
+            "super_admin" not in role_names
+            and "admin" in role_names
+            and actor_agency_id is not None
+            and _submitter_agency_id(db, submission) == actor_agency_id
         )
         can_review_deal_closure = (
             "admin" in role_names
@@ -1193,8 +1191,10 @@ def assign_agent_to_property(
     if not submission:
         raise HTTPException(status_code=STATUS_NOT_FOUND, detail="Property submission not found")
     role_names = _role_names(actor_roles)
-    if "admin" not in role_names and "super_admin" not in role_names:
-        raise HTTPException(status_code=STATUS_FORBIDDEN, detail="Only Agency Admin or Super Admin can assign agents")
+    if "super_admin" in role_names:
+        raise HTTPException(status_code=STATUS_FORBIDDEN, detail="Agent assignment is handled by Agency Admin")
+    if "admin" not in role_names:
+        raise HTTPException(status_code=STATUS_FORBIDDEN, detail="Only Agency Admin can assign agents")
     assert_can_manage_submission(db, submission, roles=actor_roles, agency_id=actor_agency_id)
     workflow_stage = _workflow_stage_for_submission(submission)
     can_assign_workflow = submission.status in {SUBMITTED_STATUS, AGENT_ASSIGNED_STATUS, PENDING_APPROVAL_STATUS} and workflow_stage in ASSIGNMENT_READY_STAGES
