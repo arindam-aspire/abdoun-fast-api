@@ -608,10 +608,15 @@ def submit_submission(
     return submission
 
 
-def soft_delete_submission(submission: PropertyListingSubmission, *, deleted_by: UUID) -> None:
+def soft_delete_submission(
+    submission: PropertyListingSubmission,
+    *,
+    deleted_by: UUID,
+    reason: str = "Deleted by user",
+) -> None:
     submission.deleted_at = utc_now()
     submission.deleted_by = deleted_by
-    submission.delete_reason = "Deleted by user"
+    submission.delete_reason = reason
 
 
 def resolve_listing_agency_or_400(db: Session, agency_id: UUID | None) -> AgencyMaster:
@@ -988,7 +993,7 @@ def serialize_agent_property_item(
         actor_roles=actor_roles,
         actor_agency_id=actor_agency_id,
     )
-    can_delete_submission = submission.status in DRAFT_STATUSES and can_edit_submission
+    can_delete_submission = submission.status in (DRAFT_STATUSES | {REJECTED_STATUS}) and can_edit_submission
     return {
         "property_id": str(property_id),
         "property_hash": stable_property_hash(property_id),

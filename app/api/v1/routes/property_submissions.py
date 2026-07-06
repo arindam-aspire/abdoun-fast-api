@@ -22,6 +22,7 @@ from app.services.property_submissions import (
     submit_submission,
     update_submission,
 )
+from app.services.audit import record_activity
 from app.utils.api_response import success_response
 
 router = APIRouter()
@@ -109,9 +110,22 @@ def update_property_submission(
 def delete_property_submission(submission_id: UUID, context: AuthenticatedContext, db: DBSessionDep) -> dict:
     submission = get_submission_or_404(db, submission_id)
     assert_can_edit_working_submission(db, submission, user_id=context.user_id, roles=context.roles, agency_id=context.agency_id)
-    soft_delete_submission(submission, deleted_by=context.user_id)
+    soft_delete_submission(
+        submission,
+        deleted_by=context.user_id,
+        reason="Rejected property deleted by authorized workflow actor"
+        if submission.status == "rejected"
+        else "Draft property deleted by user",
+    )
+    record_activity(
+        db,
+        activity_type="property_submission_soft_deleted",
+        message=f"Property submission {submission.id} was soft deleted",
+        user_id=context.user_id,
+        property_id=submission.property_id,
+    )
     db.commit()
-    return success_response(True, "Property draft deleted")
+    return success_response(True, "Property deleted successfully.")
 
 
 @router.post("/{submission_id}/submit")

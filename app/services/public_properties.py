@@ -3,6 +3,7 @@ from __future__ import annotations
 import math
 from datetime import datetime, timezone
 from typing import Any
+from urllib.parse import quote
 from uuid import UUID
 
 from fastapi import HTTPException
@@ -221,6 +222,36 @@ def _feature_ids(payload: dict[str, Any]) -> list[int]:
     return [_int(value) for value in ((payload.get("amenities") or {}).get("feature_ids") or []) if _int(value)]
 
 
+def _feature_list(db: Session, payload: dict[str, Any]) -> list[dict[str, Any]]:
+    feature_ids = _feature_ids(payload)
+    if not feature_ids:
+        return []
+
+    features = {
+        feature.id: feature
+        for feature in db.execute(select(Feature).where(Feature.id.in_(feature_ids))).scalars().all()
+    }
+    items: list[dict[str, Any]] = []
+    for feature_id in feature_ids:
+        feature = features.get(feature_id)
+        feature_group = str(feature.feature_group if feature else "FEATURE").upper()
+        items.append(
+            {
+                "id": feature_id,
+                "feature_group": "AMENITIES" if feature_group in {"AMENITY", "AMENITIES"} else "FEATURE",
+            }
+        )
+    return items
+
+
+def _map_embed_url(*, latitude: float | None, longitude: float | None, query: str) -> str | None:
+    if latitude is not None and longitude is not None:
+        return f"https://maps.google.com/maps?q={latitude},{longitude}&z=15&output=embed"
+    if query.strip():
+        return f"https://maps.google.com/maps?q={quote(query.strip())}&z=15&output=embed"
+    return None
+
+
 def serialize_property_listing(
     db: Session,
     submission: PropertyListingSubmission,
@@ -245,6 +276,23 @@ def serialize_property_listing(
     listing_type = "rent" if basic.get("listing_purpose") == "rent" else "sale"
     address = localized_text(location.get("address") or (area.name if area else city.name if city else ""))
     media = _media_for_listing(payload)
+    latitude = _float(location.get("latitude") or location.get("lat"))
+    longitude = _float(location.get("longitude") or location.get("lng"))
+    location_query = ", ".join(
+        part
+        for part in [
+            location.get("address"),
+            area.name if area else None,
+            city.name if city else None,
+            "Jordan",
+        ]
+        if part
+    )
+    map_embed_url = location.get("map_embed_url") or _map_embed_url(
+        latitude=latitude,
+        longitude=longitude,
+        query=location_query,
+    )
 
     return {
         "id": property_hash,
@@ -268,9 +316,9 @@ def serialize_property_listing(
             "region_id": area.id if area else 0,
             "region": area.name if area else "",
             "address": address,
-            "latitude": None,
-            "longitude": None,
-            "map_embed_url": None,
+            "latitude": latitude,
+            "longitude": longitude,
+            "map_embed_url": map_embed_url,
         },
         "location_detail": {
             "country_id": 1,
@@ -280,9 +328,9 @@ def serialize_property_listing(
             "region_id": area.id if area else 0,
             "region": area.name if area else "",
             "address": address,
-            "latitude": None,
-            "longitude": None,
-            "map_embed_url": None,
+            "latitude": latitude,
+            "longitude": longitude,
+            "map_embed_url": map_embed_url,
         },
         "beds": _int(details.get("bedrooms")),
         "baths": _int(details.get("bathrooms")),
@@ -350,8 +398,8 @@ def serialize_property_detail(
         "built_up_area": _float(details.get("built_up_area")),
         "more_features": [],
         "media": _media_for_details(payload),
-        "latitude": None,
-        "longitude": None,
+        "latitude": listing["location_detail"]["latitude"],
+        "longitude": listing["location_detail"]["longitude"],
         "location_name": ", ".join(part for part in [listing["areaName"], listing["city"]] if part) or None,
         "general": {
             "floor_type": None,
@@ -383,7 +431,7 @@ def serialize_property_detail(
             "store_rooms": None,
         },
         "features": {"amenities": [str(item) for item in _feature_ids(payload)]},
-        "features_list": [{"id": feature_id, "feature_group": "FEATURE"} for feature_id in _feature_ids(payload)],
+        "features_list": _feature_list(db, payload),
         "pricing": {
             "listing_type": listing_type,
             "selling_price": _float(pricing.get("price")),

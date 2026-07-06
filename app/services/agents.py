@@ -67,6 +67,26 @@ def _revoke_active_invites(db: Session, *, email: str, actor_id: UUID) -> None:
         invite.revoked_by = actor_id
 
 
+def _create_agent_password_setup_invite(
+    db: Session,
+    *,
+    email: str,
+    invited_by: UUID,
+) -> AgentInvite:
+    _revoke_active_invites(db, email=email, actor_id=invited_by)
+    invite = AgentInvite(
+        id=uuid4(),
+        email=normalize_username(email),
+        invited_by=invited_by,
+        token=secrets.token_urlsafe(32),
+        expires_at=utc_now() + _invite_expiry(),
+        is_used=False,
+        invited_at=utc_now(),
+    )
+    db.add(invite)
+    return invite
+
+
 def serialize_agent_invite(user: User, invite: AgentInvite) -> dict:
     return {
         "id": str(user.id),
@@ -262,22 +282,15 @@ def invite_agent(
             profile.status = "INVITED"
             profile.deleted_at = None
 
-    _revoke_active_invites(db, email=normalized_email, actor_id=invited_by)
-    token = secrets.token_urlsafe(32)
-    invite = AgentInvite(
-        id=uuid4(),
+    invite = _create_agent_password_setup_invite(
+        db,
         email=normalized_email,
         invited_by=invited_by,
-        token=token,
-        expires_at=utc_now() + _invite_expiry(),
-        is_used=False,
-        invited_at=utc_now(),
     )
-    db.add(invite)
     send_email_notification(
         to_email=normalized_email,
         subject="Abdoun agent invitation",
-        body=f"You have been invited as an agent. Dev invite token: {token}",
+        body=f"You have been invited as an agent. Dev setup link: {_invite_link(invite.token)}",
     )
     db.flush()
     return serialize_agent_invite(user, invite)
@@ -350,7 +363,7 @@ def manual_onboard_agent(
             user.agency_id = agency_id
         user.full_name = full_name or user.full_name
         user.phone_number = phone or user.phone_number
-        user.is_active = True
+        user.is_active = False
         if not user.password_hash:
             user.password_hash = hash_secret(temporary_password)
     else:
@@ -359,8 +372,8 @@ def manual_onboard_agent(
             full_name=full_name,
             email=normalized_email,
             phone_number=phone,
-            is_active=True,
-            is_email_verified=True,
+            is_active=False,
+            is_email_verified=False,
             is_phone_verified=False,
             preferred_language="en",
             agency_id=agency_id,
@@ -382,14 +395,23 @@ def manual_onboard_agent(
         profile = AgentProfile(user_id=user.id)
         db.add(profile)
     profile.service_area = service_area
-    profile.status = "ACTIVE"
-    profile.approved_by = actor_id
-    profile.approved_at = utc_now()
+    profile.status = "INACTIVE"
+    profile.approved_by = None
+    profile.approved_at = None
     profile.reviewed_by = actor_id
     profile.reviewed_at = utc_now()
     profile.deleted_at = None
     profile.decline_reason = None
-    _revoke_active_invites(db, email=normalized_email, actor_id=actor_id)
+    invite = _create_agent_password_setup_invite(
+        db,
+        email=normalized_email,
+        invited_by=actor_id,
+    )
+    send_email_notification(
+        to_email=normalized_email,
+        subject="Create your Abdoun agent password",
+        body=f"Your temporary password is {temporary_password}. Create your permanent password using this dev setup link: {_invite_link(invite.token)}",
+    )
     db.flush()
     return {
         "id": str(user.id),
@@ -399,6 +421,7 @@ def manual_onboard_agent(
         "serviceArea": profile.service_area or "",
         "status": profile.status,
         "temporaryPassword": temporary_password,
+        "inviteLink": _invite_link(invite.token),
     }
 
 
