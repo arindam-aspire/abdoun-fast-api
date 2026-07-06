@@ -417,6 +417,43 @@ def can_edit_working_submission(
     return False
 
 
+def can_delete_submission(
+    db: Session,
+    submission: PropertyListingSubmission,
+    *,
+    user_id: UUID,
+    roles: tuple[str, ...],
+    agency_id: UUID | None,
+) -> bool:
+    if submission.status in DRAFT_STATUSES:
+        return submission.submitted_by == user_id
+
+    workflow_stage = _workflow_stage_for_submission(submission)
+    if submission.status != REJECTED_STATUS and workflow_stage != WORKFLOW_STAGE_REJECTED:
+        return False
+
+    role_names = _role_names(roles)
+    if "super_admin" in role_names:
+        return True
+    if "admin" in role_names and agency_id and _submitter_agency_id(db, submission) == agency_id:
+        return True
+    if submission.submitted_by == user_id:
+        return True
+    return _assigned_agent_id(submission) == str(user_id)
+
+
+def assert_can_delete_submission(
+    db: Session,
+    submission: PropertyListingSubmission,
+    *,
+    user_id: UUID,
+    roles: tuple[str, ...],
+    agency_id: UUID | None,
+) -> None:
+    if not can_delete_submission(db, submission, user_id=user_id, roles=roles, agency_id=agency_id):
+        raise HTTPException(status_code=STATUS_FORBIDDEN, detail="Insufficient permissions")
+
+
 def assert_can_view_submission(
     db: Session,
     submission: PropertyListingSubmission,
@@ -993,7 +1030,17 @@ def serialize_agent_property_item(
         actor_roles=actor_roles,
         actor_agency_id=actor_agency_id,
     )
-    can_delete_submission = submission.status in (DRAFT_STATUSES | {REJECTED_STATUS}) and can_edit_submission
+    can_delete_submission_value = (
+        actor_user_id is not None
+        and db is not None
+        and can_delete_submission(
+            db,
+            submission,
+            user_id=actor_user_id,
+            roles=actor_roles,
+            agency_id=actor_agency_id,
+        )
+    )
     return {
         "property_id": str(property_id),
         "property_hash": stable_property_hash(property_id),
@@ -1018,7 +1065,7 @@ def serialize_agent_property_item(
         "submission_workflow_label": workflow_label,
         **workflow_summary,
         "can_edit_submission": can_edit_submission,
-        "can_delete_submission": can_delete_submission,
+        "can_delete_submission": can_delete_submission_value,
         "agency": agency,
         "submitted_by": submitter.full_name if submitter and submitter.full_name else str(submission.submitted_by),
         "agent_user_id": workflow.get("assigned_agent_id"),
@@ -1028,13 +1075,32 @@ def serialize_agent_property_item(
     }
 
 
-def serialize_admin_submission_item(submission: PropertyListingSubmission, submitter: User | None = None, *, db: Session | None = None) -> dict:
+def serialize_admin_submission_item(
+    submission: PropertyListingSubmission,
+    submitter: User | None = None,
+    *,
+    db: Session | None = None,
+    actor_user_id: UUID | None = None,
+    actor_roles: tuple[str, ...] = (),
+    actor_agency_id: UUID | None = None,
+) -> dict:
     payload = submission.payload or {}
     workflow = payload.get("_workflow") or {}
     property_id = submission.property_id or submission.id
     assigned_agent = _assigned_agent_summary(db, submission) if db is not None else None
     workflow_label = _workflow_label_for_submission(submission)
     workflow_summary = _submission_workflow_summary(submission)
+    can_delete_submission_value = (
+        actor_user_id is not None
+        and db is not None
+        and can_delete_submission(
+            db,
+            submission,
+            user_id=actor_user_id,
+            roles=actor_roles,
+            agency_id=actor_agency_id,
+        )
+    )
     return {
         "submission_id": str(submission.id),
         "agency_id": str(submission.agency_id) if submission.agency_id else None,
@@ -1056,6 +1122,7 @@ def serialize_admin_submission_item(submission: PropertyListingSubmission, submi
         "submitted_at": _iso(submission.submitted_at) or _iso(submission.created_at),
         "reviewed_at": _iso(submission.reviewed_at),
         "review_reason": submission.review_reason,
+        "can_delete_submission": can_delete_submission_value,
     }
 
 

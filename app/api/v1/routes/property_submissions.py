@@ -13,6 +13,7 @@ from app.schemas.property_submissions import (
     PropertySubmissionUpdateRequest,
 )
 from app.services.property_submissions import (
+    assert_can_delete_submission,
     assert_can_edit_working_submission,
     assert_can_view_submission,
     create_submission,
@@ -109,7 +110,7 @@ def update_property_submission(
 @router.delete("/{submission_id}")
 def delete_property_submission(submission_id: UUID, context: AuthenticatedContext, db: DBSessionDep) -> dict:
     submission = get_submission_or_404(db, submission_id)
-    assert_can_edit_working_submission(db, submission, user_id=context.user_id, roles=context.roles, agency_id=context.agency_id)
+    assert_can_delete_submission(db, submission, user_id=context.user_id, roles=context.roles, agency_id=context.agency_id)
     soft_delete_submission(
         submission,
         deleted_by=context.user_id,

@@ -45,7 +45,20 @@ def get_admin_property_submissions(
         agency_id=None if "super_admin" in roles else context.agency_id,
         exclude_drafts=True,
     )
-    data = {"items": [serialize_admin_submission_item(submission, submitter, db=db) for submission, submitter in rows], **pagination}
+    data = {
+        "items": [
+            serialize_admin_submission_item(
+                submission,
+                submitter,
+                db=db,
+                actor_user_id=context.user_id,
+                actor_roles=context.roles,
+                actor_agency_id=context.agency_id,
+            )
+            for submission, submitter in rows
+        ],
+        **pagination,
+    }
     return success_response(data, meta={"pagination": pagination})
 
 
