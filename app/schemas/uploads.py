@@ -5,7 +5,12 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 
-UploadContext = Literal["owner_document", "property_media_image", "property_document"]
+UploadContext = Literal[
+    "owner_document",
+    "property_media_image",
+    "property_document",
+    "agency_legal_document",
+]
 
 
 class PresignedUploadRequest(BaseModel):
@@ -15,4 +20,3 @@ class PresignedUploadRequest(BaseModel):
     context: UploadContext
     draft_client_id: str | None = None
     submission_id: str | None = None
-
