@@ -2,9 +2,14 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Header
 
-from app.api.deps import DBSessionDep, RequestContext, get_request_context
+from app.api.deps import (
+    DBSessionDep,
+    RequestContext,
+    get_request_context,
+    is_authenticated_request,
+)
 from app.services.public_properties import (
     apply_public_filters,
     favorite_lookup,
@@ -127,7 +132,12 @@ def get_similar_properties(property_id: str, db: DBSessionDep, context: ContextD
 
 
 @router.get("/{property_id}")
-def get_property(property_id: str, db: DBSessionDep, context: ContextDep) -> dict:
+def get_property(
+    property_id: str,
+    db: DBSessionDep,
+    context: ContextDep,
+    authorization: Annotated[str | None, Header(alias="Authorization")] = None,
+) -> dict:
     submission, user = get_visible_submission_or_404(
         db,
         property_id,
@@ -143,5 +153,6 @@ def get_property(property_id: str, db: DBSessionDep, context: ContextDep) -> dic
             actor_user_id=context.user_id,
             actor_roles=context.roles,
             actor_agency_id=context.agency_id,
+            include_private_fields=is_authenticated_request(authorization, context.user_id),
         )
     )

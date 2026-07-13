@@ -25,7 +25,7 @@ from app.models.live_schema import (
 from app.services.media_urls import resolve_readable_media_url
 from app.services.property_submissions import (
     can_view_submission,
-    serialize_agent_contact,
+    serialize_agent_contact_by_id,
     serialize_property_detail_workflow,
     stable_property_hash,
 )
@@ -34,6 +34,31 @@ from app.utils.status_codes import STATUS_NOT_FOUND
 
 PUBLIC_STATUSES = {"active"}
 DEAL_CLOSED_STATUS = "APPROVED"
+AGENT_CONTACT_VISIBLE_ROLES = frozenset(
+    {"owner", "registered_user", "agent", "admin", "super_admin"}
+)
+
+
+def can_view_property_agent_contact(roles: tuple[str, ...]) -> bool:
+    normalized = {role.casefold() for role in roles}
+    if normalized.intersection({"agency_admin", "agency"}):
+        normalized.add("admin")
+    if "user" in normalized:
+        normalized.add("registered_user")
+    return not normalized.isdisjoint(AGENT_CONTACT_VISIBLE_ROLES)
+
+
+ANONYMOUS_HIDDEN_DETAIL_KEYS = frozenset(
+    {"agency", "assigned_agent_id", "owners", "owner"}
+)
+
+
+def _strip_anonymous_property_detail_fields(detail: dict[str, Any]) -> dict[str, Any]:
+    return {
+        key: value
+        for key, value in detail.items()
+        if key not in ANONYMOUS_HIDDEN_DETAIL_KEYS
+    }
 
 
 def utc_now() -> datetime:
@@ -346,7 +371,7 @@ def serialize_property_listing(
         "brokerLogo": agency.logo_url if agency else None,
         "owners": _owners(payload),
         "agency": _agency_payload(agency),
-        "agent": serialize_agent_contact(db, submission, fallback_user=submitter),
+        "agent": None,
         "is_exclusive": bool(basic.get("is_exclusive")),
         "is_favourite": favorite_id is not None,
         "favourite_id": str(favorite_id) if favorite_id else None,
@@ -365,6 +390,7 @@ def serialize_property_detail(
     actor_user_id: UUID | None = None,
     actor_roles: tuple[str, ...] = (),
     actor_agency_id: UUID | None = None,
+    include_private_fields: bool = True,
 ) -> dict[str, Any]:
     listing = serialize_property_listing(db, submission, submitter=submitter)
     payload = submission.payload or {}
@@ -372,7 +398,6 @@ def serialize_property_detail(
     details = payload.get("property_details") or {}
     pricing = payload.get("pricing") or {}
     agency = _agency_for_submission(db, submission, submitter)
-    owners = _owners(payload)
     property_hash = listing["id"]
     listing_type = listing["listing_type"]
     workflow = serialize_property_detail_workflow(
@@ -382,10 +407,25 @@ def serialize_property_detail(
         actor_roles=actor_roles,
         actor_agency_id=actor_agency_id,
     )
+    is_authenticated = include_private_fields
+    workflow_payload = dict(workflow)
+    if not is_authenticated:
+        workflow_payload.pop("assigned_agent_id", None)
 
-    return {
+    assigned_agent_id = workflow.get("assigned_agent_id")
+    agent = (
+        serialize_agent_contact_by_id(
+            db,
+            assigned_agent_id,
+            contact_enabled=is_authenticated,
+        )
+        if assigned_agent_id
+        else None
+    )
+
+    detail = {
         **listing,
-        **workflow,
+        **workflow_payload,
         "id": property_hash,
         "url": None,
         "property_type": listing["propertyType"],
@@ -450,22 +490,22 @@ def serialize_property_detail(
         "expires_at": None,
         "sold_at": None,
         "rented_at": None,
-        "owner": {
-            "id": 1,
-            "name": owners[0]["full_name"],
-            "phone": owners[0]["phone"],
-            "email": owners[0]["email"],
-            "is_private": False,
-        }
-        if owners
-        else None,
         "created_by": {
             "id": 1,
             "name": submitter.full_name if submitter else "",
             "role": "agent",
         },
-        "agency": _agency_payload(agency),
     }
+    if is_authenticated:
+        detail["agency"] = _agency_payload(agency)
+    detail.pop("owner", None)
+    if not is_authenticated:
+        detail = _strip_anonymous_property_detail_fields(detail)
+    if agent is not None:
+        detail["agent"] = agent
+    else:
+        detail.pop("agent", None)
+    return detail
 
 
 def list_public_submissions(db: Session) -> list[tuple[PropertyListingSubmission, User | None]]:

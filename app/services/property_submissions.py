@@ -247,7 +247,34 @@ def _normalize_phone_for_whatsapp(phone: str | None) -> str | None:
     return digits
 
 
-def _agent_contact_actions(*, email: str | None, phone: str | None) -> dict[str, dict[str, Any]]:
+def _agent_contact_actions(
+    *,
+    email: str | None,
+    phone: str | None,
+    enabled: bool = True,
+) -> dict[str, dict[str, Any]]:
+    if not enabled:
+        return {
+            "email": {
+                "type": "email",
+                "label": "Email",
+                "enabled": False,
+                "href": None,
+            },
+            "phone": {
+                "type": "phone",
+                "label": "Phone",
+                "enabled": False,
+                "href": None,
+            },
+            "whatsapp": {
+                "type": "whatsapp",
+                "label": "WhatsApp",
+                "enabled": False,
+                "href": None,
+            },
+        }
+
     whatsapp_phone = _normalize_phone_for_whatsapp(phone)
     return {
         "email": {
@@ -276,21 +303,63 @@ def serialize_agent_contact(
     submission: PropertyListingSubmission,
     *,
     fallback_user: User | None = None,
+    assigned_agent_only: bool = False,
 ) -> dict[str, Any] | None:
     summary = _assigned_agent_summary(db, submission)
-    if summary is None and fallback_user is not None:
+    if summary is None and not assigned_agent_only and fallback_user is not None:
         summary = {
             "id": str(fallback_user.id),
             "name": fallback_user.full_name,
             "email": fallback_user.email,
             "phone": fallback_user.phone_number,
         }
+    return _serialize_agent_contact_summary(summary)
+
+
+def serialize_agent_contact_by_id(
+    db: Session,
+    agent_id: str | UUID | None,
+    *,
+    contact_enabled: bool = True,
+) -> dict[str, Any] | None:
+    if not agent_id:
+        return None
+    try:
+        agent_uuid = UUID(str(agent_id))
+    except ValueError:
+        return None
+    agent = db.get(User, agent_uuid)
+    if not agent:
+        return _serialize_agent_contact_summary(
+            {"id": str(agent_uuid), "name": None, "email": None, "phone": None},
+            contact_enabled=contact_enabled,
+        )
+    return _serialize_agent_contact_summary(
+        {
+            "id": str(agent.id),
+            "name": agent.full_name,
+            "email": agent.email,
+            "phone": agent.phone_number,
+        },
+        contact_enabled=contact_enabled,
+    )
+
+
+def _serialize_agent_contact_summary(
+    summary: dict[str, str | None] | None,
+    *,
+    contact_enabled: bool = True,
+) -> dict[str, Any] | None:
     if summary is None:
         return None
 
-    email = summary.get("email")
-    phone = summary.get("phone")
-    contact_actions = _agent_contact_actions(email=email, phone=phone)
+    email = summary.get("email") if contact_enabled else None
+    phone = summary.get("phone") if contact_enabled else None
+    contact_actions = _agent_contact_actions(
+        email=email,
+        phone=phone,
+        enabled=contact_enabled,
+    )
     return {
         "id": summary.get("id"),
         "name": summary.get("name"),

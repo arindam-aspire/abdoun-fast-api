@@ -19,6 +19,18 @@ from app.utils.status_codes import STATUS_FORBIDDEN, STATUS_UNAUTHORIZED
 DBSessionDep = Annotated[Session, Depends(get_db)]
 
 
+def has_authorization_header(authorization: str | None) -> bool:
+    if not authorization or not authorization.strip():
+        return False
+    if not authorization.lower().startswith("bearer "):
+        return False
+    return bool(authorization.split(" ", 1)[1].strip())
+
+
+def is_authenticated_request(authorization: str | None, user_id: UUID | None) -> bool:
+    return has_authorization_header(authorization) and user_id is not None
+
+
 @dataclass(frozen=True)
 class RequestContext:
     locale: str
