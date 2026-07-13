@@ -232,6 +232,75 @@ def _assigned_agent_summary(db: Session, submission: PropertyListingSubmission) 
     }
 
 
+def _normalize_phone_for_whatsapp(phone: str | None) -> str | None:
+    if not phone:
+        return None
+    digits = "".join(character for character in phone if character.isdigit())
+    if not digits:
+        return None
+    if digits.startswith("00"):
+        digits = digits[2:]
+    elif digits.startswith("0"):
+        digits = f"962{digits[1:]}"
+    elif not digits.startswith("962") and len(digits) <= 10:
+        digits = f"962{digits}"
+    return digits
+
+
+def _agent_contact_actions(*, email: str | None, phone: str | None) -> dict[str, dict[str, Any]]:
+    whatsapp_phone = _normalize_phone_for_whatsapp(phone)
+    return {
+        "email": {
+            "type": "email",
+            "label": "Email",
+            "enabled": bool(email),
+            "href": f"mailto:{email}" if email else None,
+        },
+        "phone": {
+            "type": "phone",
+            "label": "Phone",
+            "enabled": bool(phone),
+            "href": f"tel:{phone}" if phone else None,
+        },
+        "whatsapp": {
+            "type": "whatsapp",
+            "label": "WhatsApp",
+            "enabled": bool(whatsapp_phone),
+            "href": f"https://wa.me/{whatsapp_phone}" if whatsapp_phone else None,
+        },
+    }
+
+
+def serialize_agent_contact(
+    db: Session,
+    submission: PropertyListingSubmission,
+    *,
+    fallback_user: User | None = None,
+) -> dict[str, Any] | None:
+    summary = _assigned_agent_summary(db, submission)
+    if summary is None and fallback_user is not None:
+        summary = {
+            "id": str(fallback_user.id),
+            "name": fallback_user.full_name,
+            "email": fallback_user.email,
+            "phone": fallback_user.phone_number,
+        }
+    if summary is None:
+        return None
+
+    email = summary.get("email")
+    phone = summary.get("phone")
+    contact_actions = _agent_contact_actions(email=email, phone=phone)
+    return {
+        "id": summary.get("id"),
+        "name": summary.get("name"),
+        "phone": phone,
+        "email": email,
+        "contact_actions": contact_actions,
+        "actions": [contact_actions[key] for key in ("email", "phone", "whatsapp")],
+    }
+
+
 def _has_property_image(payload: dict[str, Any]) -> bool:
     media = payload.get("media_documents") or {}
     if not isinstance(media, dict):

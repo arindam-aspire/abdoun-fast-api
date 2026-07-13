@@ -25,6 +25,7 @@ from app.models.live_schema import (
 from app.services.media_urls import resolve_readable_media_url
 from app.services.property_submissions import (
     can_view_submission,
+    serialize_agent_contact,
     serialize_property_detail_workflow,
     stable_property_hash,
 )
@@ -345,7 +346,7 @@ def serialize_property_listing(
         "brokerLogo": agency.logo_url if agency else None,
         "owners": _owners(payload),
         "agency": _agency_payload(agency),
-        "agent": None,
+        "agent": serialize_agent_contact(db, submission, fallback_user=submitter),
         "is_exclusive": bool(basic.get("is_exclusive")),
         "is_favourite": favorite_id is not None,
         "favourite_id": str(favorite_id) if favorite_id else None,
