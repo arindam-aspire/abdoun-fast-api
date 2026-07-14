@@ -96,6 +96,7 @@ def update_property_submission(
     submission = get_submission_or_404(db, submission_id)
     assert_can_edit_working_submission(db, submission, user_id=context.user_id, roles=context.roles, agency_id=context.agency_id)
     update_submission(
+        db,
         submission,
         agency_id=_resolved_agency_id(payload.agency_id, context),
         payload=payload.payload,

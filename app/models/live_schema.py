@@ -126,7 +126,9 @@ class AgentInvite(Base):
     __tablename__ = "agent_invites"
 
     id: Mapped[Any] = mapped_column(UUID(as_uuid=True), primary_key=True, nullable=False)
-    email: Mapped[Any] = mapped_column(String(255), nullable=False)
+    email: Mapped[Any] = mapped_column(String(255), nullable=True)
+    phone_number: Mapped[Any] = mapped_column(String(20), nullable=True)
+    purpose: Mapped[Any] = mapped_column(String(20), nullable=False, server_default=text("'onboarding'::character varying"))
     invited_by: Mapped[Any] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     token: Mapped[Any] = mapped_column(String(100), nullable=False)
     expires_at: Mapped[Any] = mapped_column(DateTime, nullable=False)
@@ -142,6 +144,9 @@ class AgentProfile(Base):
 
     user_id: Mapped[Any] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), primary_key=True, nullable=False)
     service_area: Mapped[Any] = mapped_column(String(255), nullable=True)
+    whatsapp_number: Mapped[Any] = mapped_column(String(20), nullable=True)
+    position: Mapped[Any] = mapped_column(String(100), nullable=True)
+    identity_document_s3_link: Mapped[Any] = mapped_column(Text, nullable=True)
     approved_by: Mapped[Any] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     approved_at: Mapped[Any] = mapped_column(DateTime, nullable=True)
     status: Mapped[Any] = mapped_column(String(20), nullable=False, server_default=text("'INVITED'::character varying"))
@@ -153,6 +158,19 @@ class AgentProfile(Base):
     deleted_at: Mapped[Any] = mapped_column(DateTime, nullable=True)
     deleted_by: Mapped[Any] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     status_reason: Mapped[Any] = mapped_column(Text, nullable=True)
+
+
+class AgentServiceArea(Base):
+    __tablename__ = "agent_service_areas"
+
+    agent_user_id: Mapped[Any] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("agent_profiles.user_id", ondelete="CASCADE"),
+        primary_key=True,
+        nullable=False,
+    )
+    area_id: Mapped[Any] = mapped_column(Integer, ForeignKey("areas.id"), primary_key=True, nullable=False)
+    created_at: Mapped[Any] = mapped_column(DateTime, nullable=False, server_default=text("now()"))
 
 
 class CategoryFeature(Base):
@@ -616,6 +634,7 @@ __all__ = [
     "AgencyMaster",
     "AgentInvite",
     "AgentProfile",
+    "AgentServiceArea",
     "Area",
     "CategoryFeature",
     "CategorySearchField",

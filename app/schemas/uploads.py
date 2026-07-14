@@ -10,6 +10,7 @@ UploadContext = Literal[
     "property_media_image",
     "property_document",
     "agency_legal_document",
+    "agent_identity_document",
 ]
 
 
@@ -20,3 +21,7 @@ class PresignedUploadRequest(BaseModel):
     context: UploadContext
     draft_client_id: str | None = None
     submission_id: str | None = None
+
+
+class ReadableUrlRequest(BaseModel):
+    file_url: str = Field(min_length=1)

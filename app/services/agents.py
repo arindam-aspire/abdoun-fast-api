@@ -3,22 +3,44 @@ from __future__ import annotations
 import math
 import secrets
 from datetime import timedelta
+from pathlib import PurePosixPath
 from uuid import UUID, uuid4
 
-from fastapi import HTTPException
-from sqlalchemy import func, or_, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
-from app.models.live_schema import AgentInvite, AgentProfile, User
+from app.core.security import hash_secret, verify_secret
+from app.models.live_schema import AgentInvite, AgentProfile, AgentServiceArea, Area, User, UserProfileChangeChallenge
+from app.schemas.agents import IDENTITY_DOCUMENT_MAX_BYTES, normalize_phone
 from app.services.auth import assign_role, mark_password_set, normalize_username, utc_now
-from app.core.security import hash_secret
-from app.services.notifications import send_email_notification
+from app.services.media_urls import canonicalize_media_url, generate_presigned_put_url, resolve_readable_media_url
+from app.services.notifications import send_email_notification, send_sms_notification
 from app.services.user_agencies import REL_AGENT, agency_user_ids, ensure_user_agency_mapping, user_has_active_agency_mapping
-from app.utils.status_codes import STATUS_BAD_REQUEST, STATUS_FORBIDDEN, STATUS_NOT_FOUND
+from app.utils.api_response import raise_api_error
+from app.utils.status_codes import (
+    STATUS_BAD_REQUEST,
+    STATUS_CONFLICT,
+    STATUS_FORBIDDEN,
+    STATUS_INTERNAL_SERVER_ERROR,
+    STATUS_NOT_FOUND,
+)
 
 
-AGENT_STATUSES = {"ACTIVE", "INVITED", "PENDING_REVIEW", "DECLINED", "INACTIVE", "DELETED"}
+AGENT_STATUSES = {
+    "ACTIVE",
+    "INVITED",
+    "PENDING_PASSWORD",
+    "PENDING_REVIEW",
+    "DECLINED",
+    "INACTIVE",
+    "DELETED",
+}
+
+INVITE_PURPOSE_ONBOARDING = "onboarding"
+INVITE_PURPOSE_PASSWORD_SETUP = "password_setup"
+INVITE_PURPOSE_LEGACY_ACCEPT = "legacy_accept"
+AGENT_PASSWORD_CHALLENGE_PURPOSE = "agent_pw_setup"
 
 
 def _iso(value) -> str | None:
@@ -29,16 +51,71 @@ def _invite_link(token: str) -> str:
     return f"/agent-invite?token={token}"
 
 
+def _password_setup_link(token: str) -> str:
+    return f"/agent-password-setup?token={token}"
+
+
 def _invite_expiry() -> timedelta:
     return timedelta(seconds=get_settings().agent_invitation_ttl_seconds)
 
 
-def _is_expired(invite: AgentInvite) -> bool:
+def _password_setup_expiry() -> timedelta:
+    return timedelta(seconds=get_settings().agency_password_setup_ttl_seconds)
+
+
+def _is_expired(expires_at) -> bool:
     current_time = utc_now()
-    expires_at = invite.expires_at
     if expires_at.tzinfo is None:
         current_time = current_time.replace(tzinfo=None)
     return expires_at < current_time
+
+
+def _pending_email_for_phone(phone: str) -> str:
+    digits = normalize_phone(phone).lstrip("+")
+    return f"pending+{digits}@agents.local"
+
+
+def _load_service_areas(db: Session, agent_user_id: UUID) -> list[dict]:
+    rows = db.execute(
+        select(Area)
+        .join(AgentServiceArea, AgentServiceArea.area_id == Area.id)
+        .where(AgentServiceArea.agent_user_id == agent_user_id)
+        .order_by(Area.name.asc())
+    ).scalars().all()
+    return [{"id": area.id, "name": area.name, "cityId": area.city_id} for area in rows]
+
+
+def _service_area_label(areas: list[dict]) -> str | None:
+    if not areas:
+        return None
+    return ", ".join(area["name"] for area in areas)
+
+
+def _replace_agent_service_areas(db: Session, *, agent_user_id: UUID, area_ids: list[int]) -> list[dict]:
+    unique_ids = sorted(set(area_ids))
+    if not unique_ids:
+        raise_api_error(
+            status_code=STATUS_BAD_REQUEST,
+            code="VALIDATION_ERROR",
+            message="At least one service area is required",
+        )
+
+    found = db.execute(select(Area).where(Area.id.in_(unique_ids))).scalars().all()
+    found_ids = {area.id for area in found}
+    missing = [area_id for area_id in unique_ids if area_id not in found_ids]
+    if missing:
+        raise_api_error(
+            status_code=STATUS_BAD_REQUEST,
+            code="VALIDATION_ERROR",
+            message="One or more service areas are invalid",
+            details={"invalidAreaIds": missing},
+        )
+
+    db.execute(delete(AgentServiceArea).where(AgentServiceArea.agent_user_id == agent_user_id))
+    for area_id in unique_ids:
+        db.add(AgentServiceArea(agent_user_id=agent_user_id, area_id=area_id))
+    db.flush()
+    return _load_service_areas(db, agent_user_id)
 
 
 def _active_invite_for_email(db: Session, email: str) -> AgentInvite | None:
@@ -54,29 +131,74 @@ def _active_invite_for_email(db: Session, email: str) -> AgentInvite | None:
     ).scalar_one_or_none()
 
 
-def _revoke_active_invites(db: Session, *, email: str, actor_id: UUID) -> None:
-    invites = db.execute(
-        select(AgentInvite).where(
-            AgentInvite.email == normalize_username(email),
-            AgentInvite.revoked_at.is_(None),
-            AgentInvite.is_used.is_(False),
-        )
-    ).scalars().all()
+def _revoke_active_invites(
+    db: Session,
+    *,
+    actor_id: UUID,
+    email: str | None = None,
+    phone_number: str | None = None,
+) -> None:
+    conditions = [
+        AgentInvite.revoked_at.is_(None),
+        AgentInvite.is_used.is_(False),
+    ]
+    identity_filters = []
+    if email:
+        identity_filters.append(AgentInvite.email == normalize_username(email))
+    if phone_number:
+        identity_filters.append(AgentInvite.phone_number == normalize_phone(phone_number))
+    if not identity_filters:
+        return
+    invites = db.execute(select(AgentInvite).where(*conditions, or_(*identity_filters))).scalars().all()
     for invite in invites:
         invite.revoked_at = utc_now()
         invite.revoked_by = actor_id
 
 
-def _create_agent_password_setup_invite(
+def _raise_duplicate_conflicts(
     db: Session,
     *,
-    email: str,
+    email: str | None,
+    phone: str | None,
+    exclude_user_id: UUID | None = None,
+) -> None:
+    if email:
+        stmt = select(User).where(User.email == normalize_username(email))
+        if exclude_user_id:
+            stmt = stmt.where(User.id != exclude_user_id)
+        if db.execute(stmt).scalar_one_or_none():
+            raise_api_error(
+                status_code=STATUS_CONFLICT,
+                code="DUPLICATE_EMAIL",
+                message="An account with this email already exists",
+            )
+    if phone:
+        normalized_phone = normalize_phone(phone)
+        stmt = select(User).where(User.phone_number == normalized_phone)
+        if exclude_user_id:
+            stmt = stmt.where(User.id != exclude_user_id)
+        if db.execute(stmt).scalar_one_or_none():
+            raise_api_error(
+                status_code=STATUS_CONFLICT,
+                code="DUPLICATE_PHONE",
+                message="An account with this phone number already exists",
+            )
+
+
+def _create_agent_invite(
+    db: Session,
+    *,
     invited_by: UUID,
+    purpose: str,
+    email: str | None = None,
+    phone_number: str | None = None,
 ) -> AgentInvite:
-    _revoke_active_invites(db, email=email, actor_id=invited_by)
+    _revoke_active_invites(db, actor_id=invited_by, email=email, phone_number=phone_number)
     invite = AgentInvite(
         id=uuid4(),
-        email=normalize_username(email),
+        email=normalize_username(email) if email else None,
+        phone_number=normalize_phone(phone_number) if phone_number else None,
+        purpose=purpose,
         invited_by=invited_by,
         token=secrets.token_urlsafe(32),
         expires_at=utc_now() + _invite_expiry(),
@@ -87,40 +209,101 @@ def _create_agent_password_setup_invite(
     return invite
 
 
+def _create_password_setup_challenge(db: Session, *, user: User, actor_id: UUID | None = None) -> str:
+    token = secrets.token_urlsafe(32)
+    challenge = UserProfileChangeChallenge(
+        id=uuid4(),
+        user_id=user.id,
+        purpose=AGENT_PASSWORD_CHALLENGE_PURPOSE,
+        new_value=str(user.id),
+        otp_hash=hash_secret(token),
+        expires_at=utc_now() + _password_setup_expiry(),
+    )
+    db.add(challenge)
+    link = _password_setup_link(token)
+    if user.email and not str(user.email).endswith("@agents.local"):
+        send_email_notification(
+            to_email=user.email,
+            subject="Create your Abdoun agent password",
+            body=f"Create your agent password. Dev password setup link: {link}",
+        )
+    if user.phone_number:
+        send_sms_notification(
+            to_phone=user.phone_number,
+            body=f"Create your Abdoun agent password. Dev link: {link}",
+        )
+    return token
+
+
 def serialize_agent_invite(user: User, invite: AgentInvite) -> dict:
+    invitation_url = _invite_link(invite.token)
+    expiry = _iso(invite.expires_at)
     return {
         "id": str(user.id),
         "email": user.email,
+        "phone": user.phone_number or invite.phone_number or "",
         "status": "INVITED",
-        "inviteLink": _invite_link(invite.token),
+        "inviteLink": invitation_url,
         "invitedAt": _iso(invite.invited_at) or _iso(invite.created_at),
         "invitedBy": str(invite.invited_by),
+        "purpose": invite.purpose,
+        # Copy Invitation Link popup (snake_case + camelCase for clients)
+        "invitation_id": str(invite.id),
+        "invitation_url": invitation_url,
+        "invitation_token": invite.token,
+        "expiry": expiry,
+        "invitationId": str(invite.id),
+        "invitationUrl": invitation_url,
+        "invitationToken": invite.token,
+        "expiresAt": expiry,
     }
 
 
-def serialize_agent_invitation_preview(user: User, invite: AgentInvite, profile: AgentProfile | None) -> dict:
+def serialize_agent_invitation_preview(
+    db: Session,
+    user: User,
+    invite: AgentInvite,
+    profile: AgentProfile | None,
+) -> dict:
+    service_areas = _load_service_areas(db, user.id) if profile else []
     return {
         "id": str(invite.id),
-        "email": invite.email,
+        "email": invite.email or user.email,
+        "phone": invite.phone_number or user.phone_number or "",
         "fullName": user.full_name,
-        "phone": user.phone_number or "",
-        "serviceArea": profile.service_area if profile else "",
-        "status": "EXPIRED" if _is_expired(invite) else (profile.status if profile else "INVITED"),
+        "serviceArea": _service_area_label(service_areas) or (profile.service_area if profile else ""),
+        "serviceAreas": service_areas,
+        "position": profile.position if profile else None,
+        "status": "EXPIRED" if _is_expired(invite.expires_at) else (profile.status if profile else "INVITED"),
+        "purpose": invite.purpose or INVITE_PURPOSE_LEGACY_ACCEPT,
         "expiresAt": _iso(invite.expires_at),
+        "alreadySubmitted": bool(profile and profile.form_submitted_at),
     }
 
 
-def serialize_agent(user: User, profile: AgentProfile | None, invited_by: str | None = None, invited_at=None) -> dict:
+def serialize_agent(
+    db: Session,
+    user: User,
+    profile: AgentProfile | None,
+    invited_by: str | None = None,
+    invited_at=None,
+) -> dict:
+    service_areas = _load_service_areas(db, user.id) if profile else []
     return {
         "id": str(user.id),
         "email": user.email,
         "fullName": user.full_name,
         "phone": user.phone_number or "",
-        "serviceArea": profile.service_area if profile else "",
+        "whatsappNumber": profile.whatsapp_number if profile else None,
+        "serviceArea": _service_area_label(service_areas) or (profile.service_area if profile else ""),
+        "serviceAreas": service_areas,
+        "position": profile.position if profile else None,
+        "identityDocumentUrl": resolve_readable_media_url(profile.identity_document_s3_link) if profile else None,
         "status": (profile.status if profile else "INVITED") or "INVITED",
         "invitedAt": _iso(invited_at),
         "invitedBy": invited_by,
         "formSubmittedAt": _iso(profile.form_submitted_at) if profile else None,
+        "passwordSetAt": _iso(profile.password_set_at) if profile else None,
         "reviewedAt": _iso(profile.reviewed_at) if profile else None,
         "declineReason": profile.decline_reason if profile else None,
     }
@@ -179,33 +362,37 @@ def list_agents(
         "reviewedAt": AgentProfile.reviewed_at,
         "formSubmittedAt": AgentProfile.form_submitted_at,
     }
-    sort_column = sort_columns.get(sort_by, AgentInvite.invited_at)
+    sort_column = sort_columns.get(sort_by, User.created_at)
     stmt = stmt.order_by(sort_column.asc() if sort_order == "asc" else sort_column.desc().nullslast())
 
     count_stmt = select(func.count()).select_from(stmt.order_by(None).subquery())
     total = db.execute(count_stmt).scalar() or 0
     rows = db.execute(stmt.offset(offset).limit(page_size)).all()
-    agents = [
-        serialize_agent(
-            user,
-            profile,
-            invited_by=str(invite.invited_by) if invite else None,
-            invited_at=invite.invited_at if invite else None,
+    agents = []
+    for user, profile in rows:
+        invite = _active_invite_for_email(db, user.email) if user.email else None
+        agents.append(
+            serialize_agent(
+                db,
+                user,
+                profile,
+                invited_by=str(invite.invited_by) if invite else None,
+                invited_at=invite.invited_at if invite else None,
+            )
         )
-        for user, profile in rows
-        for invite in [_active_invite_for_email(db, user.email)]
-    ]
 
     total_pages = math.ceil(total / page_size) if total else 1
-    pagination = {
-        "page": page,
-        "pageSize": page_size,
-        "total": total,
-        "totalPages": total_pages,
-        "hasNext": page < total_pages,
-        "hasPrevious": page > 1,
+    return {
+        "agents": agents,
+        "pagination": {
+            "page": page,
+            "pageSize": page_size,
+            "total": total,
+            "totalPages": total_pages,
+            "hasNext": page < total_pages,
+            "hasPrevious": page > 1,
+        },
     }
-    return {"agents": agents, "pagination": pagination}
 
 
 def _normalize_status_filter(status: str | None) -> str | None:
@@ -218,6 +405,7 @@ def _normalize_status_filter(status: str | None) -> str | None:
         "invited": "INVITED",
         "pending": "PENDING_REVIEW",
         "pending_review": "PENDING_REVIEW",
+        "pending_password": "PENDING_PASSWORD",
         "declined": "DECLINED",
         "deleted": "DELETED",
     }
@@ -227,28 +415,45 @@ def _normalize_status_filter(status: str | None) -> str | None:
 def invite_agent(
     db: Session,
     *,
-    email: str,
     invited_by: UUID,
     agency_id: UUID | None,
-    full_name: str | None = None,
+    email: str | None = None,
     phone_number: str | None = None,
+    full_name: str | None = None,
     service_area: str | None = None,
 ) -> dict:
     if agency_id is None:
-        raise HTTPException(status_code=STATUS_BAD_REQUEST, detail="Agency Admin must belong to an agency")
-    normalized_email = normalize_username(email)
-    lookup_conditions = [User.email == normalized_email]
-    if phone_number:
-        lookup_conditions.append(User.phone_number == phone_number)
-    user = db.execute(select(User).where(or_(*lookup_conditions))).scalar_one_or_none()
+        raise_api_error(
+            status_code=STATUS_BAD_REQUEST,
+            code="VALIDATION_ERROR",
+            message="Agency Admin must belong to an agency",
+        )
+    if not email and not phone_number:
+        raise_api_error(
+            status_code=STATUS_BAD_REQUEST,
+            code="VALIDATION_ERROR",
+            message="Either email or phone_number is required",
+        )
+
+    normalized_email = normalize_username(email) if email else None
+    normalized_phone = normalize_phone(phone_number) if phone_number else None
+    _raise_duplicate_conflicts(db, email=normalized_email, phone=normalized_phone)
+
+    lookup_conditions = []
+    if normalized_email:
+        lookup_conditions.append(User.email == normalized_email)
+    if normalized_phone:
+        lookup_conditions.append(User.phone_number == normalized_phone)
+    user = db.execute(select(User).where(or_(*lookup_conditions))).scalar_one_or_none() if lookup_conditions else None
 
     if not user:
+        user_email = normalized_email or _pending_email_for_phone(normalized_phone or "")
         user = User(
             id=uuid4(),
-            full_name=full_name or normalized_email,
-            email=normalized_email,
-            phone_number=phone_number,
-            is_active=True,
+            full_name=full_name or (normalized_email or normalized_phone or "Invited Agent"),
+            email=user_email,
+            phone_number=normalized_phone,
+            is_active=False,
             is_email_verified=False,
             is_phone_verified=False,
             preferred_language="en",
@@ -256,8 +461,14 @@ def invite_agent(
         )
         db.add(user)
         db.flush()
-    elif agency_id and not user.agency_id:
-        user.agency_id = agency_id
+    else:
+        if agency_id and not user.agency_id:
+            user.agency_id = agency_id
+        if full_name:
+            user.full_name = full_name
+        if normalized_phone and not user.phone_number:
+            user.phone_number = normalized_phone
+        user.is_active = False
 
     assign_role(db, user.id, "agent", assigned_by=invited_by)
     ensure_user_agency_mapping(
@@ -279,48 +490,212 @@ def invite_agent(
     else:
         profile.service_area = service_area if service_area is not None else profile.service_area
         if profile.status == "DELETED":
-            profile.status = "INVITED"
             profile.deleted_at = None
+        profile.status = "INVITED"
+        profile.form_submitted_at = None
+        profile.password_set_at = None
 
-    invite = _create_agent_password_setup_invite(
+    invite = _create_agent_invite(
         db,
-        email=normalized_email,
         invited_by=invited_by,
+        purpose=INVITE_PURPOSE_ONBOARDING,
+        email=user.email if not str(user.email).endswith("@agents.local") else normalized_email,
+        phone_number=normalized_phone or user.phone_number,
     )
-    send_email_notification(
-        to_email=normalized_email,
-        subject="Abdoun agent invitation",
-        body=f"You have been invited as an agent. Dev setup link: {_invite_link(invite.token)}",
-    )
+    if not invite.email:
+        invite.email = user.email
+
+    link = _invite_link(invite.token)
+    if invite.email and not str(invite.email).endswith("@agents.local"):
+        send_email_notification(
+            to_email=invite.email,
+            subject="Abdoun agent invitation",
+            body=f"You have been invited as an agent. Complete onboarding using this dev link: {link}",
+        )
+    if invite.phone_number:
+        send_sms_notification(
+            to_phone=invite.phone_number,
+            body=f"You have been invited as an Abdoun agent. Dev onboarding link: {link}",
+        )
     db.flush()
     return serialize_agent_invite(user, invite)
 
 
-def get_agent_invitation_by_token(db: Session, token: str) -> tuple[AgentInvite, User, AgentProfile | None]:
+def get_agent_invitation_by_token(
+    db: Session,
+    token: str,
+    *,
+    allowed_purposes: set[str] | None = None,
+) -> tuple[AgentInvite, User, AgentProfile | None]:
     invite = db.execute(select(AgentInvite).where(AgentInvite.token == token)).scalar_one_or_none()
     if not invite:
-        raise HTTPException(status_code=STATUS_NOT_FOUND, detail="Invitation not found")
+        raise_api_error(status_code=STATUS_NOT_FOUND, code="INVITATION_INVALID", message="Invitation not found")
     if invite.revoked_at is not None:
-        raise HTTPException(status_code=STATUS_BAD_REQUEST, detail="Invitation has been revoked")
+        raise_api_error(status_code=STATUS_BAD_REQUEST, code="INVITATION_INVALID", message="Invitation has been revoked")
     if invite.is_used:
-        raise HTTPException(status_code=STATUS_BAD_REQUEST, detail="Invitation has already been used")
-    if _is_expired(invite):
-        raise HTTPException(status_code=STATUS_BAD_REQUEST, detail="Invitation link has expired")
+        raise_api_error(status_code=STATUS_BAD_REQUEST, code="INVITATION_INVALID", message="Invitation has already been used")
+    if _is_expired(invite.expires_at):
+        raise_api_error(status_code=STATUS_BAD_REQUEST, code="INVITATION_EXPIRED", message="Invitation link has expired")
 
-    user = db.execute(select(User).where(User.email == invite.email)).scalar_one_or_none()
+    purpose = invite.purpose or INVITE_PURPOSE_LEGACY_ACCEPT
+    if allowed_purposes is not None and purpose not in allowed_purposes:
+        raise_api_error(
+            status_code=STATUS_BAD_REQUEST,
+            code="INVITATION_INVALID",
+            message=f"Invitation is not valid for this action (purpose={purpose})",
+        )
+
+    user = None
+    if invite.email:
+        user = db.execute(select(User).where(User.email == invite.email)).scalar_one_or_none()
+    if not user and invite.phone_number:
+        user = db.execute(select(User).where(User.phone_number == invite.phone_number)).scalar_one_or_none()
     if not user:
-        raise HTTPException(status_code=STATUS_NOT_FOUND, detail="Invited agent account not found")
-    profile = db.get(AgentProfile, user.id)
-    return invite, user, profile
+        raise_api_error(status_code=STATUS_NOT_FOUND, code="INVITATION_INVALID", message="Invited agent account not found")
+    return invite, user, db.get(AgentProfile, user.id)
 
 
 def validate_agent_invitation(db: Session, *, token: str) -> dict:
     invite, user, profile = get_agent_invitation_by_token(db, token)
-    return serialize_agent_invitation_preview(user, invite, profile)
+    return serialize_agent_invitation_preview(db, user, invite, profile)
+
+
+def submit_agent_onboarding(
+    db: Session,
+    *,
+    token: str,
+    full_name: str,
+    phone: str,
+    service_area_ids: list[int],
+    position: str | None = None,
+    identity_document_url: str | None = None,
+    whatsapp_number: str | None = None,
+    email: str | None = None,  # Ignored — email always comes from the invitation record
+) -> dict:
+    invite, user, profile = get_agent_invitation_by_token(
+        db,
+        token,
+        allowed_purposes={INVITE_PURPOSE_ONBOARDING, INVITE_PURPOSE_LEGACY_ACCEPT},
+    )
+    if profile and profile.form_submitted_at:
+        raise_api_error(
+            status_code=STATUS_CONFLICT,
+            code="VALIDATION_ERROR",
+            message="Onboarding form has already been submitted",
+        )
+
+    # Never trust client-supplied email; bind identity to the invitation record.
+    _ = email  # retained for backward-compatible callers; intentionally unused
+    invited_email = invite.email or user.email
+    if not invited_email:
+        raise_api_error(
+            status_code=STATUS_BAD_REQUEST,
+            code="VALIDATION_ERROR",
+            message="Invitation does not have an email address",
+        )
+    normalized_email = normalize_username(invited_email)
+    normalized_phone = normalize_phone(phone)
+    _raise_duplicate_conflicts(db, email=normalized_email, phone=normalized_phone, exclude_user_id=user.id)
+
+    user.full_name = full_name
+    user.email = normalized_email
+    user.phone_number = normalized_phone
+    user.is_active = False
+
+    if not profile:
+        profile = AgentProfile(user_id=user.id)
+        db.add(profile)
+        db.flush()
+
+    service_areas = _replace_agent_service_areas(db, agent_user_id=user.id, area_ids=service_area_ids)
+    profile.service_area = _service_area_label(service_areas)
+    profile.whatsapp_number = whatsapp_number
+    profile.position = position
+    if identity_document_url:
+        profile.identity_document_s3_link = canonicalize_media_url(identity_document_url) or identity_document_url
+    else:
+        profile.identity_document_s3_link = None
+    profile.status = "PENDING_PASSWORD"
+    profile.form_submitted_at = utc_now()
+    profile.deleted_at = None
+    profile.decline_reason = None
+
+    invite.is_used = True
+    invite.email = normalized_email
+    invite.phone_number = normalized_phone
+
+    password_token = _create_password_setup_challenge(db, user=user, actor_id=invite.invited_by)
+    db.flush()
+    return {
+        "id": str(user.id),
+        "email": user.email,
+        "fullName": user.full_name,
+        "phone": user.phone_number or "",
+        "whatsappNumber": profile.whatsapp_number,
+        "serviceAreas": service_areas,
+        "position": profile.position,
+        "status": profile.status,
+        "formSubmittedAt": _iso(profile.form_submitted_at),
+        "passwordSetupLink": _password_setup_link(password_token),
+    }
+
+
+def complete_agent_password_setup(db: Session, *, token: str, password: str) -> dict:
+    challenges = db.execute(
+        select(UserProfileChangeChallenge)
+        .where(UserProfileChangeChallenge.purpose == AGENT_PASSWORD_CHALLENGE_PURPOSE)
+        .order_by(UserProfileChangeChallenge.created_at.desc())
+    ).scalars().all()
+    challenge = next((item for item in challenges if verify_secret(token, item.otp_hash)), None)
+    if not challenge:
+        raise_api_error(
+            status_code=STATUS_BAD_REQUEST,
+            code="INVITATION_INVALID",
+            message="Password creation link is invalid",
+        )
+    if _is_expired(challenge.expires_at):
+        raise_api_error(
+            status_code=STATUS_BAD_REQUEST,
+            code="INVITATION_EXPIRED",
+            message="Password creation link has expired",
+        )
+
+    user = db.get(User, challenge.user_id)
+    profile = db.get(AgentProfile, challenge.user_id) if user else None
+    if not user or not profile:
+        raise_api_error(status_code=STATUS_NOT_FOUND, code="INVITATION_INVALID", message="Agent account not found")
+
+    user.password_hash = hash_secret(password)
+    user.is_active = True
+    user.is_email_verified = True
+    profile.status = "ACTIVE"
+    profile.deleted_at = None
+    profile.decline_reason = None
+    profile.password_set_at = utc_now()
+    profile.approved_at = utc_now()
+    mark_password_set(db, user)
+    challenge.expires_at = utc_now()
+    db.flush()
+    return serialize_agent(db, user, profile)
 
 
 def accept_agent_invitation(db: Session, *, token: str, password: str) -> dict:
+    """Backward-compatible combined accept for legacy invitation links."""
     invite, user, profile = get_agent_invitation_by_token(db, token)
+    purpose = invite.purpose or INVITE_PURPOSE_LEGACY_ACCEPT
+    if purpose == INVITE_PURPOSE_ONBOARDING:
+        raise_api_error(
+            status_code=STATUS_BAD_REQUEST,
+            code="INVITATION_INVALID",
+            message="This invitation requires onboarding form submission before password setup",
+        )
+    if purpose not in {INVITE_PURPOSE_LEGACY_ACCEPT, INVITE_PURPOSE_PASSWORD_SETUP}:
+        raise_api_error(
+            status_code=STATUS_BAD_REQUEST,
+            code="INVITATION_INVALID",
+            message="Invitation is not valid for password acceptance",
+        )
+
     user.password_hash = hash_secret(password)
     user.is_active = True
     user.is_email_verified = True
@@ -339,7 +714,67 @@ def accept_agent_invitation(db: Session, *, token: str, password: str) -> dict:
     profile.password_set_at = utc_now()
     mark_password_set(db, user)
     db.flush()
-    return serialize_agent(user, profile, invited_by=str(invite.invited_by), invited_at=invite.invited_at)
+    return serialize_agent(db, user, profile, invited_by=str(invite.invited_by), invited_at=invite.invited_at)
+
+
+def create_agent_document_upload(
+    db: Session,
+    *,
+    token: str,
+    file_name: str,
+    content_type: str,
+    file_size: int,
+) -> dict:
+    """Presigned upload for invited (unauthenticated) agents via invitation token."""
+    invite, _user, _profile = get_agent_invitation_by_token(
+        db,
+        token,
+        allowed_purposes={INVITE_PURPOSE_ONBOARDING, INVITE_PURPOSE_LEGACY_ACCEPT},
+    )
+    if file_size > IDENTITY_DOCUMENT_MAX_BYTES:
+        raise_api_error(
+            status_code=STATUS_BAD_REQUEST,
+            code="VALIDATION_ERROR",
+            message="Identity document must be 5 MB or smaller",
+        )
+
+    safe_file_name = PurePosixPath(file_name).name
+    object_key = f"invitation/identity_documents/{invite.id}/{uuid4()}-{safe_file_name}"
+
+    settings = get_settings()
+    bucket = (settings.aws_s3_bucket or "").strip().strip("\"'")
+    if bucket:
+        presigned = generate_presigned_put_url(object_key)
+        if not presigned:
+            raise_api_error(
+                status_code=STATUS_INTERNAL_SERVER_ERROR,
+                code="UPLOAD_ERROR",
+                message="Could not generate upload URL",
+            )
+        return {
+            "upload_url": presigned["upload_url"],
+            "object_key": presigned["object_key"],
+            "file_url": presigned["file_url"],
+            "readable_url": presigned["readable_url"],
+            "signed_read_url": presigned["signed_read_url"],
+            "mode": "s3",
+            "content_type": content_type,
+            "file_size": file_size,
+            "expires_in": presigned["expires_in"],
+            "readable_expires_in": presigned["readable_expires_in"],
+        }
+
+    dev_url = f"dev://uploads/{object_key}"
+    return {
+        "upload_url": dev_url,
+        "object_key": object_key,
+        "file_url": dev_url,
+        "readable_url": dev_url,
+        "signed_read_url": dev_url,
+        "mode": "log",
+        "content_type": content_type,
+        "file_size": file_size,
+    }
 
 
 def manual_onboard_agent(
@@ -347,40 +782,37 @@ def manual_onboard_agent(
     *,
     full_name: str,
     email: str,
-    phone: str | None,
-    service_area: str | None,
+    phone: str,
+    service_area_ids: list[int],
+    position: str | None = None,
+    identity_document_url: str | None = None,
     actor_id: UUID,
     agency_id: UUID | None,
+    whatsapp_number: str | None = None,
 ) -> dict:
     if agency_id is None:
-        raise HTTPException(status_code=STATUS_BAD_REQUEST, detail="Agency Admin must belong to an agency")
-    normalized_email = normalize_username(email)
-    existing = db.execute(select(User).where(User.email == normalized_email)).scalar_one_or_none()
-    temporary_password = secrets.token_urlsafe(10)
-    if existing:
-        user = existing
-        if agency_id and not user.agency_id:
-            user.agency_id = agency_id
-        user.full_name = full_name or user.full_name
-        user.phone_number = phone or user.phone_number
-        user.is_active = False
-        if not user.password_hash:
-            user.password_hash = hash_secret(temporary_password)
-    else:
-        user = User(
-            id=uuid4(),
-            full_name=full_name,
-            email=normalized_email,
-            phone_number=phone,
-            is_active=False,
-            is_email_verified=False,
-            is_phone_verified=False,
-            preferred_language="en",
-            agency_id=agency_id,
-            password_hash=hash_secret(temporary_password),
+        raise_api_error(
+            status_code=STATUS_BAD_REQUEST,
+            code="VALIDATION_ERROR",
+            message="Agency Admin must belong to an agency",
         )
-        db.add(user)
-        db.flush()
+    normalized_email = normalize_username(email)
+    normalized_phone = normalize_phone(phone)
+    _raise_duplicate_conflicts(db, email=normalized_email, phone=normalized_phone)
+
+    user = User(
+        id=uuid4(),
+        full_name=full_name,
+        email=normalized_email,
+        phone_number=normalized_phone,
+        is_active=False,
+        is_email_verified=False,
+        is_phone_verified=False,
+        preferred_language="en",
+        agency_id=agency_id,
+    )
+    db.add(user)
+    db.flush()
 
     assign_role(db, user.id, "agent", assigned_by=actor_id)
     ensure_user_agency_mapping(
@@ -390,38 +822,37 @@ def manual_onboard_agent(
         relationship_type=REL_AGENT,
         actor_user_id=actor_id,
     )
-    profile = db.get(AgentProfile, user.id)
-    if not profile:
-        profile = AgentProfile(user_id=user.id)
-        db.add(profile)
-    profile.service_area = service_area
-    profile.status = "INACTIVE"
-    profile.approved_by = None
-    profile.approved_at = None
-    profile.reviewed_by = actor_id
-    profile.reviewed_at = utc_now()
-    profile.deleted_at = None
-    profile.decline_reason = None
-    invite = _create_agent_password_setup_invite(
-        db,
-        email=normalized_email,
-        invited_by=actor_id,
+    stored_identity = None
+    if identity_document_url:
+        stored_identity = canonicalize_media_url(identity_document_url) or identity_document_url
+    profile = AgentProfile(
+        user_id=user.id,
+        whatsapp_number=whatsapp_number,
+        position=position,
+        identity_document_s3_link=stored_identity,
+        status="PENDING_PASSWORD",
+        form_submitted_at=utc_now(),
+        reviewed_by=actor_id,
+        reviewed_at=utc_now(),
     )
-    send_email_notification(
-        to_email=normalized_email,
-        subject="Create your Abdoun agent password",
-        body=f"Your temporary password is {temporary_password}. Create your permanent password using this dev setup link: {_invite_link(invite.token)}",
-    )
+    db.add(profile)
+    db.flush()
+    service_areas = _replace_agent_service_areas(db, agent_user_id=user.id, area_ids=service_area_ids)
+    profile.service_area = _service_area_label(service_areas)
+
+    password_token = _create_password_setup_challenge(db, user=user, actor_id=actor_id)
     db.flush()
     return {
         "id": str(user.id),
         "email": user.email,
         "fullName": user.full_name,
         "phone": user.phone_number or "",
-        "serviceArea": profile.service_area or "",
+        "whatsappNumber": profile.whatsapp_number,
+        "serviceAreas": service_areas,
+        "position": profile.position,
+        "identityDocumentUrl": resolve_readable_media_url(profile.identity_document_s3_link),
         "status": profile.status,
-        "temporaryPassword": temporary_password,
-        "inviteLink": _invite_link(invite.token),
+        "passwordSetupLink": _password_setup_link(password_token),
     }
 
 
@@ -433,31 +864,61 @@ def resend_agent_invitation(
     agency_id: UUID | None,
 ) -> dict:
     if agency_id is None:
-        raise HTTPException(status_code=STATUS_BAD_REQUEST, detail="Agency Admin must belong to an agency")
+        raise_api_error(
+            status_code=STATUS_BAD_REQUEST,
+            code="VALIDATION_ERROR",
+            message="Agency Admin must belong to an agency",
+        )
     user = db.get(User, agent_id)
     profile = db.get(AgentProfile, agent_id)
     if not user or not profile:
-        raise HTTPException(status_code=STATUS_NOT_FOUND, detail="Agent not found")
+        raise_api_error(status_code=STATUS_NOT_FOUND, code="VALIDATION_ERROR", message="Agent not found")
     if not _agent_in_agency(db, user=user, agency_id=agency_id):
-        raise HTTPException(status_code=STATUS_FORBIDDEN, detail="Agent is outside the agency")
-    _revoke_active_invites(db, email=user.email, actor_id=actor_id)
-    token = secrets.token_urlsafe(32)
-    invite = AgentInvite(
-        id=uuid4(),
-        email=user.email,
+        raise_api_error(status_code=STATUS_FORBIDDEN, code="VALIDATION_ERROR", message="Agent is outside the agency")
+
+    if profile.status == "PENDING_PASSWORD" or profile.form_submitted_at:
+        password_token = _create_password_setup_challenge(db, user=user, actor_id=actor_id)
+        password_url = _password_setup_link(password_token)
+        expiry = _iso(utc_now() + _password_setup_expiry())
+        db.flush()
+        return {
+            "id": str(user.id),
+            "email": user.email,
+            "status": profile.status,
+            "passwordSetupLink": password_url,
+            "invitedBy": str(actor_id),
+            "invitation_id": None,
+            "invitation_url": password_url,
+            "invitation_token": password_token,
+            "expiry": expiry,
+            "invitationId": None,
+            "invitationUrl": password_url,
+            "invitationToken": password_token,
+            "expiresAt": expiry,
+        }
+
+    invite = _create_agent_invite(
+        db,
         invited_by=actor_id,
-        token=token,
-        expires_at=utc_now() + _invite_expiry(),
-        is_used=False,
-        invited_at=utc_now(),
+        purpose=INVITE_PURPOSE_ONBOARDING,
+        email=None if str(user.email).endswith("@agents.local") else user.email,
+        phone_number=user.phone_number,
     )
-    db.add(invite)
+    if not invite.email:
+        invite.email = user.email
     profile.status = "INVITED"
-    send_email_notification(
-        to_email=user.email,
-        subject="Abdoun agent invitation",
-        body=f"You have been invited as an agent. Dev invite token: {token}",
-    )
+    link = _invite_link(invite.token)
+    if invite.email and not str(invite.email).endswith("@agents.local"):
+        send_email_notification(
+            to_email=invite.email,
+            subject="Abdoun agent invitation",
+            body=f"You have been invited as an agent. Dev onboarding link: {link}",
+        )
+    if user.phone_number:
+        send_sms_notification(
+            to_phone=user.phone_number,
+            body=f"Abdoun agent invitation. Dev onboarding link: {link}",
+        )
     db.flush()
     return serialize_agent_invite(user, invite)
 
@@ -479,18 +940,22 @@ def delete_agent(
     agency_id: UUID | None,
 ) -> None:
     if agency_id is None:
-        raise HTTPException(status_code=STATUS_BAD_REQUEST, detail="Agency Admin must belong to an agency")
+        raise_api_error(
+            status_code=STATUS_BAD_REQUEST,
+            code="VALIDATION_ERROR",
+            message="Agency Admin must belong to an agency",
+        )
     user = db.get(User, agent_id)
     profile = db.get(AgentProfile, agent_id)
     if not user or not profile:
-        raise HTTPException(status_code=STATUS_NOT_FOUND, detail="Agent not found")
+        raise_api_error(status_code=STATUS_NOT_FOUND, code="VALIDATION_ERROR", message="Agent not found")
     if not _agent_in_agency(db, user=user, agency_id=agency_id):
-        raise HTTPException(status_code=STATUS_FORBIDDEN, detail="Agent is outside the agency")
+        raise_api_error(status_code=STATUS_FORBIDDEN, code="VALIDATION_ERROR", message="Agent is outside the agency")
     profile.status = "DELETED"
     profile.deleted_at = utc_now()
     profile.deleted_by = actor_id
     user.is_active = False
-    _revoke_active_invites(db, email=user.email, actor_id=actor_id)
+    _revoke_active_invites(db, actor_id=actor_id, email=user.email, phone_number=user.phone_number)
 
 
 def agent_summary(
@@ -515,6 +980,7 @@ def agent_summary(
         "totalAgents": len(agents),
         "activeAgents": sum(1 for agent in agents if agent["status"] == "ACTIVE"),
         "pendingInvites": sum(1 for agent in agents if agent["status"] == "INVITED"),
+        "pendingPassword": sum(1 for agent in agents if agent["status"] == "PENDING_PASSWORD"),
         "pendingReview": sum(1 for agent in agents if agent["status"] == "PENDING_REVIEW"),
         "declined": sum(1 for agent in agents if agent["status"] == "DECLINED"),
         "lastFiveAgents": [
@@ -535,7 +1001,7 @@ def agent_summary(
                     "reviewedAt": agent["reviewedAt"],
                     "reviewedBy": None,
                     "formSubmittedAt": agent["formSubmittedAt"],
-                    "passwordSetAt": None,
+                    "passwordSetAt": agent.get("passwordSetAt"),
                     "approvedAt": None,
                     "approvedBy": None,
                 },
@@ -556,12 +1022,12 @@ def update_agent_status(
 ) -> dict:
     normalized_status = status.strip().upper()
     if normalized_status not in AGENT_STATUSES:
-        raise HTTPException(status_code=STATUS_BAD_REQUEST, detail="Invalid agent status")
+        raise_api_error(status_code=STATUS_BAD_REQUEST, code="VALIDATION_ERROR", message="Invalid agent status")
 
     user = db.get(User, agent_id)
     profile = db.get(AgentProfile, agent_id)
     if not user or not profile:
-        raise HTTPException(status_code=STATUS_NOT_FOUND, detail="Agent not found")
+        raise_api_error(status_code=STATUS_NOT_FOUND, code="VALIDATION_ERROR", message="Agent not found")
     has_mapping = bool(
         actor_agency_id
         and user_has_active_agency_mapping(
@@ -573,7 +1039,7 @@ def update_agent_status(
     )
     has_legacy_agency = bool(actor_agency_id and user.agency_id == actor_agency_id)
     if actor_agency_id is None or not (has_mapping or has_legacy_agency):
-        raise HTTPException(status_code=STATUS_FORBIDDEN, detail="Agent is outside the agency")
+        raise_api_error(status_code=STATUS_FORBIDDEN, code="VALIDATION_ERROR", message="Agent is outside the agency")
 
     profile.status = normalized_status
     profile.reviewed_by = actor_id
@@ -585,4 +1051,4 @@ def update_agent_status(
         profile.decline_reason = None
     elif normalized_status == "DECLINED":
         profile.decline_reason = reason
-    return serialize_agent(user, profile)
+    return serialize_agent(db, user, profile)

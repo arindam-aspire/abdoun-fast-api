@@ -18,6 +18,7 @@ from app.models.live_schema import (
     Feature,
     PropertyCategory,
     PropertyListingSubmission,
+    PropertyMedia,
     PropertyType,
     User,
     UserPropertyFavorite,
@@ -133,12 +134,66 @@ def _empty_media_for_listing() -> dict[str, Any]:
     }
 
 
-def _media_for_listing(payload: dict[str, Any]) -> dict[str, Any]:
+def _media_from_property_media_rows(rows: list[PropertyMedia]) -> dict[str, Any] | None:
+    if not rows:
+        return None
+    media = dict(_empty_media_for_listing())
+    images: list[dict[str, Any]] = []
+    videos: list[dict[str, Any]] = []
+    floor_plans: list[dict[str, Any]] = []
+    documents: list[dict[str, Any]] = []
+
+    for row in rows:
+        url = resolve_readable_media_url(row.url)
+        if not url:
+            continue
+        item = {
+            "id": row.id,
+            "url": url,
+            "thumb_url": resolve_readable_media_url(row.thumb_url) or url,
+            "is_primary": bool(row.is_primary),
+            "order": int(row.display_order or 0),
+            "caption": row.caption,
+        }
+        if row.media_type == "image":
+            images.append(item)
+        elif row.media_type == "video":
+            videos.append(item)
+        elif row.media_type == "floor_plan":
+            floor_plans.append(item)
+        elif row.media_type == "document":
+            documents.append(item)
+
+    images.sort(key=lambda item: (not item["is_primary"], item["order"], item["id"]))
+    videos.sort(key=lambda item: (item["order"], item["id"]))
+    floor_plans.sort(key=lambda item: (item["order"], item["id"]))
+    documents.sort(key=lambda item: (item["order"], item["id"]))
+
+    media.update(
+        {
+            "thumbnail": images[0]["url"] if images else None,
+            "images": images,
+            "videos": videos,
+            "floor_plan_images": floor_plans,
+            "documents": documents,
+        }
+    )
+    return media
+
+
+def _media_for_listing(payload: dict[str, Any], *, property_media_rows: list[PropertyMedia] | None = None) -> dict[str, Any]:
+    from_table = _media_from_property_media_rows(property_media_rows or [])
+    if from_table and (from_table["images"] or from_table["videos"] or from_table["documents"] or from_table["floor_plan_images"]):
+        source = payload.get("media_documents") or {}
+        if isinstance(source, dict):
+            from_table["virtual_tour_url"] = source.get("virtual_tour_url")
+        return from_table
+
     media = dict(_empty_media_for_listing())
     source = payload.get("media_documents") or {}
     images = []
     for index, image in enumerate(source.get("images") or []):
-        url = resolve_readable_media_url(image.get("url"))
+        url = resolve_readable_media_url(image.get("url") if isinstance(image, dict) else None)
         if not url:
             continue
         images.append(
@@ -165,7 +220,7 @@ def _media_for_listing(payload: dict[str, Any]) -> dict[str, Any]:
         )
     documents = []
     for index, document in enumerate(source.get("documents") or []):
-        url = resolve_readable_media_url(document.get("url"))
+        url = resolve_readable_media_url(document.get("url") if isinstance(document, dict) else None)
         if not url:
             continue
         documents.append(
@@ -190,8 +245,12 @@ def _media_for_listing(payload: dict[str, Any]) -> dict[str, Any]:
     return media
 
 
-def _media_for_details(payload: dict[str, Any]) -> dict[str, Any]:
-    media = _media_for_listing(payload)
+def _media_for_details(
+    payload: dict[str, Any],
+    *,
+    property_media_rows: list[PropertyMedia] | None = None,
+) -> dict[str, Any]:
+    media = _media_for_listing(payload, property_media_rows=property_media_rows)
     media["videos"] = [video.get("url") for video in media["videos"] if video.get("url")]
     return media
 
@@ -278,6 +337,16 @@ def _map_embed_url(*, latitude: float | None, longitude: float | None, query: st
     return None
 
 
+def _load_property_media(db: Session, property_id: UUID) -> list[PropertyMedia]:
+    return list(
+        db.execute(
+            select(PropertyMedia)
+            .where(PropertyMedia.property_id == property_id)
+            .order_by(PropertyMedia.display_order.asc().nullslast(), PropertyMedia.id.asc())
+        ).scalars().all()
+    )
+
+
 def serialize_property_listing(
     db: Session,
     submission: PropertyListingSubmission,
@@ -301,7 +370,7 @@ def serialize_property_listing(
     property_hash = stable_property_hash(property_id)
     listing_type = "rent" if basic.get("listing_purpose") == "rent" else "sale"
     address = localized_text(location.get("address") or (area.name if area else city.name if city else ""))
-    media = _media_for_listing(payload)
+    media = _media_for_listing(payload, property_media_rows=_load_property_media(db, property_id))
     latitude = _float(location.get("latitude") or location.get("lat"))
     longitude = _float(location.get("longitude") or location.get("lng"))
     location_query = ", ".join(
@@ -400,6 +469,7 @@ def serialize_property_detail(
     agency = _agency_for_submission(db, submission, submitter)
     property_hash = listing["id"]
     listing_type = listing["listing_type"]
+    property_id = submission.property_id or submission.id
     workflow = serialize_property_detail_workflow(
         db,
         submission,
@@ -438,7 +508,7 @@ def serialize_property_detail(
         "bathrooms": _int(details.get("bathrooms")),
         "built_up_area": _float(details.get("built_up_area")),
         "more_features": [],
-        "media": _media_for_details(payload),
+        "media": _media_for_details(payload, property_media_rows=_load_property_media(db, property_id)),
         "latitude": listing["location_detail"]["latitude"],
         "longitude": listing["location_detail"]["longitude"],
         "location_name": ", ".join(part for part in [listing["areaName"], listing["city"]] if part) or None,

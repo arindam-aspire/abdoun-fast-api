@@ -6,13 +6,14 @@ from typing import Any
 from uuid import UUID, uuid4
 
 from fastapi import HTTPException
-from sqlalchemy import func, or_, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
 
 from app.core.config import get_settings
-from app.models.live_schema import AgencyMaster, PropertyListingSubmission, User
+from app.models.live_schema import AgencyMaster, PropertyListingSubmission, PropertyMedia, User
 from app.services.audit import record_activity
+from app.services.media_urls import canonicalize_media_url, with_canonical_media_urls, with_readable_media_urls
 from app.services.notifications import create_in_app_notification, send_email_notification, send_sms_notification
 from app.services.property_workflow_config import get_property_workflow_config
 from app.services.user_agencies import (
@@ -380,6 +381,136 @@ def _has_property_image(payload: dict[str, Any]) -> bool:
     return any(isinstance(image, dict) and bool(str(image.get("url") or "").strip()) for image in images)
 
 
+def _media_item_url(item: Any) -> str | None:
+    if isinstance(item, str):
+        value = item.strip()
+        return canonicalize_media_url(value) if value else None
+    if isinstance(item, dict):
+        value = str(item.get("url") or item.get("file_url") or "").strip()
+        return canonicalize_media_url(value) if value else None
+    return None
+
+
+def sync_property_media_from_payload(
+    db: Session,
+    *,
+    property_id: UUID,
+    payload: dict[str, Any] | None,
+) -> None:
+    """Materialize payload.media_documents into normalized property_media rows."""
+    media = (payload or {}).get("media_documents") or {}
+    if not isinstance(media, dict):
+        media = {}
+
+    db.execute(delete(PropertyMedia).where(PropertyMedia.property_id == property_id))
+
+    rows: list[PropertyMedia] = []
+
+    images = media.get("images") or []
+    if isinstance(images, list):
+        for index, image in enumerate(images):
+            url = _media_item_url(image)
+            if not url:
+                continue
+            is_primary = bool(image.get("is_primary")) if isinstance(image, dict) else index == 0
+            if not any(row.is_primary for row in rows if row.media_type == "image") and index == 0:
+                is_primary = True
+            display_order = index
+            caption = None
+            if isinstance(image, dict):
+                raw_order = image.get("display_order")
+                if raw_order is not None:
+                    try:
+                        display_order = int(raw_order)
+                    except (TypeError, ValueError):
+                        display_order = index
+                caption = image.get("caption") or image.get("file_name")
+            rows.append(
+                PropertyMedia(
+                    property_id=property_id,
+                    media_type="image",
+                    url=url,
+                    thumb_url=url,
+                    is_primary=is_primary,
+                    display_order=display_order,
+                    caption=caption,
+                )
+            )
+
+    youtube_url = str(media.get("youtube_url") or "").strip()
+    if youtube_url:
+        rows.append(
+            PropertyMedia(
+                property_id=property_id,
+                media_type="video",
+                url=youtube_url,
+                thumb_url=youtube_url,
+                is_primary=True,
+                display_order=0,
+                caption=None,
+            )
+        )
+
+    floor_plans = media.get("floor_plan_images") or media.get("floor_plans") or []
+    if isinstance(floor_plans, list):
+        for index, item in enumerate(floor_plans):
+            url = _media_item_url(item)
+            if not url:
+                continue
+            caption = item.get("file_name") if isinstance(item, dict) else None
+            rows.append(
+                PropertyMedia(
+                    property_id=property_id,
+                    media_type="floor_plan",
+                    url=url,
+                    thumb_url=url,
+                    is_primary=index == 0,
+                    display_order=index,
+                    caption=caption,
+                )
+            )
+
+    documents = media.get("documents") or []
+    if isinstance(documents, list):
+        for index, item in enumerate(documents):
+            url = _media_item_url(item)
+            if not url:
+                continue
+            caption = item.get("file_name") if isinstance(item, dict) else None
+            rows.append(
+                PropertyMedia(
+                    property_id=property_id,
+                    media_type="document",
+                    url=url,
+                    thumb_url=url,
+                    is_primary=index == 0,
+                    display_order=index,
+                    caption=caption,
+                )
+            )
+
+    if rows and not any(row.is_primary for row in rows if row.media_type == "image"):
+        for row in rows:
+            if row.media_type == "image":
+                row.is_primary = True
+                break
+
+    for row in rows:
+        db.add(row)
+    db.flush()
+
+
+def ensure_property_id_and_sync_media(db: Session, submission: PropertyListingSubmission) -> UUID:
+    if not submission.property_id:
+        submission.property_id = uuid4()
+    sync_property_media_from_payload(
+        db,
+        property_id=submission.property_id,
+        payload=submission.payload or {},
+    )
+    return submission.property_id
+
+
 def compute_step_completion(payload: dict[str, Any]) -> dict[str, bool]:
     return {section: bool(payload.get(section)) for section in SUBMISSION_SECTIONS}
 
@@ -396,7 +527,7 @@ def serialize_submission(submission: PropertyListingSubmission) -> dict:
         "current_step": submission.current_step,
         "last_completed_step": submission.last_completed_step,
         "step_completion": submission.step_completion or compute_step_completion(payload),
-        "payload": payload,
+        "payload": with_readable_media_urls(payload),
         "reviewed_by": str(submission.reviewed_by) if submission.reviewed_by else None,
         "reviewed_at": _iso(submission.reviewed_at),
         "review_reason": submission.review_reason,
@@ -426,6 +557,7 @@ def create_submission(
     status: str = "draft",
 ) -> PropertyListingSubmission:
     submitted_at = utc_now() if status not in DRAFT_STATUSES else None
+    normalized_payload = with_canonical_media_urls(payload)
     submission = PropertyListingSubmission(
         id=uuid4(),
         submitted_by=user_id,
@@ -433,12 +565,12 @@ def create_submission(
         status=status,
         current_step=current_step,
         last_completed_step=last_completed_step,
-        payload=payload,
-        step_completion=compute_step_completion(payload),
-        terms_accepted=bool((payload.get("review_submit") or {}).get("terms_accepted")),
-        privacy_accepted=bool((payload.get("review_submit") or {}).get("privacy_accepted")),
-        public_display_authorized=bool((payload.get("review_submit") or {}).get("public_display_authorized")),
-        fees_acknowledged=bool((payload.get("review_submit") or {}).get("fees_acknowledged")),
+        payload=normalized_payload,
+        step_completion=compute_step_completion(normalized_payload),
+        terms_accepted=bool((normalized_payload.get("review_submit") or {}).get("terms_accepted")),
+        privacy_accepted=bool((normalized_payload.get("review_submit") or {}).get("privacy_accepted")),
+        public_display_authorized=bool((normalized_payload.get("review_submit") or {}).get("public_display_authorized")),
+        fees_acknowledged=bool((normalized_payload.get("review_submit") or {}).get("fees_acknowledged")),
         submitted_at=submitted_at,
     )
     db.add(submission)
@@ -453,6 +585,7 @@ def get_submission_or_404(db: Session, submission_id: UUID) -> PropertyListingSu
 
 
 def update_submission(
+    db: Session,
     submission: PropertyListingSubmission,
     *,
     agency_id: UUID | None,
@@ -466,7 +599,7 @@ def update_submission(
     )
     if not is_editable_status:
         raise HTTPException(status_code=STATUS_BAD_REQUEST, detail="This property submission is not editable in its current workflow stage")
-    next_payload = dict(payload)
+    next_payload = with_canonical_media_urls(dict(payload))
     existing_workflow = _workflow_from_submission(submission)
     if existing_workflow:
         next_payload["_workflow"] = existing_workflow
@@ -479,6 +612,12 @@ def update_submission(
     if submission.status in DRAFT_STATUSES:
         submission.status = "draft"
     flag_modified(submission, "payload")
+    if submission.property_id and next_payload.get("media_documents") is not None:
+        sync_property_media_from_payload(
+            db,
+            property_id=submission.property_id,
+            payload=next_payload,
+        )
     return submission
 
 
@@ -776,6 +915,8 @@ def submit_submission(
         actor_user_id=user_id,
         agent_review_comment=review_comment.strip() if review_comment and next_status == PENDING_APPROVAL_STATUS else None,
     )
+    # Persist uploaded media into normalized property_media (not only JSON payload).
+    ensure_property_id_and_sync_media(db, submission)
     if next_status == AGENT_ASSIGNED_STATUS:
         notify_assigned_agent_for_submission(db, submission=submission, actor_user_id=user_id)
     else:
@@ -929,8 +1070,7 @@ def review_submission(
             raise HTTPException(status_code=STATUS_BAD_REQUEST, detail="Assign an agent before approving this property")
         submission.status = ACTIVE_STATUS
         submission.review_reason = None
-        if not submission.property_id:
-            submission.property_id = uuid4()
+        ensure_property_id_and_sync_media(db, submission)
         _set_submission_workflow(
             submission,
             stage=WORKFLOW_STAGE_ACTIVE,
