@@ -26,10 +26,20 @@ router = APIRouter()
 ContextDep = Annotated[RequestContext, Depends(get_request_context)]
 
 
-@router.get("")
+@router.get(
+    "",
+    summary="List public properties",
+    description=(
+        "Returns paginated public property listings. "
+        "Unauthenticated responses omit owner and agent fields. "
+        "Authenticated responses include owners and agent details (when assigned). "
+        "Each item includes a `currency` object with `code` and `symbol`."
+    ),
+)
 def list_properties(
     db: DBSessionDep,
     context: ContextDep,
+    authorization: Annotated[str | None, Header(alias="Authorization")] = None,
     page: int = 1,
     pageSize: int = 10,
     category: str | None = None,
@@ -94,6 +104,7 @@ def list_properties(
     total = len(rows)
     page_rows = rows[(page - 1) * pageSize : page * pageSize]
     favorites = favorite_lookup(db, context.user_id) if context.user_id else {}
+    is_authenticated = is_authenticated_request(authorization, context.user_id)
     items = []
     for submission, user in page_rows:
         favorite = favorites.get(submission.property_id or submission.id)
@@ -104,6 +115,8 @@ def list_properties(
                 submitter=user,
                 favorite_id=favorite.id if favorite else None,
                 user_id=context.user_id,
+                include_agent=is_authenticated,
+                include_owners=is_authenticated,
             )
         )
     pagination = pagination_meta(total, page, pageSize)
@@ -111,11 +124,17 @@ def list_properties(
 
 
 @router.get("/{property_id}/similar")
-def get_similar_properties(property_id: str, db: DBSessionDep, context: ContextDep) -> dict:
+def get_similar_properties(
+    property_id: str,
+    db: DBSessionDep,
+    context: ContextDep,
+    authorization: Annotated[str | None, Header(alias="Authorization")] = None,
+) -> dict:
     rows = list_public_submissions(db)
     rows = apply_public_filters(rows, similar_to=property_id, db=db)
     rows = sort_public_rows(rows, "newest")[:6]
     favorites = favorite_lookup(db, context.user_id) if context.user_id else {}
+    is_authenticated = is_authenticated_request(authorization, context.user_id)
     items = []
     for submission, user in rows:
         favorite = favorites.get(submission.property_id or submission.id)
@@ -126,6 +145,8 @@ def get_similar_properties(property_id: str, db: DBSessionDep, context: ContextD
                 submitter=user,
                 favorite_id=favorite.id if favorite else None,
                 user_id=context.user_id,
+                include_agent=is_authenticated,
+                include_owners=is_authenticated,
             )
         )
     return success_response({"items": items})

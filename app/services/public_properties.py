@@ -25,6 +25,7 @@ from app.models.live_schema import (
 )
 from app.services.media_urls import resolve_readable_media_url
 from app.services.property_submissions import (
+    _assigned_agent_id,
     can_view_submission,
     serialize_agent_contact_by_id,
     serialize_property_detail_workflow,
@@ -38,6 +39,14 @@ DEAL_CLOSED_STATUS = "APPROVED"
 AGENT_CONTACT_VISIBLE_ROLES = frozenset(
     {"owner", "registered_user", "agent", "admin", "super_admin"}
 )
+CURRENCY_SYMBOLS: dict[str, str] = {
+    "JOD": "JD",
+    "USD": "$",
+    "EUR": "€",
+    "GBP": "£",
+    "AED": "د.إ",
+    "SAR": "ر.س",
+}
 
 
 def can_view_property_agent_contact(roles: tuple[str, ...]) -> bool:
@@ -303,6 +312,14 @@ def _owners(payload: dict[str, Any]) -> list[dict[str, Any]]:
     return serialized
 
 
+def _currency_payload(code: str | None) -> dict[str, str]:
+    normalized = (code or "JOD").strip().upper() or "JOD"
+    return {
+        "code": normalized,
+        "symbol": CURRENCY_SYMBOLS.get(normalized, normalized),
+    }
+
+
 def _feature_ids(payload: dict[str, Any]) -> list[int]:
     return [_int(value) for value in ((payload.get("amenities") or {}).get("feature_ids") or []) if _int(value)]
 
@@ -354,6 +371,8 @@ def serialize_property_listing(
     submitter: User | None = None,
     favorite_id: UUID | None = None,
     user_id: UUID | None = None,
+    include_agent: bool = False,
+    include_owners: bool = False,
 ) -> dict[str, Any]:
     payload = submission.payload or {}
     basic = payload.get("basic_information") or {}
@@ -389,13 +408,14 @@ def serialize_property_listing(
         query=location_query,
     )
 
-    return {
+    item: dict[str, Any] = {
         "id": property_hash,
         "property_id": str(property_id),
         "reference_number": details.get("reference_number") or str(property_id)[:8],
         "title": localized_text(basic.get("title") or "Untitled property"),
         "description": localized_nullable_text(basic.get("description")),
         "price": str(pricing.get("price") or "0"),
+        "currency": _currency_payload(pricing.get("currency")),
         "status": submission.status,
         "category": category.slug if category else str(basic.get("category_id") or ""),
         "searchPropertyType": property_type.slug if property_type else str(basic.get("type_id") or ""),
@@ -438,9 +458,7 @@ def serialize_property_listing(
         "validatedDate": iso(submission.reviewed_at) or iso(submission.updated_at) or iso(submission.created_at),
         "brokerName": agency.agency_trade_name if agency else "",
         "brokerLogo": agency.logo_url if agency else None,
-        "owners": _owners(payload),
         "agency": _agency_payload(agency),
-        "agent": None,
         "is_exclusive": bool(basic.get("is_exclusive")),
         "is_favourite": favorite_id is not None,
         "favourite_id": str(favorite_id) if favorite_id else None,
@@ -449,6 +467,22 @@ def serialize_property_listing(
         "user_id": str(user_id) if user_id else None,
         "listing_type": listing_type,
     }
+    if include_owners:
+        item["owners"] = _owners(payload)
+    if include_agent:
+        assigned_agent_id = _assigned_agent_id(submission)
+        agent = (
+            serialize_agent_contact_by_id(
+                db,
+                assigned_agent_id,
+                contact_enabled=True,
+            )
+            if assigned_agent_id
+            else None
+        )
+        if agent is not None:
+            item["agent"] = agent
+    return item
 
 
 def serialize_property_detail(
@@ -461,7 +495,12 @@ def serialize_property_detail(
     actor_agency_id: UUID | None = None,
     include_private_fields: bool = True,
 ) -> dict[str, Any]:
-    listing = serialize_property_listing(db, submission, submitter=submitter)
+    listing = serialize_property_listing(
+        db,
+        submission,
+        submitter=submitter,
+        include_owners=include_private_fields,
+    )
     payload = submission.payload or {}
     basic = payload.get("basic_information") or {}
     details = payload.get("property_details") or {}
