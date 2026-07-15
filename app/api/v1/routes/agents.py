@@ -93,9 +93,13 @@ def validate_invitation(token: str, db: DBSessionDep) -> dict:
 def accept_invitation(payload: AgentInvitationAcceptRequest, db: DBSessionDep) -> dict:
     agent = accept_agent_invitation(db, token=payload.token, password=payload.password)
     db.commit()
-    return success_response(agent, "Agent account activated successfully")
+    return success_response(
+        agent,
+        "Password set successfully. Your account is pending admin approval.",
+    )
 
 
+@router.post("/invitations/submit")
 @router.post("/onboarding")
 def submit_onboarding(
     payload: AgentOnboardingFormRequest,
@@ -113,10 +117,11 @@ def submit_onboarding(
         db,
         token=invite_token,
         full_name=payload.full_name,
-        email=str(payload.email),
+        email=str(payload.email) if payload.email else None,
         phone=payload.phone,
         whatsapp_number=payload.whatsapp_number,
         service_area_ids=payload.service_area_ids,
+        service_area=payload.service_area,
         position=payload.position,
         identity_document_url=payload.identity_document_url,
     )
@@ -128,7 +133,10 @@ def submit_onboarding(
 def setup_agent_password(payload: AgentPasswordSetupRequest, db: DBSessionDep) -> dict:
     agent = complete_agent_password_setup(db, token=payload.token, password=payload.password)
     db.commit()
-    return success_response(agent, "Agent account activated successfully")
+    return success_response(
+        agent,
+        "Password set successfully. Your account is pending admin approval.",
+    )
 
 
 @router.post("/invitations/document-upload")
@@ -152,6 +160,7 @@ def create_manual_agent(payload: ManualOnboardAgentRequest, context: AgencyAdmin
         phone=payload.phone,
         whatsapp_number=payload.whatsapp_number,
         service_area_ids=payload.service_area_ids,
+        service_area=payload.service_area,
         position=payload.position,
         identity_document_url=payload.identity_document_url,
         actor_id=context.user_id,
@@ -201,4 +210,15 @@ def set_agent_status(
         reason=payload.reason,
     )
     db.commit()
-    return success_response(agent, "Agent status updated")
+    status = str(agent.get("status") or "").upper()
+    if status == "ACTIVE":
+        message = "Agent approved and activated successfully"
+    elif status == "DECLINED":
+        message = "Agent declined successfully"
+    elif status == "PENDING_REVIEW":
+        message = "Agent marked as pending admin approval"
+    elif status == "INACTIVE":
+        message = "Agent deactivated successfully"
+    else:
+        message = f"Agent status updated to {status}"
+    return success_response(agent, message)

@@ -11,7 +11,15 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.security import hash_secret, verify_secret
-from app.models.live_schema import AgentInvite, AgentProfile, AgentServiceArea, Area, User, UserProfileChangeChallenge
+from app.models.live_schema import (
+    AgentInvite,
+    AgentProfile,
+    AgentServiceArea,
+    Area,
+    City,
+    User,
+    UserProfileChangeChallenge,
+)
 from app.schemas.agents import IDENTITY_DOCUMENT_MAX_BYTES, normalize_phone
 from app.services.auth import assign_role, mark_password_set, normalize_username, utc_now
 from app.services.media_urls import canonicalize_media_url, generate_presigned_put_url, resolve_readable_media_url
@@ -77,18 +85,90 @@ def _pending_email_for_phone(phone: str) -> str:
 
 def _load_service_areas(db: Session, agent_user_id: UUID) -> list[dict]:
     rows = db.execute(
-        select(Area)
+        select(Area, City.name)
         .join(AgentServiceArea, AgentServiceArea.area_id == Area.id)
+        .join(City, City.id == Area.city_id)
         .where(AgentServiceArea.agent_user_id == agent_user_id)
         .order_by(Area.name.asc())
-    ).scalars().all()
-    return [{"id": area.id, "name": area.name, "cityId": area.city_id} for area in rows]
+    ).all()
+    return [
+        {
+            "id": area.id,
+            "name": area.name,
+            "cityId": area.city_id,
+            "cityName": city_name,
+        }
+        for area, city_name in rows
+    ]
 
 
 def _service_area_label(areas: list[dict]) -> str | None:
     if not areas:
         return None
-    return ", ".join(area["name"] for area in areas)
+    parts: list[str] = []
+    for area in areas:
+        city_name = area.get("cityName")
+        if city_name:
+            parts.append(f"{area['name']}, {city_name}")
+        else:
+            parts.append(str(area["name"]))
+    return ", ".join(parts)
+
+
+def _resolve_area_ids_from_service_area_label(db: Session, label: str) -> list[int]:
+    """Resolve frontend free-text labels like '2nd Circle, Amman, 5th Circle, Amman' to area ids."""
+    text = (label or "").strip()
+    if not text:
+        return []
+
+    rows = db.execute(
+        select(Area.id, Area.name, City.name).join(City, City.id == Area.city_id)
+    ).all()
+    if not rows:
+        return []
+
+    # Prefer "Area, City" matches, then bare area names. Longest-first avoids partial hits.
+    candidates: list[tuple[str, int]] = []
+    for area_id, area_name, city_name in rows:
+        area_label = (area_name or "").strip()
+        city_label = (city_name or "").strip()
+        if not area_label:
+            continue
+        if city_label:
+            candidates.append((f"{area_label}, {city_label}", int(area_id)))
+        candidates.append((area_label, int(area_id)))
+    candidates.sort(key=lambda item: len(item[0]), reverse=True)
+
+    remaining = text
+    found_ids: list[int] = []
+    seen: set[int] = set()
+    while remaining.strip():
+        remaining = remaining.lstrip(" ,")
+        if not remaining:
+            break
+        matched = False
+        lowered = remaining.lower()
+        for candidate_label, area_id in candidates:
+            prefix = candidate_label.lower()
+            if not lowered.startswith(prefix):
+                continue
+            # Require boundary after match (end or separator) so "1st Circle" does not steal "1st Circle Road".
+            end = len(candidate_label)
+            if end < len(remaining) and remaining[end] not in {",", " "}:
+                continue
+            if area_id not in seen:
+                found_ids.append(area_id)
+                seen.add(area_id)
+            remaining = remaining[end:]
+            matched = True
+            break
+        if not matched:
+            # Skip an unrecognized token and continue scanning.
+            next_comma = remaining.find(",")
+            if next_comma < 0:
+                break
+            remaining = remaining[next_comma + 1 :]
+    return found_ids
 
 
 def _replace_agent_service_areas(db: Session, *, agent_user_id: UUID, area_ids: list[int]) -> list[dict]:
@@ -125,6 +205,27 @@ def _active_invite_for_email(db: Session, email: str) -> AgentInvite | None:
             AgentInvite.email == normalize_username(email),
             AgentInvite.revoked_at.is_(None),
             AgentInvite.is_used.is_(False),
+        )
+        .order_by(AgentInvite.invited_at.desc().nullslast(), AgentInvite.created_at.desc())
+        .limit(1)
+    ).scalar_one_or_none()
+
+
+def _latest_invite_for_user(db: Session, *, email: str | None, phone_number: str | None) -> AgentInvite | None:
+    """Most recent invite for list display — includes used invites so invitedAt survives onboarding."""
+    identity_filters = []
+    if email:
+        identity_filters.append(AgentInvite.email == normalize_username(email))
+    if phone_number:
+        identity_filters.append(AgentInvite.phone_number == normalize_phone(phone_number))
+    if not identity_filters:
+        return None
+
+    return db.execute(
+        select(AgentInvite)
+        .where(
+            AgentInvite.revoked_at.is_(None),
+            or_(*identity_filters),
         )
         .order_by(AgentInvite.invited_at.desc().nullslast(), AgentInvite.created_at.desc())
         .limit(1)
@@ -304,7 +405,11 @@ def serialize_agent(
         "invitedBy": invited_by,
         "formSubmittedAt": _iso(profile.form_submitted_at) if profile else None,
         "passwordSetAt": _iso(profile.password_set_at) if profile else None,
+        "approvedAt": _iso(profile.approved_at) if profile else None,
+        "approvedBy": str(profile.approved_by) if profile and profile.approved_by else None,
         "reviewedAt": _iso(profile.reviewed_at) if profile else None,
+        "reviewedBy": str(profile.reviewed_by) if profile and profile.reviewed_by else None,
+        "statusReason": profile.status_reason if profile else None,
         "declineReason": profile.decline_reason if profile else None,
     }
 
@@ -370,14 +475,14 @@ def list_agents(
     rows = db.execute(stmt.offset(offset).limit(page_size)).all()
     agents = []
     for user, profile in rows:
-        invite = _active_invite_for_email(db, user.email) if user.email else None
+        invite = _latest_invite_for_user(db, email=user.email, phone_number=user.phone_number)
         agents.append(
             serialize_agent(
                 db,
                 user,
                 profile,
                 invited_by=str(invite.invited_by) if invite else None,
-                invited_at=invite.invited_at if invite else None,
+                invited_at=(invite.invited_at if invite else None) or (invite.created_at if invite else None),
             )
         )
 
@@ -566,7 +671,8 @@ def submit_agent_onboarding(
     token: str,
     full_name: str,
     phone: str,
-    service_area_ids: list[int],
+    service_area_ids: list[int] | None = None,
+    service_area: str | None = None,
     position: str | None = None,
     identity_document_url: str | None = None,
     whatsapp_number: str | None = None,
@@ -597,6 +703,24 @@ def submit_agent_onboarding(
     normalized_phone = normalize_phone(phone)
     _raise_duplicate_conflicts(db, email=normalized_email, phone=normalized_phone, exclude_user_id=user.id)
 
+    area_ids = list(service_area_ids or [])
+    free_text_service_area = (service_area or "").strip() or None
+    if not area_ids and free_text_service_area:
+        area_ids = _resolve_area_ids_from_service_area_label(db, free_text_service_area)
+        if not area_ids:
+            raise_api_error(
+                status_code=STATUS_BAD_REQUEST,
+                code="VALIDATION_ERROR",
+                message="One or more service areas are invalid",
+                details={"serviceArea": free_text_service_area},
+            )
+    if not area_ids:
+        raise_api_error(
+            status_code=STATUS_BAD_REQUEST,
+            code="VALIDATION_ERROR",
+            message="At least one service area is required",
+        )
+
     user.full_name = full_name
     user.email = normalized_email
     user.phone_number = normalized_phone
@@ -607,8 +731,9 @@ def submit_agent_onboarding(
         db.add(profile)
         db.flush()
 
-    service_areas = _replace_agent_service_areas(db, agent_user_id=user.id, area_ids=service_area_ids)
-    profile.service_area = _service_area_label(service_areas)
+    service_areas = _replace_agent_service_areas(db, agent_user_id=user.id, area_ids=area_ids)
+    # Prefer client free-text label when provided; otherwise derive from persisted areas.
+    profile.service_area = free_text_service_area or _service_area_label(service_areas)
     profile.whatsapp_number = whatsapp_number
     profile.position = position
     if identity_document_url:
@@ -632,6 +757,7 @@ def submit_agent_onboarding(
         "fullName": user.full_name,
         "phone": user.phone_number or "",
         "whatsappNumber": profile.whatsapp_number,
+        "serviceArea": profile.service_area,
         "serviceAreas": service_areas,
         "position": profile.position,
         "status": profile.status,
@@ -668,11 +794,16 @@ def complete_agent_password_setup(db: Session, *, token: str, password: str) -> 
     user.password_hash = hash_secret(password)
     user.is_active = True
     user.is_email_verified = True
-    profile.status = "ACTIVE"
+    # Password set does not approve the agent — admin must activate via status update.
+    profile.status = "PENDING_REVIEW"
     profile.deleted_at = None
-    profile.decline_reason = None
     profile.password_set_at = utc_now()
-    profile.approved_at = utc_now()
+    profile.approved_at = None
+    profile.approved_by = None
+    profile.reviewed_at = None
+    profile.reviewed_by = None
+    profile.decline_reason = None
+    profile.status_reason = None
     mark_password_set(db, user)
     challenge.expires_at = utc_now()
     db.flush()
@@ -704,14 +835,16 @@ def accept_agent_invitation(db: Session, *, token: str, password: str) -> dict:
     if not profile:
         profile = AgentProfile(user_id=user.id)
         db.add(profile)
-    profile.status = "ACTIVE"
+    # Legacy accept also waits for admin approval — ACTIVE only via PATCH status.
+    profile.status = "PENDING_REVIEW"
     profile.deleted_at = None
-    profile.decline_reason = None
-    profile.approved_by = invite.invited_by
-    profile.approved_at = utc_now()
-    profile.reviewed_by = invite.invited_by
-    profile.reviewed_at = utc_now()
     profile.password_set_at = utc_now()
+    profile.approved_by = None
+    profile.approved_at = None
+    profile.reviewed_by = None
+    profile.reviewed_at = None
+    profile.decline_reason = None
+    profile.status_reason = None
     mark_password_set(db, user)
     db.flush()
     return serialize_agent(db, user, profile, invited_by=str(invite.invited_by), invited_at=invite.invited_at)
@@ -783,7 +916,8 @@ def manual_onboard_agent(
     full_name: str,
     email: str,
     phone: str,
-    service_area_ids: list[int],
+    service_area_ids: list[int] | None = None,
+    service_area: str | None = None,
     position: str | None = None,
     identity_document_url: str | None = None,
     actor_id: UUID,
@@ -799,6 +933,24 @@ def manual_onboard_agent(
     normalized_email = normalize_username(email)
     normalized_phone = normalize_phone(phone)
     _raise_duplicate_conflicts(db, email=normalized_email, phone=normalized_phone)
+
+    area_ids = list(service_area_ids or [])
+    free_text_service_area = (service_area or "").strip() or None
+    if not area_ids and free_text_service_area:
+        area_ids = _resolve_area_ids_from_service_area_label(db, free_text_service_area)
+        if not area_ids:
+            raise_api_error(
+                status_code=STATUS_BAD_REQUEST,
+                code="VALIDATION_ERROR",
+                message="One or more service areas are invalid",
+                details={"serviceArea": free_text_service_area},
+            )
+    if not area_ids:
+        raise_api_error(
+            status_code=STATUS_BAD_REQUEST,
+            code="VALIDATION_ERROR",
+            message="At least one service area is required",
+        )
 
     user = User(
         id=uuid4(),
@@ -832,27 +984,39 @@ def manual_onboard_agent(
         identity_document_s3_link=stored_identity,
         status="PENDING_PASSWORD",
         form_submitted_at=utc_now(),
-        reviewed_by=actor_id,
-        reviewed_at=utc_now(),
+        # Manual onboard still requires password setup + admin approval before ACTIVE.
+        reviewed_by=None,
+        reviewed_at=None,
+        approved_by=None,
+        approved_at=None,
+        decline_reason=None,
+        status_reason=None,
     )
     db.add(profile)
     db.flush()
-    service_areas = _replace_agent_service_areas(db, agent_user_id=user.id, area_ids=service_area_ids)
-    profile.service_area = _service_area_label(service_areas)
+    service_areas = _replace_agent_service_areas(db, agent_user_id=user.id, area_ids=area_ids)
+    profile.service_area = free_text_service_area or _service_area_label(service_areas)
 
     password_token = _create_password_setup_challenge(db, user=user, actor_id=actor_id)
+    temporary_password = secrets.token_urlsafe(10)
+    user.password_hash = hash_secret(temporary_password)
     db.flush()
+    setup_link = _password_setup_link(password_token)
     return {
         "id": str(user.id),
         "email": user.email,
         "fullName": user.full_name,
         "phone": user.phone_number or "",
         "whatsappNumber": profile.whatsapp_number,
+        "serviceArea": profile.service_area,
         "serviceAreas": service_areas,
         "position": profile.position,
         "identityDocumentUrl": resolve_readable_media_url(profile.identity_document_s3_link),
         "status": profile.status,
-        "passwordSetupLink": _password_setup_link(password_token),
+        "temporaryPassword": temporary_password,
+        "temporary_password": temporary_password,
+        "inviteLink": setup_link,
+        "passwordSetupLink": setup_link,
     }
 
 
@@ -1049,6 +1213,17 @@ def update_agent_status(
         profile.approved_by = actor_id
         profile.approved_at = utc_now()
         profile.decline_reason = None
+        user.is_active = True
     elif normalized_status == "DECLINED":
         profile.decline_reason = reason
+        profile.approved_by = None
+        profile.approved_at = None
+    elif normalized_status == "PENDING_REVIEW":
+        profile.approved_by = None
+        profile.approved_at = None
+        profile.decline_reason = None
+    elif normalized_status in {"INACTIVE", "DELETED"}:
+        # Keep approval history; account access follows inactive/deleted status.
+        if normalized_status == "INACTIVE":
+            user.is_active = False
     return serialize_agent(db, user, profile)

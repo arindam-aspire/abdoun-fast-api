@@ -25,6 +25,7 @@ from app.services.auth import (
     create_auth_tokens,
     create_otp_challenge,
     create_user,
+    ensure_agent_can_authenticate,
     find_user_by_username,
     get_user_or_404,
     mark_password_set,
@@ -61,6 +62,7 @@ def login_with_otp_request(payload: SignInWithOtpRequest, db: DBSessionDep) -> d
     user = find_user_by_username(db, payload.username)
     if not user or not user.is_active:
         raise HTTPException(status_code=STATUS_UNAUTHORIZED, detail="Invalid account")
+    ensure_agent_can_authenticate(db, user)
 
     challenge, otp = create_otp_challenge(
         db,
@@ -81,6 +83,7 @@ def login_with_otp_verify(payload: SignInWithOtpVerifyRequest, db: DBSessionDep)
     user = find_user_by_username(db, payload.username)
     if not user or not user.is_active:
         raise HTTPException(status_code=STATUS_UNAUTHORIZED, detail="Invalid account")
+    ensure_agent_can_authenticate(db, user)
 
     try:
         challenge_id = UUID(payload.session)

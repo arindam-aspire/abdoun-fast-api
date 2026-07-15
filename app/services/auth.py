@@ -261,6 +261,8 @@ def serialize_user(db: Session, user: User) -> dict:
 
 
 def create_auth_tokens(db: Session, user: User, role_name: str | None = None) -> dict:
+    # Central gate: never issue JWTs to non-ACTIVE agents (covers login + refresh).
+    ensure_agent_can_authenticate(db, user)
     settings = get_settings()
     loaded_roles = load_user_roles(db, user.id)
     roles = [role.name for role in loaded_roles]
@@ -294,12 +296,49 @@ def create_auth_tokens(db: Session, user: User, role_name: str | None = None) ->
     }
 
 
+def ensure_agent_can_authenticate(db: Session, user: User) -> None:
+    """Block agent login/token issuance unless agent profile status is ACTIVE."""
+    if not user_has_role(db, user.id, "agent"):
+        return
+
+    profile = db.get(AgentProfile, user.id)
+    status = ((profile.status if profile else None) or "").strip().upper()
+    if status == "ACTIVE":
+        return
+
+    if status == "PENDING_REVIEW":
+        raise HTTPException(
+            status_code=STATUS_FORBIDDEN,
+            detail="Your account is pending admin approval.",
+        )
+    if status == "DECLINED":
+        raise HTTPException(
+            status_code=STATUS_FORBIDDEN,
+            detail="Your account has been declined by an administrator.",
+        )
+    if status == "INACTIVE":
+        raise HTTPException(
+            status_code=STATUS_FORBIDDEN,
+            detail="Your account is inactive.",
+        )
+    if status in {"INVITED", "PENDING_PASSWORD", ""}:
+        raise HTTPException(
+            status_code=STATUS_FORBIDDEN,
+            detail="Your account is pending admin approval.",
+        )
+    raise HTTPException(
+        status_code=STATUS_FORBIDDEN,
+        detail="Your account is not approved for login.",
+    )
+
+
 def authenticate_password(db: Session, *, username: str, password: str) -> User:
     user = find_user_by_username(db, username)
     if not user or not user.is_active:
         raise HTTPException(status_code=STATUS_UNAUTHORIZED, detail="Invalid credentials")
     if not user.password_hash or not verify_secret(password, user.password_hash):
         raise HTTPException(status_code=STATUS_UNAUTHORIZED, detail="Invalid credentials")
+    ensure_agent_can_authenticate(db, user)
     return user
 
 
@@ -416,6 +455,7 @@ def verify_refresh_token(db: Session, token: str, username: str) -> User:
     user = db.get(User, UUID(str(payload.get("sub"))))
     if not user or normalize_username(user.email) != normalize_username(username):
         raise HTTPException(status_code=STATUS_UNAUTHORIZED, detail="Invalid refresh token")
+    ensure_agent_can_authenticate(db, user)
     return user
 
 

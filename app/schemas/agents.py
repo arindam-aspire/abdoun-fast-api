@@ -91,12 +91,17 @@ class AgentOnboardingFormRequest(BaseModel):
         validation_alias=AliasChoices("whatsappNumber", "whatsapp_number", "whatsapp"),
     )
     service_area_ids: list[int] = Field(
-        min_length=1,
+        default_factory=list,
         validation_alias=AliasChoices("serviceAreaIds", "service_area_ids", "serviceAreas", "service_areas"),
     )
-    position: str = Field(min_length=1)
-    identity_document_url: str = Field(
-        min_length=1,
+    # Free-text label from invitation UI (e.g. "1st Circle, Amman, 4th Circle, Amman").
+    service_area: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("serviceArea", "service_area"),
+    )
+    position: str | None = None
+    identity_document_url: str | None = Field(
+        default=None,
         validation_alias=AliasChoices(
             "identityDocumentUrl",
             "identity_document_url",
@@ -128,10 +133,13 @@ class AgentOnboardingFormRequest(BaseModel):
     @field_validator("service_area_ids", mode="before")
     @classmethod
     def coerce_service_area_ids(cls, value: Any) -> list[int]:
-        if value is None:
+        if value is None or value == "":
             return []
         if isinstance(value, int):
             return [value]
+        if isinstance(value, str):
+            # Free-text belongs on service_area; ignore non-numeric strings here.
+            return []
         if isinstance(value, list):
             ids: list[int] = []
             for item in value:
@@ -140,33 +148,42 @@ class AgentOnboardingFormRequest(BaseModel):
                 else:
                     ids.append(int(item))
             return ids
-        raise ValueError("service_area_ids must be a non-empty list of area ids")
+        raise ValueError("service_area_ids must be a list of area ids")
 
     @field_validator("service_area_ids")
     @classmethod
-    def require_service_area_ids(cls, value: list[int]) -> list[int]:
+    def normalize_service_area_ids(cls, value: list[int]) -> list[int]:
         unique = sorted(set(value))
-        if not unique:
-            raise ValueError("At least one service area is required")
         if any(item <= 0 for item in unique):
             raise ValueError("service_area_ids must be positive integers")
         return unique
 
+    @field_validator("service_area")
+    @classmethod
+    def validate_service_area(cls, value: str | None) -> str | None:
+        if value is None or not str(value).strip():
+            return None
+        return str(value).strip()
+
     @field_validator("position")
     @classmethod
-    def validate_position(cls, value: str) -> str:
-        cleaned = value.strip()
-        if not cleaned:
-            raise ValueError("position is required")
-        return cleaned
+    def validate_position(cls, value: str | None) -> str | None:
+        if value is None or not str(value).strip():
+            return None
+        return str(value).strip()
 
     @field_validator("identity_document_url")
     @classmethod
-    def validate_identity_document(cls, value: str) -> str:
-        cleaned = value.strip()
-        if not cleaned:
-            raise ValueError("identity document is required")
-        return cleaned
+    def validate_identity_document(cls, value: str | None) -> str | None:
+        if value is None or not str(value).strip():
+            return None
+        return str(value).strip()
+
+    @model_validator(mode="after")
+    def require_service_area(self) -> "AgentOnboardingFormRequest":
+        if not self.service_area_ids and not self.service_area:
+            raise ValueError("At least one service area is required")
+        return self
 
 
 class AgentDocumentUploadRequest(BaseModel):
@@ -201,12 +218,17 @@ class ManualOnboardAgentRequest(BaseModel):
         validation_alias=AliasChoices("whatsappNumber", "whatsapp_number", "whatsapp"),
     )
     service_area_ids: list[int] = Field(
-        min_length=1,
+        default_factory=list,
         validation_alias=AliasChoices("serviceAreaIds", "service_area_ids", "serviceAreas", "service_areas"),
     )
-    position: str = Field(min_length=1)
-    identity_document_url: str = Field(
-        min_length=1,
+    # Free-text label from admin UI (same shape as invitation onboarding).
+    service_area: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("serviceArea", "service_area"),
+    )
+    position: str | None = None
+    identity_document_url: str | None = Field(
+        default=None,
         validation_alias=AliasChoices(
             "identityDocumentUrl",
             "identity_document_url",
@@ -238,10 +260,13 @@ class ManualOnboardAgentRequest(BaseModel):
     @field_validator("service_area_ids", mode="before")
     @classmethod
     def coerce_service_area_ids(cls, value: Any) -> list[int]:
-        if value is None:
+        if value is None or value == "":
             return []
         if isinstance(value, int):
             return [value]
+        if isinstance(value, str):
+            # Free-text belongs on service_area; ignore non-numeric strings here.
+            return []
         if isinstance(value, list):
             ids: list[int] = []
             for item in value:
@@ -250,30 +275,39 @@ class ManualOnboardAgentRequest(BaseModel):
                 else:
                     ids.append(int(item))
             return ids
-        raise ValueError("service_area_ids must be a non-empty list of area ids")
+        raise ValueError("service_area_ids must be a list of area ids")
 
     @field_validator("service_area_ids")
     @classmethod
-    def require_service_area_ids(cls, value: list[int]) -> list[int]:
+    def normalize_service_area_ids(cls, value: list[int]) -> list[int]:
         unique = sorted(set(value))
-        if not unique:
-            raise ValueError("At least one service area is required")
         if any(item <= 0 for item in unique):
             raise ValueError("service_area_ids must be positive integers")
         return unique
 
+    @field_validator("service_area")
+    @classmethod
+    def validate_service_area(cls, value: str | None) -> str | None:
+        if value is None or not str(value).strip():
+            return None
+        return str(value).strip()
+
     @field_validator("position")
     @classmethod
     def validate_position(cls, value: str | None) -> str | None:
-        if value is None:
+        if value is None or not str(value).strip():
             return None
-        cleaned = value.strip()
-        return cleaned or None
+        return str(value).strip()
 
     @field_validator("identity_document_url")
     @classmethod
     def validate_identity_document(cls, value: str | None) -> str | None:
-        if value is None:
+        if value is None or not str(value).strip():
             return None
-        cleaned = value.strip()
-        return cleaned or None
+        return str(value).strip()
+
+    @model_validator(mode="after")
+    def require_service_area(self) -> "ManualOnboardAgentRequest":
+        if not self.service_area_ids and not self.service_area:
+            raise ValueError("At least one service area is required")
+        return self
