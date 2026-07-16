@@ -19,6 +19,7 @@ from app.schemas.agency import (
     AgencyUpdateRequest,
     UploadRequest,
 )
+from app.schemas.owners import OwnerStatusUpdateRequest, OwnerUpdateRequest
 from app.services.agency_workflows import (
     accept_agency_invitation,
     agency_response,
@@ -34,10 +35,17 @@ from app.services.agency_workflows import (
     PENDING_APPROVAL,
 )
 from app.services.auth import create_otp_challenge, create_user, send_dev_otp, serialize_agency
-from app.services.owners import assign_owner_to_agency, list_agency_owners, list_platform_owners
+from app.services.owners import (
+    assign_owner_to_agency,
+    get_owner,
+    list_agency_owners,
+    list_platform_owners,
+    update_owner,
+    update_owner_status,
+)
 from app.services.user_agencies import selectable_owner_agencies
-from app.utils.api_response import success_response
-from app.utils.status_codes import STATUS_FORBIDDEN, STATUS_NOT_FOUND
+from app.utils.api_response import raise_api_error, success_response
+from app.utils.status_codes import STATUS_BAD_REQUEST, STATUS_FORBIDDEN, STATUS_NOT_FOUND, STATUS_UNAUTHORIZED
 
 router = APIRouter()
 
@@ -57,6 +65,16 @@ def _assert_can_access_agency(context: RequestContext, agency_id: UUID) -> None:
     if "admin" in roles and context.agency_id == agency_id:
         return
     raise HTTPException(status_code=STATUS_FORBIDDEN, detail="Insufficient permissions")
+
+
+def _actor_user_id(context: RequestContext) -> UUID:
+    if context.user_id is None:
+        raise_api_error(
+            status_code=STATUS_UNAUTHORIZED,
+            code="UNAUTHORIZED",
+            message="Authentication is required",
+        )
+    return context.user_id
 
 
 @router.post("/register")
@@ -321,6 +339,76 @@ def get_platform_owners(
         agency_id=agencyId,
     )
     return success_response({**pagination, "items": items}, meta={"pagination": pagination})
+
+
+@router.get("/owners/{owner_id}")
+def get_owner_details(
+    owner_id: UUID,
+    db: DBSessionDep,
+    context: AgencyAdminContext,
+) -> dict:
+    owner = get_owner(
+        db,
+        owner_id=owner_id,
+        actor_roles=context.roles,
+        actor_agency_id=context.agency_id,
+    )
+    return success_response(owner)
+
+
+@router.patch("/owners/{owner_id}")
+def patch_owner_details(
+    owner_id: UUID,
+    payload: OwnerUpdateRequest,
+    db: DBSessionDep,
+    context: AgencyAdminContext,
+) -> dict:
+    if payload.full_name is None and payload.email is None and payload.phone_number is None:
+        raise_api_error(
+            status_code=STATUS_BAD_REQUEST,
+            code="VALIDATION_ERROR",
+            message="At least one field is required to update",
+        )
+    owner = update_owner(
+        db,
+        owner_id=owner_id,
+        actor_user_id=_actor_user_id(context),
+        actor_roles=context.roles,
+        actor_agency_id=context.agency_id,
+        full_name=payload.full_name,
+        email=payload.email,
+        phone_number=payload.phone_number,
+    )
+    db.commit()
+    return success_response(owner, "Owner updated successfully")
+
+
+@router.patch("/owners/{owner_id}/status")
+def set_owner_status(
+    owner_id: UUID,
+    payload: OwnerStatusUpdateRequest,
+    db: DBSessionDep,
+    context: AgencyAdminContext,
+) -> dict:
+    owner = update_owner_status(
+        db,
+        owner_id=owner_id,
+        actor_user_id=_actor_user_id(context),
+        actor_roles=context.roles,
+        actor_agency_id=context.agency_id,
+        status=payload.status,
+        reason=payload.reason,
+        legacy_status_label=True,
+    )
+    db.commit()
+    status = str(owner.get("status") or "").upper()
+    if status == "ACTIVE":
+        message = "Owner activated successfully"
+    elif status == "SUSPENDED":
+        message = "Owner deactivated successfully"
+    else:
+        message = f"Owner status updated to {status}"
+    return success_response(owner, message)
 
 
 @router.post("/owners/{owner_id}/agency")

@@ -10,6 +10,7 @@ from app.api.v1.routes import (
     favorites,
     auth,
     leads,
+    owners,
     properties,
     property_submissions,
     public_catalog,
@@ -102,6 +103,12 @@ api_router.include_router(
     agents.router,
     prefix="/agents",
     tags=["agents"],
+)
+
+api_router.include_router(
+    owners.router,
+    prefix="/owners",
+    tags=["owners"],
 )
 
 api_router.include_router(
