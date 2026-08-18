@@ -6,16 +6,17 @@ from uuid import UUID, uuid4
 
 from fastapi import HTTPException
 from sqlalchemy import func, or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.models.live_schema import Lead, LeadMessage, LeadNote, LeadStatusHistory, PropertyListingSubmission, Role, User, UserRole
+from app.models.live_schema import ActivityLog, Lead, LeadCloseRequest, LeadMessage, LeadNote, LeadStatusHistory, PropertyListingSubmission, Role, User, UserRole
 from app.schemas.leads import LeadCreate
 from app.services.audit import record_activity
 from app.services.notifications import create_in_app_notification, send_email_notification, send_sms_notification
 from app.services.property_submissions import DEAL_CLOSED_STATUS
 from app.services.public_properties import get_public_submission_or_404, pagination_meta, serialize_property_listing
-from app.services.user_agencies import REL_AGENT, agency_user_ids, agency_users_with_role, user_has_active_agency_mapping
-from app.utils.status_codes import STATUS_BAD_REQUEST, STATUS_FORBIDDEN, STATUS_NOT_FOUND
+from app.services.user_agencies import REL_AGENCY_ADMIN, REL_AGENT, active_agency_ids_for_user, agency_user_ids, agency_users_with_role, user_has_active_agency_mapping
+from app.utils.status_codes import STATUS_BAD_REQUEST, STATUS_CONFLICT, STATUS_FORBIDDEN, STATUS_NOT_FOUND
 
 
 AGENCY_ADMIN_ROLE = "admin"
@@ -23,6 +24,10 @@ SUPER_ADMIN_ROLE = "super_admin"
 AGENT_ROLE = "agent"
 REGISTERED_USER_ROLE = "registered_user"
 LEAD_STATUSES = {"NEW", "IN_PROGRESS", "REQUEST_FOR_CLOSE", "CLOSED"}
+CLOSE_REQUEST_PENDING = "PENDING"
+CLOSE_REQUEST_APPROVED = "APPROVED"
+CLOSE_REQUEST_REJECTED = "REJECTED"
+CLOSE_REQUEST_CANCELED = "CANCELED"
 
 
 def utc_now() -> datetime:
@@ -55,6 +60,18 @@ def generate_lead_number(db: Session) -> str:
 
 def get_lead_or_404(db: Session, lead_id: UUID) -> Lead:
     lead = db.get(Lead, lead_id)
+    if not lead:
+        raise HTTPException(status_code=STATUS_NOT_FOUND, detail="Lead not found")
+    return lead
+
+
+def get_lead_for_update_or_404(db: Session, lead_id: UUID) -> Lead:
+    lead = db.execute(
+        select(Lead)
+        .where(Lead.id == lead_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    ).scalar_one_or_none()
     if not lead:
         raise HTTPException(status_code=STATUS_NOT_FOUND, detail="Lead not found")
     return lead
@@ -150,6 +167,81 @@ def _can_access_lead(db: Session, lead: Lead, *, user_id: UUID, roles: tuple[str
 def assert_can_access_lead(db: Session, lead: Lead, *, user_id: UUID, roles: tuple[str, ...], agency_id: UUID | None) -> None:
     if not _can_access_lead(db, lead, user_id=user_id, roles=roles, agency_id=agency_id):
         raise HTTPException(status_code=STATUS_FORBIDDEN, detail="Insufficient permissions")
+
+
+def assert_assigned_agent_can_request_close(lead: Lead, *, user_id: UUID, roles: tuple[str, ...]) -> None:
+    if set(roles) != {AGENT_ROLE} or lead.assigned_agent_id != user_id:
+        raise HTTPException(
+            status_code=STATUS_FORBIDDEN,
+            detail="Only the assigned agent can request lead closure",
+        )
+
+
+def _user_agency_ids(
+    db: Session,
+    user_id: UUID | None,
+    *,
+    relationship_types: tuple[str, ...],
+) -> set[UUID]:
+    if not user_id:
+        return set()
+    ids = set(
+        active_agency_ids_for_user(
+            db,
+            user_id,
+            relationship_types=relationship_types,
+        )
+    )
+    user = db.get(User, user_id)
+    if user and user.agency_id:
+        ids.add(user.agency_id)
+    return ids
+
+
+def lead_belongs_to_agency(db: Session, lead: Lead, agency_id: UUID) -> bool:
+    submission_match = _lead_property_submission(db, lead)
+    if submission_match:
+        submission_agency_id = _submission_agency_id(submission_match[0], submission_match[1])
+        if submission_agency_id is not None:
+            return submission_agency_id == agency_id
+
+    related_users = (
+        (lead.assigned_agent_id, (REL_AGENT,)),
+        (lead.created_by_agent_id, (REL_AGENT,)),
+        (lead.created_by_admin_id, (REL_AGENCY_ADMIN,)),
+    )
+    return any(
+        agency_id in _user_agency_ids(db, user_id, relationship_types=relationship_types)
+        for user_id, relationship_types in related_users
+    )
+
+
+def assert_admin_can_review_close(
+    db: Session,
+    lead: Lead,
+    *,
+    actor_roles: tuple[str, ...],
+    actor_agency_id: UUID | None,
+) -> None:
+    if SUPER_ADMIN_ROLE in actor_roles:
+        return
+    if AGENCY_ADMIN_ROLE not in actor_roles:
+        raise HTTPException(
+            status_code=STATUS_FORBIDDEN,
+            detail="Only an Agency Admin or Super Admin can review lead closure",
+        )
+    if actor_agency_id is None or not lead_belongs_to_agency(db, lead, actor_agency_id):
+        raise HTTPException(
+            status_code=STATUS_FORBIDDEN,
+            detail="The lead is outside the administrator's agency",
+        )
+
+
+def can_view_lead_internal_notes(lead: Lead, *, user_id: UUID, roles: tuple[str, ...]) -> bool:
+    """Internal notes are visible only to admins and the assigned agent."""
+    if SUPER_ADMIN_ROLE in roles or AGENCY_ADMIN_ROLE in roles:
+        return True
+    return lead.assigned_agent_id == user_id
 
 
 def assert_lead_writable(db: Session, lead: Lead) -> None:
@@ -303,6 +395,7 @@ def serialize_lead(db: Session, lead: Lead) -> dict[str, Any]:
         "request_close_at": iso(lead.request_close_at),
         "closed_at": iso(lead.closed_at),
         "closed_by_admin_id": str(lead.closed_by_admin_id) if lead.closed_by_admin_id else None,
+        "close_reason": lead.close_reason,
         "contact_name": lead.external_owner_name,
         "contact_phone": lead.external_owner_phone,
         "contact_email": lead.external_owner_email,
@@ -330,6 +423,68 @@ def list_leads_for_context(
     stmt = _lead_query_for_context(db, user_id=user_id, roles=roles, agency_id=agency_id)
     if status:
         stmt = stmt.where(Lead.status == status)
+    total = db.execute(select(func.count()).select_from(stmt.order_by(None).subquery())).scalar() or 0
+    leads = db.execute(stmt.offset((page - 1) * page_size).limit(page_size)).scalars().all()
+    return [serialize_lead(db, lead) for lead in leads], pagination_meta(total, page, page_size)
+
+
+def list_owner_enquiries(
+    db: Session,
+    *,
+    owner_id: UUID,
+    page: int,
+    page_size: int,
+    search: str | None = None,
+    status: str | None = None,
+    source: str | None = None,
+    inquiry_type: str | None = None,
+    assigned_agent_id: UUID | None = None,
+    sort_by: str = "updated_at",
+    sort_order: str = "desc",
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """List only enquiries created by the authenticated owner."""
+    page = max(page, 1)
+    page_size = max(min(page_size, 100), 1)
+    stmt = select(Lead).where(Lead.user_id == owner_id)
+
+    if search and search.strip():
+        pattern = f"%{search.strip()}%"
+        stmt = stmt.where(
+            or_(
+                Lead.lead_number.ilike(pattern),
+                Lead.external_owner_name.ilike(pattern),
+                Lead.external_owner_email.ilike(pattern),
+                Lead.external_owner_phone.ilike(pattern),
+                Lead.external_property_name.ilike(pattern),
+                Lead.inquiry_type.ilike(pattern),
+                Lead.message.ilike(pattern),
+            )
+        )
+    if status and status.strip() and status.strip().lower() != "all":
+        stmt = stmt.where(Lead.status == status.strip().upper())
+    if source and source.strip() and source.strip().lower() != "all":
+        stmt = stmt.where(Lead.source == source.strip().upper())
+    if inquiry_type and inquiry_type.strip() and inquiry_type.strip().lower() != "all":
+        stmt = stmt.where(Lead.inquiry_type == inquiry_type.strip())
+    if assigned_agent_id is not None:
+        stmt = stmt.where(Lead.assigned_agent_id == assigned_agent_id)
+
+    sort_columns = {
+        "created_at": Lead.created_at,
+        "createdAt": Lead.created_at,
+        "updated_at": Lead.updated_at,
+        "updatedAt": Lead.updated_at,
+        "last_activity_at": Lead.last_activity_at,
+        "lastActivityAt": Lead.last_activity_at,
+        "lead_number": Lead.lead_number,
+        "leadNumber": Lead.lead_number,
+        "status": Lead.status,
+        "source": Lead.source,
+    }
+    sort_column = sort_columns.get(sort_by, Lead.updated_at)
+    direction = sort_order.strip().lower()
+    stmt = stmt.order_by(sort_column.asc() if direction == "asc" else sort_column.desc().nullslast())
+
     total = db.execute(select(func.count()).select_from(stmt.order_by(None).subquery())).scalar() or 0
     leads = db.execute(stmt.offset((page - 1) * page_size).limit(page_size)).scalars().all()
     return [serialize_lead(db, lead) for lead in leads], pagination_meta(total, page, page_size)
@@ -387,6 +542,361 @@ def assign_lead(
     return lead
 
 
+def serialize_lead_close_request(request: LeadCloseRequest) -> dict[str, Any]:
+    return {
+        "id": str(request.id),
+        "lead_id": str(request.lead_id),
+        "requested_by": str(request.requested_by),
+        "status": request.status,
+        "reason": request.reason,
+        "reviewed_by": str(request.reviewed_by) if request.reviewed_by else None,
+        "review_reason": request.review_reason,
+        "requested_at": iso(request.requested_at),
+        "reviewed_at": iso(request.reviewed_at),
+        "canceled_by": str(request.canceled_by) if request.canceled_by else None,
+        "canceled_at": iso(request.canceled_at),
+        "created_at": iso(request.created_at),
+        "updated_at": iso(request.updated_at),
+    }
+
+
+def get_lead_close_request_or_404(db: Session, request_id: UUID) -> LeadCloseRequest:
+    request = db.get(LeadCloseRequest, request_id)
+    if not request:
+        raise HTTPException(status_code=STATUS_NOT_FOUND, detail="Lead close request not found")
+    return request
+
+
+def list_lead_close_requests(db: Session, *, lead_id: UUID) -> list[dict[str, Any]]:
+    requests = db.execute(
+        select(LeadCloseRequest)
+        .where(LeadCloseRequest.lead_id == lead_id)
+        .order_by(LeadCloseRequest.requested_at.desc())
+    ).scalars().all()
+    return [serialize_lead_close_request(request) for request in requests]
+
+
+def _pending_lead_close_request_stmt(lead_id: UUID, *, lock: bool = False):
+    stmt = (
+        select(LeadCloseRequest)
+        .where(
+            LeadCloseRequest.lead_id == lead_id,
+            LeadCloseRequest.status == CLOSE_REQUEST_PENDING,
+        )
+        .order_by(LeadCloseRequest.requested_at.desc())
+    )
+    if lock:
+        stmt = stmt.with_for_update()
+    return stmt
+
+
+def find_pending_lead_close_request(
+    db: Session,
+    *,
+    lead_id: UUID,
+    lock: bool = False,
+) -> LeadCloseRequest | None:
+    return db.execute(_pending_lead_close_request_stmt(lead_id, lock=lock)).scalar_one_or_none()
+
+
+def get_pending_lead_close_request(db: Session, *, lead_id: UUID, lock: bool = False) -> LeadCloseRequest:
+    request = find_pending_lead_close_request(db, lead_id=lead_id, lock=lock)
+    if not request:
+        raise HTTPException(status_code=STATUS_CONFLICT, detail="No pending close request exists for this lead")
+    return request
+
+
+def _backfill_pending_lead_close_request(
+    db: Session,
+    *,
+    lead: Lead,
+    reason: str | None = None,
+) -> LeadCloseRequest:
+    requested_by = lead.assigned_agent_id or lead.created_by_agent_id
+    if requested_by is None:
+        raise HTTPException(
+            status_code=STATUS_CONFLICT,
+            detail="No pending close request exists for this lead",
+        )
+
+    now = utc_now()
+    if lead.status != "REQUEST_FOR_CLOSE":
+        previous_status = lead.status
+        lead.status = "REQUEST_FOR_CLOSE"
+        lead.request_close_at = lead.request_close_at or now
+        lead.last_activity_at = now
+        record_status_history(
+            db,
+            lead=lead,
+            from_status=previous_status,
+            to_status="REQUEST_FOR_CLOSE",
+            actor_user_id=requested_by,
+            actor_role=AGENT_ROLE,
+            reason=reason,
+        )
+
+    request = LeadCloseRequest(
+        id=uuid4(),
+        lead_id=lead.id,
+        requested_by=requested_by,
+        status=CLOSE_REQUEST_PENDING,
+        reason=reason,
+        requested_at=lead.request_close_at or now,
+        created_at=now,
+        updated_at=now,
+    )
+    db.add(request)
+    db.flush()
+    return request
+
+
+def approve_lead_close(
+    db: Session,
+    *,
+    lead: Lead,
+    actor_user_id: UUID,
+    actor_roles: tuple[str, ...],
+    actor_agency_id: UUID | None,
+    reason: str | None = None,
+) -> LeadCloseRequest:
+    lead = get_lead_for_update_or_404(db, lead.id)
+    assert_lead_writable(db, lead)
+    if lead.status == "CLOSED":
+        raise HTTPException(status_code=STATUS_BAD_REQUEST, detail="Lead is already closed")
+
+    pending = find_pending_lead_close_request(db, lead_id=lead.id, lock=True)
+    if pending is None and (
+        lead.status == "REQUEST_FOR_CLOSE" or lead.request_close_at is not None
+    ):
+        pending = _backfill_pending_lead_close_request(db, lead=lead, reason=reason)
+    if pending is None:
+        raise HTTPException(
+            status_code=STATUS_CONFLICT,
+            detail="No pending close request exists for this lead",
+        )
+
+    return review_lead_close_request(
+        db,
+        request=pending,
+        lead=lead,
+        approved=True,
+        actor_user_id=actor_user_id,
+        actor_roles=actor_roles,
+        actor_agency_id=actor_agency_id,
+        reason=reason,
+    )
+
+
+def create_lead_close_request(
+    db: Session,
+    *,
+    lead: Lead,
+    requested_by: UUID,
+    actor_roles: tuple[str, ...],
+    reason: str | None = None,
+) -> LeadCloseRequest:
+    lead = get_lead_for_update_or_404(db, lead.id)
+    assert_lead_writable(db, lead)
+    assert_assigned_agent_can_request_close(lead, user_id=requested_by, roles=actor_roles)
+    if lead.status != "IN_PROGRESS":
+        raise HTTPException(
+            status_code=STATUS_CONFLICT,
+            detail="Lead must be IN_PROGRESS before closure can be requested",
+        )
+
+    pending = db.execute(
+        select(LeadCloseRequest).where(
+            LeadCloseRequest.lead_id == lead.id,
+            LeadCloseRequest.status == CLOSE_REQUEST_PENDING,
+        )
+    ).scalar_one_or_none()
+    if pending:
+        raise HTTPException(status_code=STATUS_CONFLICT, detail="A pending close request already exists")
+
+    now = utc_now()
+    request = LeadCloseRequest(
+        id=uuid4(),
+        lead_id=lead.id,
+        requested_by=requested_by,
+        status=CLOSE_REQUEST_PENDING,
+        reason=reason,
+        requested_at=now,
+        created_at=now,
+        updated_at=now,
+    )
+    previous_status = lead.status
+    lead.status = "REQUEST_FOR_CLOSE"
+    lead.request_close_at = now
+    lead.last_activity_at = now
+    db.add(request)
+    record_status_history(
+        db,
+        lead=lead,
+        from_status=previous_status,
+        to_status="REQUEST_FOR_CLOSE",
+        actor_user_id=requested_by,
+        actor_role=AGENT_ROLE,
+        reason=reason,
+    )
+    record_activity(
+        db,
+        activity_type="lead_close_requested",
+        message=f"Close requested for lead {lead.lead_number}",
+        user_id=requested_by,
+        property_id=lead.property_id,
+    )
+    try:
+        db.flush()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=STATUS_CONFLICT,
+            detail="A pending close request already exists",
+        ) from exc
+    return request
+
+
+def review_lead_close_request(
+    db: Session,
+    *,
+    request: LeadCloseRequest,
+    lead: Lead,
+    approved: bool,
+    actor_user_id: UUID,
+    actor_roles: tuple[str, ...],
+    actor_agency_id: UUID | None,
+    reason: str | None = None,
+) -> LeadCloseRequest:
+    lead = get_lead_for_update_or_404(db, lead.id)
+    assert_admin_can_review_close(
+        db,
+        lead,
+        actor_roles=actor_roles,
+        actor_agency_id=actor_agency_id,
+    )
+    request = db.execute(
+        select(LeadCloseRequest)
+        .where(LeadCloseRequest.id == request.id, LeadCloseRequest.lead_id == lead.id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    ).scalar_one_or_none()
+    if not request:
+        raise HTTPException(status_code=STATUS_CONFLICT, detail="No pending close request exists for this lead")
+    if request.status != CLOSE_REQUEST_PENDING:
+        raise HTTPException(status_code=STATUS_CONFLICT, detail="Lead close request has already been resolved")
+    if lead.status != "REQUEST_FOR_CLOSE":
+        raise HTTPException(
+            status_code=STATUS_CONFLICT,
+            detail="Lead is not awaiting close review",
+        )
+
+    now = utc_now()
+    request.status = CLOSE_REQUEST_APPROVED if approved else CLOSE_REQUEST_REJECTED
+    request.reviewed_by = actor_user_id
+    request.review_reason = reason
+    request.reviewed_at = now
+    request.updated_at = now
+
+    if approved:
+        update_lead_status(
+            db,
+            lead=lead,
+            status="CLOSED",
+            actor_user_id=actor_user_id,
+            actor_roles=actor_roles,
+            reason=reason or request.reason,
+            allow_close=True,
+        )
+        lead.close_reason = reason or request.reason
+    else:
+        previous_status = lead.status
+        lead.status = "IN_PROGRESS"
+        lead.request_close_at = None
+        lead.last_activity_at = now
+        record_status_history(
+            db,
+            lead=lead,
+            from_status=previous_status,
+            to_status="IN_PROGRESS",
+            actor_user_id=actor_user_id,
+            actor_role=primary_role(actor_roles),
+            reason=reason,
+        )
+
+    record_activity(
+        db,
+        activity_type="lead_close_approved" if approved else "lead_close_rejected",
+        message=f"Close request for lead {lead.lead_number} {'approved' if approved else 'rejected'}",
+        user_id=actor_user_id,
+        property_id=lead.property_id,
+    )
+    return request
+
+
+def cancel_lead_close_request(
+    db: Session,
+    *,
+    request: LeadCloseRequest,
+    lead: Lead,
+    actor_user_id: UUID,
+    actor_roles: tuple[str, ...],
+    actor_agency_id: UUID | None,
+    reason: str | None = None,
+) -> LeadCloseRequest:
+    lead = get_lead_for_update_or_404(db, lead.id)
+    request = db.execute(
+        select(LeadCloseRequest)
+        .where(LeadCloseRequest.id == request.id, LeadCloseRequest.lead_id == lead.id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    ).scalar_one_or_none()
+    if not request:
+        raise HTTPException(status_code=STATUS_CONFLICT, detail="No pending close request exists for this lead")
+    if request.status != CLOSE_REQUEST_PENDING:
+        raise HTTPException(status_code=STATUS_CONFLICT, detail="Lead close request has already been resolved")
+    is_requester = request.requested_by == actor_user_id and set(actor_roles) == {AGENT_ROLE}
+    is_admin = SUPER_ADMIN_ROLE in actor_roles or AGENCY_ADMIN_ROLE in actor_roles
+    if not is_requester and not is_admin:
+        raise HTTPException(status_code=STATUS_FORBIDDEN, detail="Only the requester or Agency Admin can cancel this close request")
+    if is_admin:
+        assert_admin_can_review_close(
+            db,
+            lead,
+            actor_roles=actor_roles,
+            actor_agency_id=actor_agency_id,
+        )
+    if lead.status != "REQUEST_FOR_CLOSE":
+        raise HTTPException(status_code=STATUS_CONFLICT, detail="Lead is not awaiting close review")
+
+    now = utc_now()
+    request.status = CLOSE_REQUEST_CANCELED
+    request.canceled_by = actor_user_id
+    request.canceled_at = now
+    request.review_reason = reason
+    request.updated_at = now
+    previous_status = lead.status
+    lead.status = "IN_PROGRESS"
+    lead.request_close_at = None
+    lead.last_activity_at = now
+    record_status_history(
+        db,
+        lead=lead,
+        from_status=previous_status,
+        to_status="IN_PROGRESS",
+        actor_user_id=actor_user_id,
+        actor_role=primary_role(actor_roles),
+        reason=reason,
+    )
+    record_activity(
+        db,
+        activity_type="lead_close_canceled",
+        message=f"Close request for lead {lead.lead_number} canceled",
+        user_id=actor_user_id,
+        property_id=lead.property_id,
+    )
+    return request
+
+
 def update_lead_status(
     db: Session,
     *,
@@ -395,21 +905,28 @@ def update_lead_status(
     actor_user_id: UUID,
     actor_roles: tuple[str, ...],
     reason: str | None = None,
+    allow_close: bool = False,
 ) -> Lead:
     assert_lead_writable(db, lead)
     if status not in LEAD_STATUSES:
         raise HTTPException(status_code=STATUS_BAD_REQUEST, detail="Invalid lead status")
     if lead.status == "CLOSED":
         raise HTTPException(status_code=STATUS_BAD_REQUEST, detail="Closed leads cannot be changed")
+    if status == "REQUEST_FOR_CLOSE":
+        raise HTTPException(
+            status_code=STATUS_CONFLICT,
+            detail="Use the close request workflow instead of changing the lead status",
+        )
+    if status == "CLOSED" and not allow_close:
+        raise HTTPException(
+            status_code=STATUS_CONFLICT,
+            detail="Approve a pending close request to close the lead",
+        )
     if status == "CLOSED" and AGENCY_ADMIN_ROLE not in actor_roles and SUPER_ADMIN_ROLE not in actor_roles:
         raise HTTPException(status_code=STATUS_FORBIDDEN, detail="Only Agency Admin can close a lead")
-    if status == "REQUEST_FOR_CLOSE" and AGENT_ROLE not in actor_roles and AGENCY_ADMIN_ROLE not in actor_roles and SUPER_ADMIN_ROLE not in actor_roles:
-        raise HTTPException(status_code=STATUS_FORBIDDEN, detail="Insufficient permissions")
     previous_status = lead.status
     lead.status = status
     lead.last_activity_at = utc_now()
-    if status == "REQUEST_FOR_CLOSE":
-        lead.request_close_at = utc_now()
     if status == "CLOSED":
         lead.closed_at = utc_now()
         lead.closed_by_admin_id = actor_user_id
@@ -445,6 +962,108 @@ def add_lead_note(db: Session, *, lead: Lead, author_user_id: UUID, note: str) -
     lead.last_activity_at = utc_now()
     db.add(record)
     return record
+
+
+def serialize_lead_note(note: LeadNote) -> dict[str, Any]:
+    return {
+        "id": str(note.id),
+        "lead_id": str(note.lead_id),
+        "author_user_id": str(note.author_user_id) if note.author_user_id else None,
+        "note": note.note,
+        "created_at": iso(note.created_at),
+        "updated_at": iso(note.updated_at),
+    }
+
+
+def list_lead_notes(
+    db: Session,
+    *,
+    lead: Lead,
+    user_id: UUID,
+    roles: tuple[str, ...],
+) -> list[dict[str, Any]]:
+    if not can_view_lead_internal_notes(lead, user_id=user_id, roles=roles):
+        return []
+    notes = db.execute(
+        select(LeadNote)
+        .where(LeadNote.lead_id == lead.id)
+        .order_by(LeadNote.created_at.asc())
+    ).scalars().all()
+    return [serialize_lead_note(note) for note in notes]
+
+
+def serialize_lead_status_history(entry: LeadStatusHistory) -> dict[str, Any]:
+    from_label = entry.from_status or "none"
+    return {
+        "id": str(entry.id),
+        "kind": "status_change",
+        "activity_type": "status_change",
+        "message": f"Status changed from {from_label} to {entry.to_status}",
+        "user_id": str(entry.actor_user_id) if entry.actor_user_id else None,
+        "from_status": entry.from_status,
+        "to_status": entry.to_status,
+        "reason": entry.reason,
+        "actor_role": entry.actor_role,
+        "created_at": iso(entry.changed_at),
+    }
+
+
+def serialize_lead_audit_activity(entry: ActivityLog) -> dict[str, Any]:
+    return {
+        "id": str(entry.id),
+        "kind": "audit",
+        "activity_type": entry.activity_type,
+        "message": entry.message,
+        "user_id": str(entry.user_id) if entry.user_id else None,
+        "tone": entry.tone,
+        "created_at": iso(entry.created_at),
+    }
+
+
+def list_lead_activity(db: Session, *, lead: Lead) -> list[dict[str, Any]]:
+    status_history = db.execute(
+        select(LeadStatusHistory)
+        .where(LeadStatusHistory.lead_id == lead.id)
+        .order_by(LeadStatusHistory.changed_at.asc())
+    ).scalars().all()
+
+    audit_filters = [
+        ActivityLog.activity_type == "lead_assigned",
+        ActivityLog.message.ilike(f"%{lead.lead_number}%"),
+    ]
+    if lead.property_id:
+        audit_filters.insert(0, ActivityLog.property_id == lead.property_id)
+
+    assignment_activity = db.execute(
+        select(ActivityLog).where(*audit_filters).order_by(ActivityLog.created_at.asc())
+    ).scalars().all()
+
+    items = [serialize_lead_status_history(entry) for entry in status_history]
+    items.extend(serialize_lead_audit_activity(entry) for entry in assignment_activity)
+    items.sort(key=lambda item: item["created_at"] or "")
+    return items
+
+
+def serialize_lead_message(message: LeadMessage) -> dict[str, Any]:
+    return {
+        "id": str(message.id),
+        "lead_id": str(message.lead_id),
+        "sender_user_id": str(message.sender_user_id) if message.sender_user_id else None,
+        "recipient_user_id": str(message.recipient_user_id) if message.recipient_user_id else None,
+        "message": message.message,
+        "channel": message.channel,
+        "delivery_state": message.delivery_state,
+        "created_at": iso(message.created_at),
+    }
+
+
+def list_lead_messages(db: Session, *, lead_id: UUID) -> list[dict[str, Any]]:
+    messages = db.execute(
+        select(LeadMessage)
+        .where(LeadMessage.lead_id == lead_id)
+        .order_by(LeadMessage.created_at.asc())
+    ).scalars().all()
+    return [serialize_lead_message(message) for message in messages]
 
 
 def add_lead_message(

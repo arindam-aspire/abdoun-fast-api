@@ -5,7 +5,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query
 
-from app.api.deps import DBSessionDep, RequestContext, require_any_role
+from app.api.deps import DBSessionDep, RequestContext, require_any_role, require_authenticated_user
 from app.schemas.agents import (
     AgentDocumentUploadRequest,
     AgentInvitationAcceptRequest,
@@ -34,8 +34,9 @@ from app.utils.status_codes import STATUS_BAD_REQUEST
 
 router = APIRouter()
 
-AgentListContext = Annotated[RequestContext, Depends(require_any_role("admin", "super_admin"))]
-AgencyAdminContext = Annotated[RequestContext, Depends(require_any_role("admin"))]
+AuthenticatedContext = Annotated[RequestContext, Depends(require_authenticated_user)]
+AgentListContext = AuthenticatedContext
+AgencyAdminContext = Annotated[RequestContext, Depends(require_any_role("admin", "super_admin"))]
 
 
 @router.get("")

@@ -6,6 +6,7 @@ from app.api.v1.routes import (
     agent_properties,
     agents,
     audit_logs,
+    dashboard,
     deal_closures,
     favorites,
     auth,
@@ -91,6 +92,12 @@ api_router.include_router(
     audit_logs.router,
     prefix="/audit-logs",
     tags=["audit-logs"],
+)
+
+api_router.include_router(
+    dashboard.router,
+    prefix="/dashboard",
+    tags=["dashboard"],
 )
 
 api_router.include_router(

@@ -92,6 +92,24 @@ class LeadStatusHistory(Base):
     changed_at: Mapped[Any] = mapped_column(DateTime, nullable=False, server_default=text("now()"))
 
 
+class LeadCloseRequest(Base):
+    __tablename__ = "lead_close_requests"
+
+    id: Mapped[Any] = mapped_column(UUID(as_uuid=True), primary_key=True, nullable=False)
+    lead_id: Mapped[Any] = mapped_column(UUID(as_uuid=True), ForeignKey("leads.id"), nullable=False)
+    requested_by: Mapped[Any] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    status: Mapped[Any] = mapped_column(String(16), nullable=False, server_default=text("'PENDING'"))
+    reason: Mapped[Any] = mapped_column(Text, nullable=True)
+    reviewed_by: Mapped[Any] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    review_reason: Mapped[Any] = mapped_column(Text, nullable=True)
+    requested_at: Mapped[Any] = mapped_column(DateTime, nullable=False, server_default=text("now()"))
+    reviewed_at: Mapped[Any] = mapped_column(DateTime, nullable=True)
+    canceled_by: Mapped[Any] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    canceled_at: Mapped[Any] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[Any] = mapped_column(DateTime, nullable=False, server_default=text("now()"))
+    updated_at: Mapped[Any] = mapped_column(DateTime, nullable=False, server_default=text("now()"))
+
+
 class LeadNumberCounter(Base):
     __tablename__ = "lead_number_counters"
 
@@ -228,6 +246,7 @@ class Lead(Base):
     request_close_at: Mapped[Any] = mapped_column(DateTime, nullable=True)
     closed_at: Mapped[Any] = mapped_column(DateTime, nullable=True)
     closed_by_admin_id: Mapped[Any] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    close_reason: Mapped[Any] = mapped_column(Text, nullable=True)
     lead_number: Mapped[Any] = mapped_column(String(32), nullable=False)
     external_owner_name: Mapped[Any] = mapped_column(String(255), nullable=True)
     external_owner_phone: Mapped[Any] = mapped_column(String(50), nullable=True)
@@ -642,6 +661,7 @@ __all__ = [
     "DashboardSummary",
     "Feature",
     "Lead",
+    "LeadCloseRequest",
     "LeadMessage",
     "LeadNote",
     "LeadNumberCounter",

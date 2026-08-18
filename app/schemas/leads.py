@@ -35,6 +35,10 @@ class LeadCloseRequest(BaseModel):
     reason: str | None = None
 
 
+class LeadCloseRequestDecision(BaseModel):
+    reason: str | None = None
+
+
 class LeadNoteCreate(BaseModel):
     note: str = Field(min_length=1)
 
