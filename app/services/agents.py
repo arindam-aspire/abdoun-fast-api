@@ -45,6 +45,28 @@ AGENT_STATUSES = {
     "DELETED",
 }
 
+
+def _empty_agent_list_page(*, page: int, page_size: int) -> dict:
+    return {
+        "agents": [],
+        "pagination": {
+            "page": page,
+            "pageSize": page_size,
+            "total": 0,
+            "totalPages": 1,
+            "hasNext": False,
+            "hasPrevious": False,
+        },
+    }
+
+
+def can_view_agent_directory(roles: tuple[str, ...]) -> bool:
+    """Agency admins and super admins may browse the agent directory."""
+    normalized = {role.casefold() for role in roles}
+    if normalized & {"super_admin", "admin", "agency", "agency_admin"}:
+        return True
+    return False
+
 INVITE_PURPOSE_ONBOARDING = "onboarding"
 INVITE_PURPOSE_PASSWORD_SETUP = "password_setup"
 INVITE_PURPOSE_LEGACY_ACCEPT = "legacy_accept"
@@ -429,19 +451,12 @@ def list_agents(
     page = max(page, 1)
     page_size = max(min(page_size, 100), 1)
     offset = (page - 1) * page_size
+    if not can_view_agent_directory(roles):
+        return _empty_agent_list_page(page=page, page_size=page_size)
+
     is_super_admin = "super_admin" in {role.lower() for role in roles}
     if not is_super_admin and agency_id is None:
-        return {
-            "agents": [],
-            "pagination": {
-                "page": page,
-                "pageSize": page_size,
-                "total": 0,
-                "totalPages": 1,
-                "hasNext": False,
-                "hasPrevious": False,
-            },
-        }
+        return _empty_agent_list_page(page=page, page_size=page_size)
 
     stmt = (
         select(User, AgentProfile)

@@ -165,6 +165,13 @@ class PropertyDetail(BaseModel):
         )
 
 
+class CurrencyInfo(BaseModel):
+    """Currency attached to each property list/detail item."""
+
+    code: str = Field(..., description="ISO currency code (e.g. JOD, USD)")
+    symbol: str = Field(..., description="Display symbol (e.g. JD, $)")
+
+
 class BoundsFilter(BaseModel):
     """
     Schema for bounding box filter in property search.

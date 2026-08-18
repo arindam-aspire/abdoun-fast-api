@@ -16,7 +16,7 @@ from app.services.audit import record_activity
 from app.services.notifications import create_in_app_notification
 from app.services.public_properties import get_public_submission_or_404, pagination_meta, serialize_property_listing
 from app.services.property_submissions import ACTIVE_STATUS, DEAL_CLOSED_STATUS, DEAL_CLOSURE_REQUESTED_STATUS, _payload_workflow
-from app.utils.status_codes import STATUS_BAD_REQUEST, STATUS_FORBIDDEN, STATUS_NOT_FOUND
+from app.utils.status_codes import STATUS_BAD_REQUEST, STATUS_CONFLICT, STATUS_FORBIDDEN, STATUS_NOT_FOUND
 
 
 PENDING = "PENDING"
@@ -143,6 +143,19 @@ def _mark_submission_deal_status(
             submission.status = property_status
 
 
+def _assert_linked_lead_closed(db: Session, lead_id: UUID | None) -> None:
+    if not lead_id:
+        return
+    lead = db.execute(
+        select(Lead).where(Lead.id == lead_id).with_for_update()
+    ).scalar_one_or_none()
+    if not lead or lead.status != "CLOSED":
+        raise HTTPException(
+            status_code=STATUS_CONFLICT,
+            detail="The linked lead must complete the lead close workflow first",
+        )
+
+
 def create_deal_closure(
     db: Session,
     *,
@@ -214,6 +227,7 @@ def review_deal_closure(
     if closure.status != PENDING:
         raise HTTPException(status_code=STATUS_BAD_REQUEST, detail="Deal closure request is already reviewed")
     if action == "approve":
+        _assert_linked_lead_closed(db, closure.lead_id)
         closure.status = APPROVED
         _mark_submission_deal_status(
             db,
@@ -222,12 +236,6 @@ def review_deal_closure(
             property_status=DEAL_CLOSED_STATUS,
             closure_id=closure.id,
         )
-        if closure.lead_id:
-            lead = db.get(Lead, closure.lead_id)
-            if lead and lead.status != "CLOSED":
-                lead.status = "CLOSED"
-                lead.closed_at = utc_now()
-                lead.closed_by_admin_id = actor_user_id
     elif action == "reject":
         closure.status = REJECTED
         _mark_submission_deal_status(
