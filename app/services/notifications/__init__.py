@@ -6,8 +6,8 @@ from uuid import UUID, uuid4
 
 from sqlalchemy.orm import Session
 
-from app.core.config import get_settings
 from app.models.live_schema import Notification
+from app.services.notifications.email.service import send_email
 
 logger = logging.getLogger(__name__)
 
@@ -41,15 +41,24 @@ def create_in_app_notification(
     return notification
 
 
-def send_email_notification(*, to_email: str, subject: str, body: str) -> None:
-    settings = get_settings()
-    if settings.notification_email_mode == "log":
-        logger.info("email_notification_log_mode to=%s subject=%s body=%s", to_email, subject, body)
-        return
-    raise NotImplementedError("Email gateway mode is not configured")
+def send_email_notification(
+    *,
+    to_email: str,
+    subject: str,
+    body: str,
+    html_body: str | None = None,
+) -> str | None:
+    return send_email(
+        to_email=to_email,
+        subject=subject,
+        text_body=body,
+        html_body=html_body,
+    )
 
 
 def send_sms_notification(*, to_phone: str, body: str) -> None:
+    from app.core.config import get_settings
+
     settings = get_settings()
     if settings.notification_sms_mode == "log":
         logger.info("sms_notification_log_mode to=%s body=%s", to_phone, body)

@@ -22,6 +22,8 @@ from app.schemas.auth import (
 )
 from app.services.auth import (
     authenticate_password,
+    build_otp_response_data,
+    build_otp_response_meta,
     create_auth_tokens,
     create_otp_challenge,
     create_user,
@@ -30,6 +32,7 @@ from app.services.auth import (
     get_user_or_404,
     mark_password_set,
     normalize_username,
+    otp_delivery_message,
     send_dev_otp,
     serialize_user,
     verify_otp_challenge,
@@ -70,11 +73,14 @@ def login_with_otp_request(payload: SignInWithOtpRequest, db: DBSessionDep) -> d
         purpose="login_otp",
         new_value=normalize_username(payload.username),
     )
-    send_dev_otp(user=user, purpose="login", otp=otp)
+    send_dev_otp(user=user, purpose="login", otp=otp, challenge=challenge)
     db.commit()
     return success_response(
-        {"session": str(challenge.id), "otp": otp},
-        "OTP sent successfully",
+        build_otp_response_data(session=str(challenge.id), otp=otp),
+        otp_delivery_message(
+            fallback_dev_message="OTP sent successfully",
+            sent_message="OTP sent successfully",
+        ),
     )
 
 
@@ -114,17 +120,20 @@ def sign_up(payload: SignUpRequest, db: DBSessionDep) -> dict:
         password=payload.password,
         role=payload.role,
     )
-    _, otp = create_otp_challenge(
+    challenge, otp = create_otp_challenge(
         db,
         user=user,
         purpose="signup_confirm",
         new_value=normalize_username(payload.email),
     )
-    send_dev_otp(user=user, purpose="signup", otp=otp)
+    send_dev_otp(user=user, purpose="signup", otp=otp, challenge=challenge)
     db.commit()
     return success_response(
-        {"otp": otp, "dev_email_otp": otp},
-        "Account created. Verification code logged in dev mode.",
+        build_otp_response_data(otp=otp, dev_email_otp=otp),
+        otp_delivery_message(
+            fallback_dev_message="Account created. Verification code logged in dev mode.",
+            sent_message="Account created. Verification code sent.",
+        ),
     )
 
 
@@ -173,8 +182,10 @@ def request_profile_update(payload: ProfileUpdateRequest, context: Authenticated
     dev_phone_otp = None
     fields: list[str] = []
 
+    email_challenge = None
+    phone_challenge = None
     if payload.email:
-        _, dev_email_otp = create_otp_challenge(
+        email_challenge, dev_email_otp = create_otp_challenge(
             db,
             user=user,
             purpose="profile_email",
@@ -182,7 +193,7 @@ def request_profile_update(payload: ProfileUpdateRequest, context: Authenticated
         )
         fields.append("email")
     if payload.phone_number:
-        _, dev_phone_otp = create_otp_challenge(
+        phone_challenge, dev_phone_otp = create_otp_challenge(
             db,
             user=user,
             purpose="profile_phone",
@@ -191,18 +202,26 @@ def request_profile_update(payload: ProfileUpdateRequest, context: Authenticated
         fields.append("phone_number")
 
     if dev_email_otp or dev_phone_otp:
-        send_dev_otp(user=user, purpose="profile", otp=dev_email_otp or dev_phone_otp or "")
+        send_dev_otp(
+            user=user,
+            purpose="profile",
+            otp=dev_email_otp or dev_phone_otp or "",
+            challenge=email_challenge or phone_challenge,
+        )
 
     db.commit()
     return success_response(
-        {
-            "message": "Verification code logged in dev mode.",
-            "requires_verification": bool(fields),
-            "verification_fields": fields,
-            "dev_phone_otp": dev_phone_otp,
-            "dev_email_otp": dev_email_otp,
-            "otp": dev_email_otp or dev_phone_otp,
-        },
+        build_otp_response_data(
+            message=otp_delivery_message(
+                fallback_dev_message="Verification code logged in dev mode.",
+                sent_message="Verification code sent.",
+            ),
+            requires_verification=bool(fields),
+            verification_fields=fields,
+            dev_phone_otp=dev_phone_otp,
+            dev_email_otp=dev_email_otp,
+            otp=dev_email_otp or dev_phone_otp,
+        ),
         "Verification required" if fields else "No verification required",
     )
 
@@ -259,15 +278,22 @@ def forgot_password(payload: ForgotPasswordRequest, db: DBSessionDep) -> dict:
     username = payload.email or "".join(filter(None, [payload.phoneCountryCode, payload.phoneNationalNumber]))
     user = find_user_by_username(db, username) if username else None
     if user:
-        _, otp = create_otp_challenge(
+        challenge, otp = create_otp_challenge(
             db,
             user=user,
             purpose="reset_password",
             new_value=normalize_username(user.email),
         )
-        send_dev_otp(user=user, purpose="password reset", otp=otp)
+        send_dev_otp(user=user, purpose="password reset", otp=otp, challenge=challenge)
         db.commit()
-        return success_response(True, "Verification code logged in dev mode", {"otp": otp})
+        return success_response(
+            True,
+            otp_delivery_message(
+                fallback_dev_message="Verification code logged in dev mode",
+                sent_message="If the account exists, a verification code has been sent",
+            ),
+            build_otp_response_meta(otp=otp),
+        )
     return success_response(True, "If the account exists, a verification code has been sent")
 
 

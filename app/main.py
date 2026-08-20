@@ -1,10 +1,12 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.core.config import get_settings
 from app.api.v1.router import api_router
-from app.utils.status_codes import STATUS_OK
+from app.services.notifications.email.exceptions import EmailConfigurationError, EmailDeliveryError
+from app.utils.api_response import error_payload
+from app.utils.status_codes import STATUS_INTERNAL_SERVER_ERROR, STATUS_OK, STATUS_SERVICE_UNAVAILABLE
 
 
 def create_app() -> FastAPI:
@@ -26,6 +28,38 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    @app.exception_handler(EmailConfigurationError)
+    async def email_configuration_error_handler(_request: Request, exc: EmailConfigurationError) -> JSONResponse:
+        return JSONResponse(
+            status_code=STATUS_INTERNAL_SERVER_ERROR,
+            content={
+                "success": False,
+                "message": str(exc),
+                "data": None,
+                "error": error_payload(
+                    code="email_configuration_error",
+                    message=str(exc),
+                ),
+                "meta": {},
+            },
+        )
+
+    @app.exception_handler(EmailDeliveryError)
+    async def email_delivery_error_handler(_request: Request, _exc: EmailDeliveryError) -> JSONResponse:
+        return JSONResponse(
+            status_code=STATUS_SERVICE_UNAVAILABLE,
+            content={
+                "success": False,
+                "message": "Unable to send email notification",
+                "data": None,
+                "error": error_payload(
+                    code="email_delivery_error",
+                    message="Unable to send email notification",
+                ),
+                "meta": {},
+            },
+        )
     
     # Health check endpoint for Docker
     @app.get("/health")
