@@ -6,6 +6,7 @@ from uuid import UUID, uuid4
 
 from fastapi import HTTPException
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
 
@@ -54,6 +55,19 @@ def _iso(value) -> str | None:
 
 def _normalize_email(email: str) -> str:
     return email.strip().lower()
+
+
+def ensure_agency_contact_available(db: Session, *, email: str, phone: str | None = None) -> None:
+    normalized_email = _normalize_email(email)
+    normalized_phone = (phone or "").strip()
+    match = AgencyMaster.email == normalized_email
+    if normalized_phone:
+        match = match | (AgencyMaster.phone == normalized_phone)
+    existing = db.execute(select(AgencyMaster.email, AgencyMaster.phone).where(match)).all()
+    if any(row.email == normalized_email for row in existing):
+        raise HTTPException(status_code=STATUS_CONFLICT, detail="An agency with this email already exists")
+    if normalized_phone and any(row.phone == normalized_phone for row in existing):
+        raise HTTPException(status_code=STATUS_CONFLICT, detail="An agency with this phone number already exists")
 
 
 def _token() -> str:
@@ -105,9 +119,7 @@ def create_agency_invitation(
     invited_by: UUID,
 ) -> AgencyInvitation:
     email = _normalize_email(payload.email)
-    existing_agency = db.execute(select(AgencyMaster.id).where(AgencyMaster.email == email)).first()
-    if existing_agency:
-        raise HTTPException(status_code=STATUS_CONFLICT, detail="Agency already exists")
+    ensure_agency_contact_available(db, email=email, phone=payload.phone or "")
 
     db.execute(
         select(AgencyInvitation)
@@ -199,13 +211,14 @@ def create_agency_record(
     currency: str | None = None,
     measurement_unit: str | None = None,
 ) -> AgencyMaster:
+    ensure_agency_contact_available(db, email=email, phone=phone)
     agency = AgencyMaster(
         id=uuid4(),
         agency_name=agency_name,
         agency_trade_name=agency_trade_name,
         legal_document_s3_link=legal_document_s3_link or f"dev://agency-legal-documents/{uuid4()}/pending",
         email=_normalize_email(email),
-        phone=phone,
+        phone=phone.strip(),
         website=website,
         address=address,
         city=city,
@@ -219,7 +232,15 @@ def create_agency_record(
         measurement_unit=measurement_unit or "sqm",
     )
     db.add(agency)
-    db.flush()
+    try:
+        db.flush()
+    except IntegrityError as exc:
+        error_text = str(getattr(exc, "orig", exc))
+        if "uq_agency_master_email" in error_text:
+            raise HTTPException(status_code=STATUS_CONFLICT, detail="An agency with this email already exists") from exc
+        if "uq_agency_master_phone" in error_text:
+            raise HTTPException(status_code=STATUS_CONFLICT, detail="An agency with this phone number already exists") from exc
+        raise
     return agency
 
 

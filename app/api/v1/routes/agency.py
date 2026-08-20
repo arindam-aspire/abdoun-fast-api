@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import PurePosixPath
 from typing import Annotated
 from uuid import UUID, uuid4
 
@@ -26,6 +27,7 @@ from app.services.agency_workflows import (
     approve_or_reject_agency,
     complete_agency_password_setup,
     create_agency_invitation,
+    ensure_agency_contact_available,
     get_invitation_by_token_or_404,
     offline_register_agency,
     resend_agency_password_setup,
@@ -34,7 +36,14 @@ from app.services.agency_workflows import (
     set_agency_activation,
     PENDING_APPROVAL,
 )
-from app.services.auth import create_otp_challenge, create_user, send_dev_otp, serialize_agency
+from app.services.auth import (
+    build_otp_response_data,
+    create_otp_challenge,
+    create_user,
+    otp_delivery_message,
+    send_dev_otp,
+    serialize_agency,
+)
 from app.services.owners import (
     assign_owner_to_agency,
     get_owner,
@@ -44,8 +53,21 @@ from app.services.owners import (
     update_owner_status,
 )
 from app.services.user_agencies import selectable_owner_agencies
+from app.core.config import get_settings
+from app.services.media_urls import (
+    canonicalize_media_url,
+    generate_presigned_put_url,
+    probe_s3_object_access,
+    resolve_readable_media_url,
+)
 from app.utils.api_response import raise_api_error, success_response
-from app.utils.status_codes import STATUS_BAD_REQUEST, STATUS_FORBIDDEN, STATUS_NOT_FOUND, STATUS_UNAUTHORIZED
+from app.utils.status_codes import (
+    STATUS_BAD_REQUEST,
+    STATUS_FORBIDDEN,
+    STATUS_INTERNAL_SERVER_ERROR,
+    STATUS_NOT_FOUND,
+    STATUS_UNAUTHORIZED,
+)
 
 router = APIRouter()
 
@@ -77,6 +99,33 @@ def _actor_user_id(context: RequestContext) -> UUID:
     return context.user_id
 
 
+def _agency_s3_upload(prefix: str, owner_id: UUID, payload: UploadRequest) -> dict:
+    safe_file_name = PurePosixPath(payload.file_name).name
+    object_key = f"{prefix}/{owner_id}/{uuid4()}-{safe_file_name}"
+    content_type = (payload.content_type or "").strip()
+    settings = get_settings()
+    bucket = (settings.aws_s3_bucket or "").strip().strip("\"'")
+    if bucket:
+        presigned = generate_presigned_put_url(object_key)
+        if not presigned:
+            raise_api_error(
+                status_code=STATUS_INTERNAL_SERVER_ERROR,
+                code="UPLOAD_ERROR",
+                message="Could not generate upload URL",
+            )
+        return presigned
+    dev_url = f"dev://uploads/{object_key}"
+    return {
+        "upload_url": dev_url,
+        "object_key": object_key,
+        "file_url": dev_url,
+        "readable_url": dev_url,
+        "signed_read_url": dev_url,
+        "upload_http_method": "PUT",
+        "view_http_method": "GET",
+    }
+
+
 @router.post("/register")
 async def register_agency(
     db: DBSessionDep,
@@ -87,6 +136,7 @@ async def register_agency(
     legal_document: Annotated[UploadFile, File()],
     password: Annotated[str | None, Form()] = None,
 ) -> dict:
+    ensure_agency_contact_available(db, email=email, phone=phone_number)
     agency_id = uuid4()
     legal_document_url = f"dev://agency-legal-documents/{agency_id}/{legal_document.filename}"
     agency = AgencyMaster(
@@ -114,17 +164,24 @@ async def register_agency(
         role="admin",
         agency_id=agency.id,
     )
-    _, otp = create_otp_challenge(
+    challenge, otp = create_otp_challenge(
         db,
         user=user,
         purpose="signup_confirm",
         new_value=email.strip().lower(),
     )
-    send_dev_otp(user=user, purpose="agency signup", otp=otp)
+    send_dev_otp(user=user, purpose="agency signup", otp=otp, challenge=challenge)
     db.commit()
     return success_response(
-        {"agency": serialize_agency(agency), "otp": otp, "dev_email_otp": otp},
-        "Agency registration submitted. Verification code logged in dev mode.",
+        build_otp_response_data(
+            agency=serialize_agency(agency),
+            otp=otp,
+            dev_email_otp=otp,
+        ),
+        otp_delivery_message(
+            fallback_dev_message="Agency registration submitted. Verification code logged in dev mode.",
+            sent_message="Agency registration submitted. Verification code sent.",
+        ),
     )
 
 
@@ -542,9 +599,19 @@ def request_agency_logo_upload(
     if not agency:
         raise HTTPException(status_code=STATUS_NOT_FOUND, detail="Agency not found")
     _assert_can_access_agency(context, agency_id)
-    agency.logo_url = f"dev://agency-logos/{agency.id}/{payload.file_name}"
+    upload = _agency_s3_upload("agency_logo", agency.id, payload)
+    agency.logo_url = upload["file_url"]
     db.commit()
-    return success_response({"upload_url": agency.logo_url}, "Agency logo upload URL generated")
+    return success_response(
+        {
+            "upload_url": upload["upload_url"],
+            "object_key": upload["object_key"],
+            "file_url": upload["file_url"],
+            "readable_url": upload["readable_url"],
+            "signed_read_url": upload["signed_read_url"],
+        },
+        "Agency logo upload URL generated",
+    )
 
 
 @router.delete("/{agency_id}/logo")
@@ -559,6 +626,37 @@ def delete_agency_logo(agency_id: UUID, db: DBSessionDep, context: AgencyAdminCo
     return success_response(serialize_agency(agency), "Agency logo removed")
 
 
+@router.get("/{agency_id}/legal-document")
+def get_agency_legal_document_url(agency_id: UUID, db: DBSessionDep, context: AgencyAdminContext) -> dict:
+    """Return a fresh GET-presigned URL for the stored agency legal document."""
+    agency = db.get(AgencyMaster, agency_id)
+    if not agency:
+        raise HTTPException(status_code=STATUS_NOT_FOUND, detail="Agency not found")
+    _assert_can_access_agency(context, agency_id)
+
+    stored = (agency.legal_document_s3_link or "").strip()
+    if not stored:
+        raise HTTPException(status_code=STATUS_NOT_FOUND, detail="Legal document not found")
+
+    canonical = canonicalize_media_url(stored) or stored
+    readable = resolve_readable_media_url(canonical)
+    if not readable:
+        raise HTTPException(status_code=STATUS_BAD_REQUEST, detail="Could not resolve legal document URL")
+
+    probe_s3_object_access(canonical)
+    settings = get_settings()
+    return success_response(
+        {
+            "file_url": canonical,
+            "readable_url": readable,
+            "signed_read_url": readable,
+            "http_method": "GET",
+        },
+        "Agency legal document URL generated",
+        meta={"expires_in": settings.media_url_presign_expires_seconds, "http_method": "GET"},
+    )
+
+
 @router.post("/{agency_id}/legal-document")
 def request_agency_legal_document_upload(
     agency_id: UUID,
@@ -570,6 +668,18 @@ def request_agency_legal_document_upload(
     if not agency:
         raise HTTPException(status_code=STATUS_NOT_FOUND, detail="Agency not found")
     _assert_can_access_agency(context, agency_id)
-    agency.legal_document_s3_link = f"dev://agency-legal-documents/{agency.id}/{payload.file_name}"
+    upload = _agency_s3_upload("agency_legal_document", agency.id, payload)
+    agency.legal_document_s3_link = upload["file_url"]
     db.commit()
-    return success_response({"upload_url": agency.legal_document_s3_link}, "Agency legal document upload URL generated")
+    return success_response(
+        {
+            "upload_url": upload["upload_url"],
+            "object_key": upload["object_key"],
+            "file_url": upload["file_url"],
+            "readable_url": upload["readable_url"],
+            "signed_read_url": upload["signed_read_url"],
+            "upload_http_method": "PUT",
+            "view_http_method": "GET",
+        },
+        "Agency legal document upload URL generated",
+    )

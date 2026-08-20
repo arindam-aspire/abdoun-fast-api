@@ -81,6 +81,13 @@ class Settings(BaseModel):
     notification_email_mode: str = os.getenv("NOTIFICATION_EMAIL_MODE", "log")
     notification_sms_mode: str = os.getenv("NOTIFICATION_SMS_MODE", "log")
     notification_poll_interval_seconds: int = int(os.getenv("NOTIFICATION_POLL_INTERVAL_SECONDS", "30"))
+    ses_from_email: str | None = os.getenv("SES_FROM_EMAIL")
+    ses_from_name: str | None = os.getenv("SES_FROM_NAME")
+    email_otp_verification_subject: str = os.getenv(
+        "EMAIL_OTP_VERIFICATION_SUBJECT",
+        "Verify your email address",
+    )
+    expose_otp_in_response: bool = os.getenv("EXPOSE_OTP_IN_RESPONSE", "false").lower() == "true"
     supported_locales: str = os.getenv("SUPPORTED_LOCALES", "en,ar,fr,es")
     default_locale: str = os.getenv("DEFAULT_LOCALE", "en")
     auth_token_secret: str = os.getenv("AUTH_TOKEN_SECRET", os.getenv("SECRET_KEY", "abdoun-dev-token-secret"))

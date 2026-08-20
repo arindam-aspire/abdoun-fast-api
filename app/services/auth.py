@@ -21,7 +21,9 @@ from app.models.live_schema import (
     UserProfileChangeChallenge,
     UserRole,
 )
+from app.services.media_urls import with_readable_media_urls
 from app.services.notifications import send_email_notification, send_sms_notification
+from app.services.notifications.email.templates import build_otp_verification_email
 from app.services.user_agencies import (
     REL_AGENCY_ADMIN,
     REL_AGENT,
@@ -78,6 +80,14 @@ def utc_now() -> datetime:
 def is_expired(expires_at: datetime) -> bool:
     current_time = datetime.now(expires_at.tzinfo) if expires_at.tzinfo else datetime.utcnow()
     return expires_at < current_time
+
+
+def otp_remaining_minutes(expires_at: datetime) -> int:
+    current_time = datetime.now(expires_at.tzinfo) if expires_at.tzinfo else datetime.utcnow()
+    remaining_seconds = int((expires_at - current_time).total_seconds())
+    if remaining_seconds <= 0:
+        return 0
+    return (remaining_seconds + 59) // 60
 
 
 def find_user_by_username(db: Session, username: str) -> User | None:
@@ -176,7 +186,7 @@ def serialize_agency(agency: AgencyMaster | None) -> dict | None:
         if agency.is_verified
         else "Rejected" if getattr(agency, "status", "") == "REJECTED" else "Pending Verification"
     )
-    return {
+    return with_readable_media_urls({
         "id": str(agency.id),
         "agency_id": str(agency.id),
         "agency_name": agency.agency_name,
@@ -201,7 +211,7 @@ def serialize_agency(agency: AgencyMaster | None) -> dict | None:
         "measurement_unit": agency.measurement_unit or "sqm",
         "created_at": _iso(agency.created_at),
         "updated_at": _iso(agency.updated_at),
-    }
+    })
 
 
 def requires_password_set(db: Session, user: User, roles: list[Role] | None = None) -> bool:
@@ -433,17 +443,68 @@ def create_user(
     return user
 
 
-def send_dev_otp(*, user: User, purpose: str, otp: str) -> None:
+def build_otp_response_data(
+    *,
+    otp: str | None = None,
+    dev_email_otp: str | None = None,
+    dev_phone_otp: str | None = None,
+    **extra: object,
+) -> dict[str, object]:
+    settings = get_settings()
+    data: dict[str, object] = dict(extra)
+    if settings.expose_otp_in_response:
+        if otp is not None:
+            data["otp"] = otp
+        if dev_email_otp is not None:
+            data["dev_email_otp"] = dev_email_otp
+        if dev_phone_otp is not None:
+            data["dev_phone_otp"] = dev_phone_otp
+    return data
+
+
+def build_otp_response_meta(*, otp: str | None = None) -> dict[str, object]:
+    settings = get_settings()
+    if settings.expose_otp_in_response and otp is not None:
+        return {"otp": otp}
+    return {}
+
+
+def otp_delivery_message(*, fallback_dev_message: str, sent_message: str) -> str:
+    settings = get_settings()
+    if settings.expose_otp_in_response:
+        return fallback_dev_message
+    return sent_message
+
+
+def send_dev_otp(
+    *,
+    user: User,
+    purpose: str,
+    otp: str,
+    challenge: UserProfileChangeChallenge | None = None,
+) -> None:
+    settings = get_settings()
+    if challenge is not None:
+        expiry_minutes = otp_remaining_minutes(challenge.expires_at)
+    else:
+        expiry_minutes = max(settings.auth_otp_ttl_seconds // 60, 1)
     if user.email:
+        subject, text_body, html_body = build_otp_verification_email(
+            app_name=settings.app_name,
+            otp=otp,
+            expiry_minutes=expiry_minutes,
+            subject=settings.email_otp_verification_subject,
+        )
         send_email_notification(
             to_email=user.email,
-            subject=f"Abdoun {purpose} verification code",
-            body=f"Your verification code is {otp}",
+            subject=subject,
+            body=text_body,
+            html_body=html_body,
         )
     if user.phone_number:
         send_sms_notification(
             to_phone=user.phone_number,
-            body=f"Your Abdoun verification code is {otp}",
+            body=f"Your {settings.app_name} verification code is {otp}",
         )
 
 

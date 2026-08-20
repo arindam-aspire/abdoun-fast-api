@@ -12,9 +12,9 @@ from app.schemas.uploads import PresignedUploadRequest, ReadableUrlRequest
 from app.services.media_urls import (
     canonicalize_media_url,
     generate_presigned_put_url,
+    probe_s3_object_access,
     resolve_readable_media_url,
 )
-from app.services.media_urls import canonicalize_media_url, resolve_readable_media_url
 from app.utils.api_response import success_response
 from app.utils.status_codes import STATUS_BAD_REQUEST, STATUS_INTERNAL_SERVER_ERROR
 
@@ -23,22 +23,12 @@ router = APIRouter()
 AuthenticatedContext = Annotated[RequestContext, Depends(require_authenticated_user)]
 
 
-def _s3_client(*, region: str):
-    """Build an S3 client with regional endpoint for stable SigV4 presigns."""
-    return boto3.client(
-        "s3",
-        region_name=region,
-        endpoint_url=f"https://s3.{region}.amazonaws.com",
-        config=Config(
-            signature_version="s3v4",
-            s3={"addressing_style": "virtual"},
-        ),
-    )
-
-
-def _s3_object_url(bucket: str, region: str, object_key: str) -> str:
-    encoded_key = quote(object_key, safe="/")
-    return f"https://{bucket}.s3.{region}.amazonaws.com/{encoded_key}"
+def _object_owner(payload: PresignedUploadRequest, context: RequestContext) -> str:
+    if payload.context == "agency_legal_document":
+        owner = payload.agency_id or context.agency_id
+        if owner:
+            return str(owner)
+    return payload.draft_client_id or payload.submission_id or str(context.user_id)
 
 
 @router.post("/presigned-url")
@@ -61,7 +51,7 @@ def create_presigned_upload_url(payload: PresignedUploadRequest, context: Authen
         raise HTTPException(status_code=STATUS_BAD_REQUEST, detail="content_type is required")
 
     safe_file_name = PurePosixPath(payload.file_name).name
-    owner = payload.draft_client_id or payload.submission_id or str(context.user_id)
+    owner = _object_owner(payload, context)
     object_key = f"{payload.context}/{owner}/{uuid4()}-{safe_file_name}"
 
     settings = get_settings()
@@ -82,6 +72,8 @@ def create_presigned_upload_url(payload: PresignedUploadRequest, context: Authen
                 "file_url": presigned["file_url"],
                 "readable_url": presigned["readable_url"],
                 "signed_read_url": presigned["signed_read_url"],
+                "upload_http_method": "PUT",
+                "view_http_method": "GET",
             },
             "Upload URL generated",
             meta={
@@ -123,13 +115,15 @@ def create_readable_media_url(payload: ReadableUrlRequest, context: Authenticate
     if not readable:
         raise HTTPException(status_code=STATUS_BAD_REQUEST, detail="Could not resolve media URL")
 
+    probe_s3_object_access(canonical)
     settings = get_settings()
     return success_response(
         {
             "file_url": canonical,
             "readable_url": readable,
             "signed_read_url": readable,
+            "http_method": "GET",
         },
         "Readable URL generated",
-        meta={"expires_in": settings.media_url_presign_expires_seconds},
+        meta={"expires_in": settings.media_url_presign_expires_seconds, "http_method": "GET"},
     )
