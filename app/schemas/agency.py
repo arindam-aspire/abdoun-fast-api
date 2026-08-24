@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
+
+from app.schemas.agents import normalize_phone, validate_e164_phone
 
 
 class AgencyUpdateRequest(BaseModel):
@@ -33,12 +35,24 @@ class AgencyOfflineRegistrationRequest(BaseModel):
     currency: str | None = None
     measurement_unit: str | None = None
 
+    @field_validator("phone")
+    @classmethod
+    def validate_phone(cls, value: str) -> str:
+        return validate_e164_phone(value, field_name="phone")
+
 
 class AgencyInvitationCreateRequest(BaseModel):
     email: str
     agency_name: str | None = None
     agency_trade_name: str | None = None
     phone: str | None = None
+
+    @field_validator("phone")
+    @classmethod
+    def validate_phone(cls, value: str | None) -> str | None:
+        if value is None or not value.strip():
+            return None
+        return validate_e164_phone(value, field_name="phone")
 
 
 class AgencyInvitationAcceptRequest(BaseModel):
@@ -53,6 +67,11 @@ class AgencyInvitationAcceptRequest(BaseModel):
     state: str | None = None
     country: str | None = None
     zip_code: str | None = None
+
+    @field_validator("phone")
+    @classmethod
+    def validate_phone(cls, value: str) -> str:
+        return validate_e164_phone(value, field_name="phone")
 
 
 class AgencyReviewRequest(BaseModel):

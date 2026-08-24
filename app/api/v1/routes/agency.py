@@ -20,6 +20,7 @@ from app.schemas.agency import (
     AgencyUpdateRequest,
     UploadRequest,
 )
+from app.schemas.agents import validate_e164_phone
 from app.schemas.owners import OwnerStatusUpdateRequest, OwnerUpdateRequest
 from app.services.agency_workflows import (
     accept_agency_invitation,
@@ -136,7 +137,8 @@ async def register_agency(
     legal_document: Annotated[UploadFile, File()],
     password: Annotated[str | None, Form()] = None,
 ) -> dict:
-    ensure_agency_contact_available(db, email=email, phone=phone_number)
+    normalized_phone = validate_e164_phone(phone_number, field_name="phone_number")
+    ensure_agency_contact_available(db, email=email, phone=normalized_phone)
     agency_id = uuid4()
     legal_document_url = f"dev://agency-legal-documents/{agency_id}/{legal_document.filename}"
     agency = AgencyMaster(
@@ -145,7 +147,7 @@ async def register_agency(
         agency_trade_name=agency_trade_name,
         legal_document_s3_link=legal_document_url,
         email=email.strip().lower(),
-        phone=phone_number,
+        phone=normalized_phone,
         is_active=False,
         is_verified=False,
         status=PENDING_APPROVAL,
@@ -318,8 +320,16 @@ def list_agencies(
         )
     if agencyStatus:
         normalized_agency_status = agencyStatus.strip().lower()
-        if normalized_agency_status in {"active", "inactive"}:
-            query = query.filter(AgencyMaster.is_active.is_(normalized_agency_status == "active"))
+        if normalized_agency_status == "active":
+            query = query.filter(AgencyMaster.is_active.is_(True))
+        elif normalized_agency_status == "inactive":
+            query = query.filter(AgencyMaster.is_active.is_(False), AgencyMaster.status != "PENDING_APPROVAL")
+        elif normalized_agency_status in {"pending", "pending_approval"}:
+            query = query.filter(AgencyMaster.status == "PENDING_APPROVAL")
+        elif normalized_agency_status == "approved":
+            query = query.filter(AgencyMaster.status == "APPROVED")
+        elif normalized_agency_status == "rejected":
+            query = query.filter(AgencyMaster.status == "REJECTED")
     if verificationStatus:
         normalized_verification = verificationStatus.strip().lower().replace("_", " ")
         if normalized_verification == "verified":

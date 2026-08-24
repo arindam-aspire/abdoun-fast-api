@@ -77,12 +77,16 @@ def _iso(value) -> str | None:
     return value.isoformat() if value else None
 
 
+def _frontend_base_url() -> str:
+    return get_settings().frontend_base_url
+
+
 def _invite_link(token: str) -> str:
-    return f"/agent-invite?token={token}"
+    return f"{_frontend_base_url()}/agent-invite?token={token}"
 
 
 def _password_setup_link(token: str) -> str:
-    return f"/agent-password-setup?token={token}"
+    return f"{_frontend_base_url()}/agent-password-setup?token={token}"
 
 
 def _invite_expiry() -> timedelta:

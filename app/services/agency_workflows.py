@@ -13,6 +13,7 @@ from sqlalchemy.orm.attributes import flag_modified
 from app.core.config import get_settings
 from app.core.security import hash_secret, verify_secret
 from app.models.live_schema import AgencyInvitation, AgencyMaster, PropertyListingSubmission, User, UserProfileChangeChallenge
+from app.schemas.agents import normalize_phone
 from app.schemas.agency import (
     AgencyInvitationAcceptRequest,
     AgencyInvitationCreateRequest,
@@ -59,7 +60,7 @@ def _normalize_email(email: str) -> str:
 
 def ensure_agency_contact_available(db: Session, *, email: str, phone: str | None = None) -> None:
     normalized_email = _normalize_email(email)
-    normalized_phone = (phone or "").strip()
+    normalized_phone = normalize_phone(phone) if phone else ""
     match = AgencyMaster.email == normalized_email
     if normalized_phone:
         match = match | (AgencyMaster.phone == normalized_phone)
@@ -74,12 +75,16 @@ def _token() -> str:
     return secrets.token_urlsafe(32)
 
 
+def _frontend_base_url() -> str:
+    return get_settings().frontend_base_url
+
+
 def _agency_activation_link(token: str) -> str:
-    return f"/agency-password-setup?token={token}"
+    return f"{_frontend_base_url()}/agency-password-setup?token={token}"
 
 
 def _agency_invitation_link(token: str) -> str:
-    return f"/agency-invitation?token={token}"
+    return f"{_frontend_base_url()}/agency-invitation?token={token}"
 
 
 def _expire_invitation_if_needed(db: Session, invitation: AgencyInvitation) -> AgencyInvitation:
@@ -211,14 +216,15 @@ def create_agency_record(
     currency: str | None = None,
     measurement_unit: str | None = None,
 ) -> AgencyMaster:
-    ensure_agency_contact_available(db, email=email, phone=phone)
+    normalized_phone = normalize_phone(phone) if phone else phone
+    ensure_agency_contact_available(db, email=email, phone=normalized_phone)
     agency = AgencyMaster(
         id=uuid4(),
         agency_name=agency_name,
         agency_trade_name=agency_trade_name,
         legal_document_s3_link=legal_document_s3_link or f"dev://agency-legal-documents/{uuid4()}/pending",
         email=_normalize_email(email),
-        phone=phone.strip(),
+        phone=normalized_phone or phone.strip(),
         website=website,
         address=address,
         city=city,
@@ -395,7 +401,9 @@ def approve_or_reject_agency(
 
 
 def resend_agency_password_setup(db: Session, *, agency: AgencyMaster, actor_id: UUID) -> str:
-    if agency.status not in {APPROVED, ACTIVE}:
+    if agency.status == ACTIVE:
+        raise HTTPException(status_code=STATUS_BAD_REQUEST, detail="Agency is already active; password link is not applicable")
+    if agency.status != APPROVED:
         raise HTTPException(status_code=STATUS_BAD_REQUEST, detail="Agency must be approved before password link can be sent")
     user = find_user_by_username(db, agency.email)
     if not user:
@@ -507,8 +515,9 @@ def agency_response(agency: AgencyMaster, *, password_setup_token: str | None = 
     data = serialize_agency(agency)
     if data is not None:
         data["status"] = agency.status
+    expose_password_link = password_setup_token and agency.status != ACTIVE
     return {
         "agency": data,
-        "password_setup_token": password_setup_token,
-        "password_setup_link": _agency_activation_link(password_setup_token) if password_setup_token else None,
+        "password_setup_token": password_setup_token if expose_password_link else None,
+        "password_setup_link": _agency_activation_link(password_setup_token) if expose_password_link else None,
     }
