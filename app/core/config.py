@@ -97,6 +97,7 @@ class Settings(BaseModel):
     agency_invitation_ttl_seconds: int = int(os.getenv("AGENCY_INVITATION_TTL_SECONDS", "900"))
     agency_password_setup_ttl_seconds: int = int(os.getenv("AGENCY_PASSWORD_SETUP_TTL_SECONDS", "900"))
     agent_invitation_ttl_seconds: int = int(os.getenv("AGENT_INVITATION_TTL_SECONDS", "900"))
+    frontend_base_url: str = os.getenv("FRONTEND_BASE_URL", "http://localhost:3000").rstrip("/")
     allow_owner_multiple_agencies: bool = os.getenv("ALLOW_OWNER_MULTIPLE_AGENCIES", "false").lower() == "true"
 
     aws_s3_bucket: str | None = os.getenv("AWS_S3_BUCKET", "").strip().strip("\"'")

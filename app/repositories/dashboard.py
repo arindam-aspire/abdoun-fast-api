@@ -22,7 +22,8 @@ from app.models.live_schema import (
 from app.services.user_agencies import REL_AGENT, agency_user_ids
 
 
-ADMIN_ROLE_NAMES = ("admin", "agency", "agency_admin", "super_admin")
+ADMIN_ROLE_NAMES = ("admin", "agency", "agency_admin")
+ALL_ADMIN_ROLE_NAMES = ("admin", "agency", "agency_admin", "super_admin")
 AGENT_ROLE_NAME = "agent"
 ACTIVE_AGENT_STATUS = "ACTIVE"
 PENDING_AGENT_STATUS = "PENDING_REVIEW"
