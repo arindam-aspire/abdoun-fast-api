@@ -14,6 +14,7 @@ from app.schemas.auth import (
     ProfileUpdateRequest,
     ProfileUpdateVerifyRequest,
     RefreshTokenRequest,
+    ResendConfirmationRequest,
     ResetPasswordRequest,
     SignInRequest,
     SignInWithOtpRequest,
@@ -24,15 +25,18 @@ from app.services.auth import (
     authenticate_password,
     build_otp_response_data,
     build_otp_response_meta,
+    cognito_service,
+    confirm_signup_user,
     create_auth_tokens,
     create_otp_challenge,
-    create_user,
     ensure_agent_can_authenticate,
     find_user_by_username,
     get_user_or_404,
     mark_password_set,
     normalize_username,
     otp_delivery_message,
+    register_signup_user,
+    resend_signup_confirmation,
     send_dev_otp,
     serialize_user,
     verify_otp_challenge,
@@ -54,8 +58,10 @@ def login_with_password(payload: SignInRequest, db: DBSessionDep) -> dict:
         username=payload.username,
         password=payload.password,
     )
+    tokens = create_auth_tokens(db, user)
+    db.commit()
     return success_response(
-        create_auth_tokens(db, user),
+        tokens,
         "Signed in successfully",
     )
 
@@ -112,7 +118,7 @@ def login_with_otp_verify(payload: SignInWithOtpVerifyRequest, db: DBSessionDep)
 
 @router.post("/signup")
 def sign_up(payload: SignUpRequest, db: DBSessionDep) -> dict:
-    user = create_user(
+    user = register_signup_user(
         db,
         full_name=payload.full_name,
         email=payload.email,
@@ -131,7 +137,7 @@ def sign_up(payload: SignUpRequest, db: DBSessionDep) -> dict:
     return success_response(
         build_otp_response_data(otp=otp, dev_email_otp=otp),
         otp_delivery_message(
-            fallback_dev_message="Account created. Verification code logged in dev mode.",
+            fallback_dev_message="Account created. Verification code sent.",
             sent_message="Account created. Verification code sent.",
         ),
     )
@@ -139,20 +145,22 @@ def sign_up(payload: SignUpRequest, db: DBSessionDep) -> dict:
 
 @router.post("/confirm-signup")
 def confirm_sign_up(payload: ConfirmSignUpRequest, db: DBSessionDep) -> dict:
-    user = find_user_by_username(db, payload.email)
-    if not user:
-        raise HTTPException(status_code=STATUS_NOT_FOUND, detail="Account not found")
-
-    verify_otp_challenge(
-        db,
-        purpose="signup_confirm",
-        code=payload.code,
-        user=user,
-        new_value=normalize_username(payload.email),
-    )
-    user.is_email_verified = True
+    user = confirm_signup_user(db, email=payload.email, code=payload.code)
     db.commit()
     return success_response({"verified": True}, "Account verified successfully")
+
+
+@router.post("/resend-confirmation")
+def resend_confirmation(payload: ResendConfirmationRequest, db: DBSessionDep) -> dict:
+    otp = resend_signup_confirmation(db, email=payload.email)
+    db.commit()
+    return success_response(
+        build_otp_response_data(otp=otp, dev_email_otp=otp),
+        otp_delivery_message(
+            fallback_dev_message="Verification code sent.",
+            sent_message="Verification code sent.",
+        ),
+    )
 
 
 @router.get("/me")
@@ -278,6 +286,19 @@ def forgot_password(payload: ForgotPasswordRequest, db: DBSessionDep) -> dict:
     username = payload.email or "".join(filter(None, [payload.phoneCountryCode, payload.phoneNationalNumber]))
     user = find_user_by_username(db, username) if username else None
     if user:
+        if cognito_service.enabled and (user.cognito_sub or user.is_email_verified):
+            try:
+                cognito_service.forgot_password(email=user.email)
+                db.commit()
+                return success_response(
+                    True,
+                    otp_delivery_message(
+                        fallback_dev_message="If the account exists, a verification code has been sent",
+                        sent_message="If the account exists, a verification code has been sent",
+                    ),
+                )
+            except HTTPException:
+                pass
         challenge, otp = create_otp_challenge(
             db,
             user=user,
@@ -302,6 +323,22 @@ def reset_password(payload: ResetPasswordRequest, db: DBSessionDep) -> dict:
     user = find_user_by_username(db, payload.email)
     if not user:
         raise HTTPException(status_code=STATUS_NOT_FOUND, detail="Account not found")
+    if cognito_service.enabled:
+        try:
+            cognito_service.confirm_forgot_password(
+                email=user.email,
+                code=payload.code,
+                new_password=payload.new_password,
+            )
+            user.password_hash = hash_secret(payload.new_password)
+            mark_password_set(db, user)
+            db.commit()
+            return success_response({"updated": True}, "Password reset successfully")
+        except HTTPException as exc:
+            if user.cognito_sub:
+                raise
+            if exc.status_code not in {STATUS_BAD_REQUEST, STATUS_UNAUTHORIZED}:
+                raise
     verify_otp_challenge(
         db,
         purpose="reset_password",
@@ -310,6 +347,8 @@ def reset_password(payload: ResetPasswordRequest, db: DBSessionDep) -> dict:
         new_value=normalize_username(user.email),
     )
     user.password_hash = hash_secret(payload.new_password)
+    if user.cognito_sub and cognito_service.enabled:
+        cognito_service.admin_set_password(email=user.email, password=payload.new_password)
     mark_password_set(db, user)
     db.commit()
     return success_response({"updated": True}, "Password reset successfully")
@@ -321,6 +360,8 @@ def change_password(payload: ChangePasswordRequest, context: AuthenticatedContex
     if not user.password_hash or not verify_secret(payload.previous_password, user.password_hash):
         raise HTTPException(status_code=STATUS_UNAUTHORIZED, detail="Current password is invalid")
     user.password_hash = hash_secret(payload.password)
+    if user.cognito_sub and cognito_service.enabled:
+        cognito_service.admin_set_password(email=user.email, password=payload.password)
     mark_password_set(db, user)
     db.commit()
     return success_response({"updated": True}, "Password changed successfully")
