@@ -298,3 +298,23 @@ class TestOfflineRegistrationCognito:
 
         assert exc_info.value.status_code == 400
         assert "Unable to register account" in str(exc_info.value.detail)
+
+    @patch("app.services.auth.cognito_service")
+    def test_register_cognito_user_conflicts_when_confirmed_for_self_signup(self, mock_cognito):
+        mock_cognito.enabled = True
+        mock_cognito.signup.side_effect = CognitoUsernameExists()
+        mock_cognito.get_user_status.return_value = "CONFIRMED"
+
+        with pytest.raises(HTTPException) as exc_info:
+            register_cognito_user(
+                email="existing@example.com",
+                full_name="Existing",
+                phone_number="+962712345678",
+                password="Password1!",
+                on_existing="conflict_if_confirmed",
+                resolve_sub=False,
+            )
+
+        assert exc_info.value.status_code == 409
+        mock_cognito.get_user_sub.assert_not_called()
+        mock_cognito.resend_confirmation_code.assert_not_called()
