@@ -897,7 +897,7 @@ def create_agent_document_upload(
     bucket = (settings.aws_s3_bucket or "").strip().strip("\"'")
     if bucket:
         presigned = generate_presigned_put_url(object_key)
-        if not presigned:
+        if not presigned: 
             raise_api_error(
                 status_code=STATUS_INTERNAL_SERVER_ERROR,
                 code="UPLOAD_ERROR",
