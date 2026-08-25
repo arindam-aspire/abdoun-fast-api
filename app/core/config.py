@@ -87,7 +87,10 @@ class Settings(BaseModel):
         "EMAIL_OTP_VERIFICATION_SUBJECT",
         "Verify your email address",
     )
-    expose_otp_in_response: bool = os.getenv("EXPOSE_OTP_IN_RESPONSE", "false").lower() == "true"
+    expose_otp_in_response: bool = os.getenv(
+        "EXPOSE_OTP_IN_RESPONSE",
+        "true" if os.getenv("ENVIRONMENT", "local").lower() in {"local", "development", "dev"} else "false",
+    ).lower() == "true"
     supported_locales: str = os.getenv("SUPPORTED_LOCALES", "en,ar,fr,es")
     default_locale: str = os.getenv("DEFAULT_LOCALE", "en")
     auth_token_secret: str = os.getenv("AUTH_TOKEN_SECRET", os.getenv("SECRET_KEY", "abdoun-dev-token-secret"))
@@ -102,6 +105,16 @@ class Settings(BaseModel):
 
     aws_s3_bucket: str | None = os.getenv("AWS_S3_BUCKET", "").strip().strip("\"'")
     aws_region: str = os.getenv("AWS_REGION", "us-west-2").strip().strip("\"'") or "us-west-2"
+    aws_access_key_id: str | None = os.getenv("AWS_ACCESS_KEY_ID")
+    aws_secret_access_key: str | None = os.getenv("AWS_SECRET_ACCESS_KEY")
+
+    cognito_region: str = (
+        os.getenv("COGNITO_REGION") or os.getenv("AWS_REGION") or "us-west-2"
+    ).strip().strip("\"'") or "us-west-2"
+    cognito_user_pool_id: str = os.getenv("COGNITO_USER_POOL_ID", "").strip().strip("\"'")
+    cognito_app_client_id: str = os.getenv("COGNITO_APP_CLIENT_ID", "").strip().strip("\"'")
+    cognito_app_client_secret: str = os.getenv("COGNITO_APP_CLIENT_SECRET", "").strip().strip("\"'")
+    cognito_domain: str = os.getenv("COGNITO_DOMAIN", "").strip().strip("\"'")
     media_url_presign_enabled: bool = os.getenv("MEDIA_URL_PRESIGN_ENABLED", "true").lower() == "true"
     media_url_presign_expires_seconds: int = int(os.getenv("MEDIA_URL_PRESIGN_EXPIRES_SECONDS", "3600"))
     media_upload_presign_expires_seconds: int = int(os.getenv("MEDIA_UPLOAD_PRESIGN_EXPIRES_SECONDS", "900"))

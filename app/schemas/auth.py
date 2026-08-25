@@ -32,6 +32,10 @@ class ConfirmSignUpRequest(BaseModel):
     code: str
 
 
+class ResendConfirmationRequest(BaseModel):
+    email: str
+
+
 class ForgotPasswordRequest(BaseModel):
     email: str | None = None
     phoneCountryCode: str | None = None

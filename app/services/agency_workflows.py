@@ -20,7 +20,7 @@ from app.schemas.agency import (
     AgencyOfflineRegistrationRequest,
 )
 from app.services.audit import record_activity
-from app.services.auth import create_user, find_user_by_username, serialize_agency
+from app.services.auth import cognito_service, create_user, find_user_by_username, register_cognito_user, serialize_agency
 from app.services.notifications import send_email_notification
 from app.utils.status_codes import STATUS_BAD_REQUEST, STATUS_CONFLICT, STATUS_NOT_FOUND
 
@@ -313,6 +313,15 @@ def offline_register_agency(
     )
     user = create_agency_admin_user(db, agency=agency)
     user.is_active = False
+    cognito_sub = register_cognito_user(
+        email=user.email,
+        full_name=user.full_name,
+        phone_number=user.phone_number,
+        on_existing="reuse",
+        resolve_sub=True,
+    )
+    if cognito_sub:
+        user.cognito_sub = cognito_sub
     record_activity(
         db,
         activity_type="agency_offline_registered",
@@ -494,6 +503,8 @@ def complete_agency_password_setup(db: Session, *, token: str, password: str) ->
 
     user.password_hash = hash_secret(password)
     user.is_active = True
+    if cognito_service.enabled and user.cognito_sub:
+        cognito_service.admin_set_password(email=user.email, password=password)
     agency.status = ACTIVE
     agency.is_active = True
     agency.is_verified = True
