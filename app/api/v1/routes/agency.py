@@ -151,8 +151,8 @@ async def register_agency(
         is_active=False,
         is_verified=False,
         status=PENDING_APPROVAL,
-        currency="JOD",
-        measurement_unit="sqm",
+        currency=get_settings().default_currency,
+        measurement_unit=get_settings().default_measurement_unit,
     )
     db.add(agency)
     db.flush()

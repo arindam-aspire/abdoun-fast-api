@@ -54,7 +54,7 @@ def generate_presigned_put_url(object_key: str, *, content_type: str | None = No
     """
     settings = get_settings()
     bucket = (settings.aws_s3_bucket or "").strip().strip("\"'")
-    region = (settings.aws_region or "us-west-2").strip().strip("\"'") or "us-west-2"
+    region = (settings.aws_region or "").strip().strip("\"'")
     if not bucket:
         return None
 
@@ -111,7 +111,7 @@ def _object_key_from_s3_url(url: str, bucket: str) -> str | None:
 @lru_cache
 def _s3_client():
     settings = get_settings()
-    region = (settings.aws_region or "us-west-2").strip().strip("\"'") or "us-west-2"
+    region = (settings.aws_region or "").strip().strip("\"'")
     return boto3.client(
         "s3",
         region_name=region,
@@ -220,7 +220,7 @@ def canonicalize_media_url(url: str | None) -> str | None:
             return parsed._replace(query="", fragment="").geturl()
         return url
 
-    region = (settings.aws_region or "us-west-2").strip().strip("\"'") or "us-west-2"
+    region = (settings.aws_region or "").strip().strip("\"'")
     return s3_object_url(bucket, region, object_key)
 
 

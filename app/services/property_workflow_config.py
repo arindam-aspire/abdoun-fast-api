@@ -1,12 +1,9 @@
 from __future__ import annotations
 
-import json
 from functools import lru_cache
-from pathlib import Path
 from typing import Any
 
-
-CONFIG_PATH = Path(__file__).resolve().parents[1] / "config" / "property_workflow.json"
+from app.core.json_config import load_json_config
 
 
 class PropertyWorkflowConfig:
@@ -39,5 +36,4 @@ class PropertyWorkflowConfig:
 
 @lru_cache
 def get_property_workflow_config() -> PropertyWorkflowConfig:
-    with CONFIG_PATH.open("r", encoding="utf-8") as file:
-        return PropertyWorkflowConfig(json.load(file))
+    return PropertyWorkflowConfig(load_json_config("property_workflow.json"))

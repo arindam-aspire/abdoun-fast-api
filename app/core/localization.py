@@ -5,13 +5,15 @@ from functools import lru_cache
 from app.core.config import get_settings
 
 
-RTL_LOCALES = {"ar"}
-
-
 @lru_cache
 def supported_locales() -> tuple[str, ...]:
     settings = get_settings()
     return tuple(locale.strip() for locale in settings.supported_locales.split(",") if locale.strip())
+
+
+def rtl_locales() -> set[str]:
+    settings = get_settings()
+    return {locale.strip().lower() for locale in settings.rtl_locales.split(",") if locale.strip()}
 
 
 def normalize_locale(locale: str | None) -> str:
@@ -25,4 +27,4 @@ def normalize_locale(locale: str | None) -> str:
 
 
 def is_rtl_locale(locale: str | None) -> bool:
-    return normalize_locale(locale) in RTL_LOCALES
+    return normalize_locale(locale) in rtl_locales()

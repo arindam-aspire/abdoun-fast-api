@@ -1,0 +1,35 @@
+[
+  {
+    "slug": "residential",
+    "name": "Residential",
+    "types": [
+      ["apartments", "Apartments"],
+      ["villas", "Villas"],
+      ["buildings", "Buildings"],
+      ["farms", "Farms"]
+    ]
+  },
+  {
+    "slug": "commercial",
+    "name": "Commercial",
+    "types": [
+      ["offices", "Offices"],
+      ["showrooms", "Showrooms"],
+      ["buildings", "Buildings"],
+      ["warehouse", "Warehouse"],
+      ["businesses", "Businesses"],
+      ["villas", "Villas"]
+    ]
+  },
+  {
+    "slug": "land",
+    "name": "Land",
+    "types": [
+      ["residential-lands", "Residential Lands"],
+      ["commercial-lands", "Commercial Lands"],
+      ["industrial-lands", "Industrial Lands"],
+      ["agricultural-lands", "Agricultural Lands"],
+      ["mixed-use-lands", "Mixed Use Lands"]
+    ]
+  }
+]

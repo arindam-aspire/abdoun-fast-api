@@ -6,8 +6,9 @@ from functools import lru_cache
 
 import requests
 
+from app.core.app_defaults import get_geocoding_config
+from app.core.config import get_settings
 from app.utils.logger import get_coord_logger
-from app.utils.constants import GeocodingConstants
 from app.utils.log_messages import LogMessages, format_log_message
 from app.utils.status_codes import HTTPStatus
 
@@ -15,19 +16,18 @@ from app.utils.status_codes import HTTPStatus
 class GeocodingService:
     """Service for geocoding locations using Nominatim API with Azure OpenAI fallback"""
     
-    BASE_URL = GeocodingConstants.NOMINATIM_BASE_URL
-    USER_AGENT = GeocodingConstants.USER_AGENT
-    
     def __init__(self):
+        settings = get_settings()
         self.last_request_time = 0
-        self.rate_limit_delay = GeocodingConstants.RATE_LIMIT_DELAY
+        self.base_url = settings.geocoding_nominatim_base_url
+        self.user_agent = settings.geocoding_user_agent
+        self.rate_limit_delay = settings.geocoding_rate_limit_delay
         self.logger, self.emoji_safe = get_coord_logger()
         self._azure_openai_available = self._check_azure_openai_availability()
     
     def _check_azure_openai_availability(self) -> bool:
         """Check if Azure OpenAI is configured"""
         try:
-            from app.core.config import get_settings
             settings = get_settings()
             if all([
                 settings.azure_openai_key,
@@ -55,7 +55,6 @@ class GeocodingService:
         
         try:
             import openai
-            from app.core.config import get_settings
             
             settings = get_settings()
             
@@ -69,10 +68,10 @@ class GeocodingService:
             # Build prompt for geocoding
             prompt = (
                 f"Find the exact geographic coordinates (latitude and longitude) for this location: '{location}'. "
-                f"This location is likely in Jordan, specifically in or near Amman. "
+                f"This location is likely in {settings.default_country}, specifically in or near {settings.default_city}. "
                 f"Return ONLY a valid JSON object with 'latitude' and 'longitude' as decimal numbers. "
                 f"If you cannot find the exact location, return null for both values. "
-                f"Example format: {{\"latitude\": 31.9539, \"longitude\": 35.9106}} or {{\"latitude\": null, \"longitude\": null}}"
+                f"Example format: {{\"latitude\": {settings.geocoding_example_latitude}, \"longitude\": {settings.geocoding_example_longitude}}} or {{\"latitude\": null, \"longitude\": null}}"
             )
             
             msg = format_log_message(LogMessages.AzureOpenAI.TRYING_GEOCODING, location=location)
@@ -90,8 +89,8 @@ class GeocodingService:
                         "content": prompt
                     }
                 ],
-                temperature=0.3,
-                max_tokens=100
+                temperature=settings.azure_openai_temperature,
+                max_tokens=settings.azure_openai_max_tokens
             )
             
             content = response['choices'][0]['message']['content'].strip()
@@ -209,7 +208,7 @@ class GeocodingService:
         if status_code == 403:
             msg = format_log_message(LogMessages.Geocoding.ACCESS_FORBIDDEN, location=location)
             self.logger.error(self.emoji_safe(msg))
-            time.sleep(GeocodingConstants.EXTRA_DELAY_AFTER_403)
+            time.sleep(get_settings().geocoding_extra_delay_after_403)
         else:
             msg = format_log_message(LogMessages.Geocoding.GEOCODING_API_ERROR, location=location, status_code=status_code)
             self.logger.error(self.emoji_safe(msg))
@@ -225,17 +224,18 @@ class GeocodingService:
             'addressdetails': 0
         }
         
-        headers = {'User-Agent': self.USER_AGENT}
+        headers = {'User-Agent': self.user_agent}
         
         msg = format_log_message(LogMessages.Geocoding.GEOCODING_REQUEST, location=location)
         self.logger.debug(self.emoji_safe(msg))
+        settings = get_settings()
         
         try:
             return requests.get(
-                self.BASE_URL,
+                self.base_url,
                 params=params,
                 headers=headers,
-                timeout=(GeocodingConstants.TIMEOUT_CONNECT, GeocodingConstants.TIMEOUT_READ),
+                timeout=(settings.geocoding_timeout_connect, settings.geocoding_timeout_read),
                 verify=True
             )
         except requests.exceptions.Timeout:
@@ -291,7 +291,7 @@ class GeocodingService:
     def _remove_prefixes(self, location: str) -> str:
         """Remove common prefixes from location string."""
         cleaned_location = location.strip()
-        prefixes_to_remove = ['near ', 'close to ', 'around ', 'in ', 'at ']
+        prefixes_to_remove = get_geocoding_config().get("location_prefixes") or []
         for prefix in prefixes_to_remove:
             if cleaned_location.lower().startswith(prefix.lower()):
                 cleaned_location = cleaned_location[len(prefix):].strip()
@@ -338,23 +338,7 @@ class GeocodingService:
     
     def _simplify_location(self, location: str) -> str:
         """Simplify location by removing common descriptive words."""
-        common_words_to_remove = [
-            'district', 'village', 'villages', 'town', 'city', 'municipality',
-            'taluk', 'tehsil', 'block', 'area', 'region', 'zone', 'ward',
-            'various', 'multiple', 'several', 'many', 'some', 'valley', 'wildlife', 'few',
-            'riverbank', 'riverbanks', 'river', 'rivers', 'stream', 'streams',
-            'lake', 'lakes', 'pond', 'ponds', 'waterfall', 'waterfalls',
-            'mountain', 'mountains', 'hill', 'hills', 'peak', 'peaks',
-            'beach', 'beaches', 'coast', 'coastal', 'shore', 'shores',
-            'forest', 'forests', 'jungle', 'jungles', 'park', 'parks',
-            'temple', 'temples', 'monument', 'monuments', 'fort', 'forts',
-            'palace', 'palaces', 'museum', 'museums', 'garden', 'gardens',
-            'market', 'markets', 'bazaar', 'bazaars', 'mall', 'malls',
-            'station', 'stations', 'airport', 'airports', 'port', 'ports',
-            'bridge', 'bridges', 'road', 'roads', 'street', 'streets',
-            'square', 'squares', 'circle', 'circles', 'crossing', 'crossings',
-            'riverside', 'outskirts', 'center', 'centers', 'sanctuary', 'national'
-        ]
+        common_words_to_remove = get_geocoding_config().get("simplify_words") or []
         
         from app.utils.security import validate_input_length, MAX_LOCATION_INPUT_LENGTH
         try:
@@ -406,13 +390,20 @@ class GeocodingService:
     
     def _try_country_suffixes(self, location: str, cleaned_location: str) -> Optional[Tuple[float, float]]:
         """Try geocoding with country suffixes."""
+        settings = get_settings()
+        geocoding_cfg = get_geocoding_config()
         common_suffixes = [
-            f"{cleaned_location}, Jordan",
-            f"{cleaned_location}, Amman, Jordan",
-            f"{cleaned_location}, India",
-            f"{cleaned_location}, USA", 
-            f"{cleaned_location}, UK",
+            str(template).format(
+                location=cleaned_location,
+                country=settings.default_country,
+                city=settings.default_city,
+            )
+            for template in (geocoding_cfg.get("country_suffix_templates") or [])
         ]
+        common_suffixes.extend(
+            f"{cleaned_location}, {suffix}"
+            for suffix in (geocoding_cfg.get("additional_country_suffixes") or [])
+        )
         
         for suffix_location in common_suffixes:
             coords = self.get_coordinates(suffix_location)

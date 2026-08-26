@@ -3,6 +3,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, UploadFile, File, Query
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.db.session import get_db
 from app.schemas.property import (
     PropertySearchRequest,
@@ -32,12 +33,18 @@ def search_properties(
             price = float(listing.get("price") or 0)
         except (TypeError, ValueError):
             price = None
+        settings = get_settings()
+        title = listing.get("title") or {}
+        if isinstance(title, dict):
+            title_text = title.get("en") or title.get(settings.default_locale)
+        else:
+            title_text = title
         items.append(
             PropertySearchResult(
                 id=int(listing["property_hash_id"]),
-                title=(listing.get("title") or {}).get("en") or "Untitled property",
+                title=title_text or settings.untitled_property_title,
                 price=price,
-                price_currency=((submission.payload or {}).get("pricing") or {}).get("currency") or "JOD",
+                price_currency=((submission.payload or {}).get("pricing") or {}).get("currency") or settings.default_currency,
                 bedrooms=listing.get("bedrooms") or listing.get("beds"),
                 bathrooms=listing.get("bathrooms") or listing.get("baths"),
                 thumbnail=(listing.get("media") or {}).get("thumbnail"),

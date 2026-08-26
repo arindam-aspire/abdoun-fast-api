@@ -14,11 +14,15 @@ Output workbook sheets:
 from __future__ import annotations
 
 import argparse
+import os
 import re
 from pathlib import Path
 from uuid import UUID, uuid5
 
 import pandas as pd
+from dotenv import load_dotenv
+
+load_dotenv()
 
 SOURCE_NAMESPACE = UUID("a1b2c3d4-e5f6-7890-abcd-ef1234567890")
 
@@ -176,7 +180,8 @@ def transform(owners_path: Path, records_path: Path, output_path: Path) -> dict[
         property_id = _deterministic_property_id(export_ref)
         owner_user_id = _deterministic_owner_id(owner_key) if owner_key else None
 
-        title = _clean(row.get("Property Title")) or f"{type_name} in {area_name or city_en or 'Jordan'}"
+        default_country = os.getenv("DEFAULT_COUNTRY") or ""
+        title = _clean(row.get("Property Title")) or f"{type_name} in {area_name or city_en or default_country}".strip()
         sale_price = _price(row.get("Sale Price"))
         rent_price = _price(row.get("Rent Price"))
         price = sale_price if listing_purpose in {"sale", "sale_or_rent"} else rent_price
@@ -221,7 +226,7 @@ def transform(owners_path: Path, records_path: Path, output_path: Path) -> dict[
                 "price": price,
                 "sale_price": sale_price,
                 "rent_price": rent_price,
-                "currency": "JOD",
+                "currency": (os.getenv("DEFAULT_CURRENCY") or "").upper() or None,
                 "bedrooms": _int(row.get("Bedrooms")),
                 "bathrooms": _int(row.get("Bathrooms")),
                 "built_up_area_sqm": _int(row.get("Building Area (sq m)")),

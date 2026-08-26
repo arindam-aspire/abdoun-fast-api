@@ -502,8 +502,8 @@ def serialize_agency(agency: AgencyMaster | None) -> dict | None:
         "status": getattr(agency, "status", "ACTIVE" if agency.is_active else "PENDING_APPROVAL"),
         "agency_status": "Active" if agency.is_active else "Inactive",
         "verification_status": verification_status,
-        "currency": agency.currency or "JOD",
-        "measurement_unit": agency.measurement_unit or "sqm",
+        "currency": agency.currency or get_settings().default_currency,
+        "measurement_unit": agency.measurement_unit or get_settings().default_measurement_unit,
         "created_at": _iso(agency.created_at),
         "updated_at": _iso(agency.updated_at),
     })

@@ -234,8 +234,8 @@ def create_agency_record(
         is_active=status == ACTIVE,
         is_verified=status in {APPROVED, ACTIVE},
         status=status,
-        currency=currency or "JOD",
-        measurement_unit=measurement_unit or "sqm",
+        currency=currency or get_settings().default_currency,
+        measurement_unit=measurement_unit or get_settings().default_measurement_unit,
     )
     db.add(agency)
     try:

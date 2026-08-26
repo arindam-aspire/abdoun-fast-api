@@ -12,8 +12,10 @@ try:
 except ImportError:
     UploadFile = None  # type: ignore
 
+from app.core.app_defaults import get_currency_symbols
+from app.core.config import get_settings
 from app.models.property import Property
-from app.utils.constants import Defaults, CSVImportMessages
+from app.utils.constants import CSVImportMessages
 from app.utils.log_messages import LogMessages, format_log_message
 from app.utils.logger import get_logger
 from app.utils.security import validate_input_length, MAX_CURRENCY_INPUT_LENGTH, MAX_AREA_INPUT_LENGTH
@@ -133,20 +135,21 @@ def _parse_price(value: Any) -> tuple[float | None, str | None]:
         return None, None
 
     currency = None
+    symbols = get_currency_symbols()
+    symbol_to_code = {symbol: code for code, symbol in symbols.items()}
     if currency_match:
         cur_upper = currency_match.upper()
-        if cur_upper in {"USD", "EUR", "GBP", "JOD"}:
+        if cur_upper in symbols:
             currency = cur_upper
-        elif currency_match == "$":
-            currency = "USD"
-        elif currency_match == "€":
-            currency = "EUR"
-        elif currency_match == "£":
-            currency = "GBP"
+        elif currency_match in symbol_to_code:
+            currency = symbol_to_code[currency_match]
     
-    # Also check if "JOD" appears anywhere in the text (common format: "30,000 JOD")
-    if currency is None and "JOD" in text.upper():
-        currency = "JOD"
+    if currency is None:
+        text_upper = text.upper()
+        for code in symbols:
+            if code in text_upper:
+                currency = code
+                break
     
     return amount, currency
 
@@ -231,7 +234,7 @@ def _parse_title(row: pd.Series) -> str:
     """Parse and normalize title from row."""
     title_raw = row.get("property_name") or row.get("title")
     if title_raw is None or pd.isna(title_raw) or str(title_raw).lower() in ("nan", "none", ""):
-        return Defaults.UNTITLED_PROPERTY
+        return get_settings().untitled_property_title
     return str(title_raw).strip()
 
 

@@ -1,0 +1,25 @@
+{
+  "location_prefixes": ["near ", "close to ", "around ", "in ", "at "],
+  "country_suffix_templates": [
+    "{location}, {country}",
+    "{location}, {city}, {country}"
+  ],
+  "additional_country_suffixes": ["India", "USA", "UK"],
+  "simplify_words": [
+    "district", "village", "villages", "town", "city", "municipality",
+    "taluk", "tehsil", "block", "area", "region", "zone", "ward",
+    "various", "multiple", "several", "many", "some", "valley", "wildlife", "few",
+    "riverbank", "riverbanks", "river", "rivers", "stream", "streams",
+    "lake", "lakes", "pond", "ponds", "waterfall", "waterfalls",
+    "mountain", "mountains", "hill", "hills", "peak", "peaks",
+    "beach", "beaches", "coast", "coastal", "shore", "shores",
+    "forest", "forests", "jungle", "jungles", "park", "parks",
+    "temple", "temples", "monument", "monuments", "fort", "forts",
+    "palace", "palaces", "museum", "museums", "garden", "gardens",
+    "market", "markets", "bazaar", "bazaars", "mall", "malls",
+    "station", "stations", "airport", "airports", "port", "ports",
+    "bridge", "bridges", "road", "roads", "street", "streets",
+    "square", "squares", "circle", "circles", "crossing", "crossings",
+    "riverside", "outskirts", "center", "centers", "sanctuary", "national"
+  ]
+}
