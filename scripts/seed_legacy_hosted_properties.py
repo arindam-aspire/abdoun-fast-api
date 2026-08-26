@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import argparse
 import re
 import sys
@@ -14,6 +15,7 @@ from sqlalchemy import select
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from app.core.config import get_settings
 from app.db.session import SessionLocal
 from app.models.live_schema import (
     Area,
@@ -27,7 +29,7 @@ from app.services.property_submissions import compute_step_completion
 
 
 SOURCE_NAME = "legacy-hosted-dev-api"
-SOURCE_API_BASE = "https://dev-api-abdn.wpsitedesigner.com/api/v1"
+SOURCE_API_BASE = (os.getenv("LEGACY_SOURCE_API_BASE") or "").rstrip("/")
 SOURCE_NAMESPACE = UUID("c8a8ed67-f7c3-4d32-9cb9-ec86fc45bf69")
 DEFAULT_PAGE_SIZE = 50
 MAX_IMAGES_PER_PROPERTY = 8
@@ -311,7 +313,7 @@ def _submission_payload(
             "is_exclusive": bool(item.get("is_exclusive")),
         },
         "location": {
-            "country_id": 1,
+            "country_id": get_settings().default_country_id,
             "city_id": city.id,
             "area_id": area.id,
             "address": address or area.name,
@@ -327,7 +329,7 @@ def _submission_payload(
         },
         "pricing": {
             "price": _price(item.get("price")),
-            "currency": "JOD",
+            "currency": get_settings().default_currency,
             "payment_method": item.get("paymentPlan"),
         },
         "amenities": {"feature_ids": []},
@@ -350,8 +352,13 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Seed current DB from hosted legacy development property API.")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--max-pages", type=int, default=5)
-    parser.add_argument("--submitter-email", default="amondal@coderlook.com")
+    parser.add_argument("--submitter-email", default=os.getenv("LEGACY_SEED_SUBMITTER_EMAIL"))
     args = parser.parse_args()
+
+    if not SOURCE_API_BASE:
+        raise SystemExit("LEGACY_SOURCE_API_BASE is required")
+    if not args.submitter_email:
+        raise SystemExit("LEGACY_SEED_SUBMITTER_EMAIL or --submitter-email is required")
 
     db = SessionLocal()
     try:

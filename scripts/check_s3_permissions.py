@@ -46,7 +46,6 @@ def main() -> int:
     bucket = _clean_env(os.getenv("AWS_S3_BUCKET"))
     region = _clean_env(
         os.getenv("AWS_REGION") or os.getenv("AWS_DEFAULT_REGION"),
-        "us-west-2",
     )
 
     print("S3 permission probe starting")
@@ -54,6 +53,9 @@ def main() -> int:
 
     if not bucket:
         print("RESULT=FAIL reason=AWS_S3_BUCKET is not configured")
+        return 2
+    if not region:
+        print("RESULT=FAIL reason=AWS_REGION is not configured")
         return 2
 
     session = boto3.session.Session(region_name=region)

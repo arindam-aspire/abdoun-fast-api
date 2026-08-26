@@ -294,7 +294,7 @@ def _agent_contact_actions(
             "type": "whatsapp",
             "label": "WhatsApp",
             "enabled": bool(whatsapp_phone),
-            "href": f"https://wa.me/{whatsapp_phone}" if whatsapp_phone else None,
+            "href": f"{get_settings().whatsapp_base_url}/{whatsapp_phone}" if whatsapp_phone else None,
         },
     }
 
@@ -1317,10 +1317,11 @@ def serialize_agent_property_item(
             agency_id=actor_agency_id,
         )
     )
+    settings = get_settings()
     return {
         "property_id": str(property_id),
         "property_hash": stable_property_hash(property_id),
-        "title": basic.get("title") or "Untitled property",
+        "title": basic.get("title") or settings.untitled_property_title,
         "listing_purpose": basic.get("listing_purpose") or "",
         "type_name": str(basic.get("type_id") or ""),
         "type_slug": str(basic.get("type_id") or ""),
@@ -1329,7 +1330,7 @@ def serialize_agent_property_item(
         "status_name": _status_display_name(workflow_label),
         "status_slug": submission.status,
         "price": str(pricing.get("price") or "0"),
-        "currency": pricing.get("currency") or "JOD",
+        "currency": pricing.get("currency") or settings.default_currency,
         "reference_number": (payload.get("property_details") or {}).get("reference_number") or str(property_id)[:8],
         "created_at": _iso(submission.created_at),
         "updated_at": _iso(submission.updated_at),
@@ -1392,7 +1393,7 @@ def serialize_admin_submission_item(
         "agent_phone": assigned_agent["phone"] if assigned_agent else None,
         "has_assigned_agent": bool(workflow.get("assigned_agent_id")),
         "property_hash": stable_property_hash(property_id),
-        "property_title": _title(payload) or "Untitled property",
+        "property_title": _title(payload) or get_settings().untitled_property_title,
         "property_reference_number": (payload.get("property_details") or {}).get("reference_number"),
         "current_step": submission.current_step,
         "submitted_at": _iso(submission.submitted_at) or _iso(submission.created_at),

@@ -1,44 +1,10 @@
 from __future__ import annotations
 
+from app.core.app_defaults import get_property_taxonomy
 from app.models.live_schema import PropertyCategory, PropertyType
 
 
-DCO_PROPERTY_TAXONOMY: tuple[dict[str, object], ...] = (
-    {
-        "slug": "residential",
-        "name": "Residential",
-        "types": (
-            ("apartments", "Apartments"),
-            ("villas", "Villas"),
-            ("buildings", "Buildings"),
-            ("farms", "Farms"),
-        ),
-    },
-    {
-        "slug": "commercial",
-        "name": "Commercial",
-        "types": (
-            ("offices", "Offices"),
-            ("showrooms", "Showrooms"),
-            ("buildings", "Buildings"),
-            ("warehouse", "Warehouse"),
-            ("businesses", "Businesses"),
-            ("villas", "Villas"),
-        ),
-    },
-    {
-        "slug": "land",
-        "name": "Land",
-        "types": (
-            ("residential-lands", "Residential Lands"),
-            ("commercial-lands", "Commercial Lands"),
-            ("industrial-lands", "Industrial Lands"),
-            ("agricultural-lands", "Agricultural Lands"),
-            ("mixed-use-lands", "Mixed Use Lands"),
-        ),
-    },
-)
-
+DCO_PROPERTY_TAXONOMY = tuple(get_property_taxonomy())
 CATEGORY_ORDER = {str(item["slug"]): index for index, item in enumerate(DCO_PROPERTY_TAXONOMY)}
 TYPE_ORDER = {
     str(category["slug"]): {slug: index for index, (slug, _) in enumerate(category["types"])}

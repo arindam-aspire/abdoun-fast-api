@@ -10,6 +10,8 @@ from fastapi import HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.core.app_defaults import get_currency_symbols
+from app.core.config import get_settings
 from app.models.deal_closure import PropertyDealClosure
 from app.models.live_schema import (
     AgencyMaster,
@@ -39,14 +41,6 @@ DEAL_CLOSED_STATUS = "APPROVED"
 AGENT_CONTACT_VISIBLE_ROLES = frozenset(
     {"owner", "registered_user", "agent", "admin", "super_admin"}
 )
-CURRENCY_SYMBOLS: dict[str, str] = {
-    "JOD": "JD",
-    "USD": "$",
-    "EUR": "€",
-    "GBP": "£",
-    "AED": "د.إ",
-    "SAR": "ر.س",
-}
 
 
 def can_view_property_agent_contact(roles: tuple[str, ...]) -> bool:
@@ -313,10 +307,13 @@ def _owners(payload: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def _currency_payload(code: str | None) -> dict[str, str]:
-    normalized = (code or "JOD").strip().upper() or "JOD"
+    settings = get_settings()
+    default_currency = settings.default_currency
+    normalized = (code or default_currency).strip().upper() or default_currency
+    symbols = get_currency_symbols()
     return {
         "code": normalized,
-        "symbol": CURRENCY_SYMBOLS.get(normalized, normalized),
+        "symbol": symbols.get(normalized, normalized),
     }
 
 
@@ -347,10 +344,13 @@ def _feature_list(db: Session, payload: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def _map_embed_url(*, latitude: float | None, longitude: float | None, query: str) -> str | None:
+    settings = get_settings()
+    base_url = settings.google_maps_embed_base_url
+    zoom = settings.google_maps_embed_zoom
     if latitude is not None and longitude is not None:
-        return f"https://maps.google.com/maps?q={latitude},{longitude}&z=15&output=embed"
+        return f"{base_url}?q={latitude},{longitude}&z={zoom}&output=embed"
     if query.strip():
-        return f"https://maps.google.com/maps?q={quote(query.strip())}&z=15&output=embed"
+        return f"{base_url}?q={quote(query.strip())}&z={zoom}&output=embed"
     return None
 
 
@@ -390,6 +390,7 @@ def serialize_property_listing(
     listing_type = "rent" if basic.get("listing_purpose") == "rent" else "sale"
     address = localized_text(location.get("address") or (area.name if area else city.name if city else ""))
     media = _media_for_listing(payload, property_media_rows=_load_property_media(db, property_id))
+    settings = get_settings()
     latitude = _float(location.get("latitude") or location.get("lat"))
     longitude = _float(location.get("longitude") or location.get("lng"))
     location_query = ", ".join(
@@ -398,7 +399,7 @@ def serialize_property_listing(
             location.get("address"),
             area.name if area else None,
             city.name if city else None,
-            "Jordan",
+            settings.default_country,
         ]
         if part
     )
@@ -412,7 +413,7 @@ def serialize_property_listing(
         "id": property_hash,
         "property_id": str(property_id),
         "reference_number": details.get("reference_number") or str(property_id)[:8],
-        "title": localized_text(basic.get("title") or "Untitled property"),
+        "title": localized_text(basic.get("title") or settings.untitled_property_title),
         "description": localized_nullable_text(basic.get("description")),
         "price": str(pricing.get("price") or "0"),
         "currency": _currency_payload(pricing.get("currency")),
@@ -424,8 +425,8 @@ def serialize_property_listing(
         "propertyType": property_type.name if property_type else "",
         "media": media,
         "location": {
-            "country_id": 1,
-            "country": "Jordan",
+            "country_id": settings.default_country_id,
+            "country": settings.default_country,
             "city_id": city.id if city else 0,
             "city": city.name if city else "",
             "region_id": area.id if area else 0,
@@ -436,8 +437,8 @@ def serialize_property_listing(
             "map_embed_url": map_embed_url,
         },
         "location_detail": {
-            "country_id": 1,
-            "country": "Jordan",
+            "country_id": settings.default_country_id,
+            "country": settings.default_country,
             "city_id": city.id if city else 0,
             "city": city.name if city else "",
             "region_id": area.id if area else 0,
@@ -452,7 +453,7 @@ def serialize_property_listing(
         "area": str(details.get("built_up_area")) if details.get("built_up_area") is not None else None,
         "acres": None,
         "highlights": basic.get("description") or "",
-        "badges": ["Exclusive"] if bool(basic.get("is_exclusive")) else [],
+        "badges": [settings.exclusive_badge_label] if bool(basic.get("is_exclusive")) else [],
         "handover": details.get("completion_status"),
         "paymentPlan": pricing.get("payment_method"),
         "validatedDate": iso(submission.reviewed_at) or iso(submission.updated_at) or iso(submission.created_at),
@@ -505,6 +506,7 @@ def serialize_property_detail(
     basic = payload.get("basic_information") or {}
     details = payload.get("property_details") or {}
     pricing = payload.get("pricing") or {}
+    settings = get_settings()
     agency = _agency_for_submission(db, submission, submitter)
     property_hash = listing["id"]
     listing_type = listing["listing_type"]
@@ -540,9 +542,9 @@ def serialize_property_detail(
         "property_type": listing["propertyType"],
         "listing_type": listing_type,
         "selling_price_amount": _float(pricing.get("price")) if listing_type == "sale" else None,
-        "selling_price_currency": pricing.get("currency") or "JOD",
+        "selling_price_currency": pricing.get("currency") or settings.default_currency,
         "rent_price_amount": _float(pricing.get("price")) if listing_type == "rent" else None,
-        "rent_price_currency": pricing.get("currency") or "JOD",
+        "rent_price_currency": pricing.get("currency") or settings.default_currency,
         "bedrooms": _int(details.get("bedrooms")),
         "bathrooms": _int(details.get("bathrooms")),
         "built_up_area": _float(details.get("built_up_area")),
@@ -566,7 +568,7 @@ def serialize_property_detail(
             "land_area": None,
             "garden_area": None,
             "terrace_area": None,
-            "area_unit": "sqm",
+            "area_unit": settings.default_measurement_unit,
             "bedrooms": _int(details.get("bedrooms")),
             "master_bedrooms": None,
             "bathrooms": _int(details.get("bathrooms")),
@@ -585,7 +587,7 @@ def serialize_property_detail(
         "pricing": {
             "listing_type": listing_type,
             "selling_price": _float(pricing.get("price")),
-            "currency": pricing.get("currency") or "JOD",
+            "currency": pricing.get("currency") or settings.default_currency,
             "price_on_request": False,
             "rent_commission_percent": None,
             "contract_duration": None,

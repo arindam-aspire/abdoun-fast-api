@@ -14,8 +14,8 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select, func
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.models.property import Property
-from app.utils.constants import Defaults
 
 
 class PropertySearchResult(BaseModel):
@@ -61,7 +61,7 @@ class PropertySearchResult(BaseModel):
         currency = obj.selling_price_currency or obj.rent_price_currency
         thumbnail = (obj.images or [None])[0]
         # Handle "nan" titles
-        title = obj.title if obj.title and str(obj.title).lower() not in ("nan", "none") else Defaults.UNTITLED_PROPERTY
+        title = obj.title if obj.title and str(obj.title).lower() not in ("nan", "none") else get_settings().untitled_property_title
         return cls(
             id=obj.id,
             title=title,
@@ -135,7 +135,7 @@ class PropertyDetail(BaseModel):
             PropertyDetail instance with data from the ORM object
         """
         # Handle "nan" titles
-        title = obj.title if obj.title and str(obj.title).lower() not in ("nan", "none") else Defaults.UNTITLED_PROPERTY
+        title = obj.title if obj.title and str(obj.title).lower() not in ("nan", "none") else get_settings().untitled_property_title
         return cls(
             id=obj.id,
             url=obj.url,
@@ -228,7 +228,7 @@ class PropertySearchRequest(BaseModel):
     mode: SearchMode
     bounds: Optional[BoundsFilter] = None
     polygon: Optional[PolygonFilter] = None
-    limit: int = Defaults.MAX_SEARCH_LIMIT
+    limit: int = Field(default_factory=lambda: get_settings().search_max_limit)
 
     def execute(self, db: Session) -> list[PropertySearchResult]:
         """

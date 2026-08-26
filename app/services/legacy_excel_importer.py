@@ -10,6 +10,7 @@ import pandas as pd
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.models.live_schema import (
     AgencyMaster,
     Area,
@@ -168,12 +169,12 @@ def _build_payload(
             "category_id": category.id,
             "type_id": property_type.id,
             "listing_purpose": listing_purpose,
-            "title": _clean(row.get("title")) or "Legacy property",
+            "title": _clean(row.get("title")) or get_settings().untitled_property_title,
             "description": _clean(row.get("description")),
             "is_exclusive": False,
         },
         "location": {
-            "country_id": 1,
+            "country_id": get_settings().default_country_id,
             "city_id": city.id,
             "area_id": area.id,
             "address": _clean(row.get("address")) or (area.name if area else city.name),
@@ -212,7 +213,7 @@ def _build_payload(
         },
         "pricing": {
             "price": price,
-            "currency": _clean(row.get("currency")) or "JOD",
+            "currency": _clean(row.get("currency")) or get_settings().default_currency,
             "payment_method": None,
         },
         "amenities": {"feature_ids": []},

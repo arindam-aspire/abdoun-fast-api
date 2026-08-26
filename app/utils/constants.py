@@ -70,26 +70,6 @@ class WarningMessages:
     AZURE_OPENAI_NOT_CONFIGURED = "Azure OpenAI not configured, skipping fallback for: '{location}'"
 
 
-# Default Values
-class Defaults:
-    """Default values used throughout the application"""
-    UNTITLED_PROPERTY = "Untitled"
-    DEFAULT_LIMIT = 50
-    DEFAULT_OFFSET = 0
-    MAX_SEARCH_LIMIT = 200
-
-
-# Geocoding Constants
-class GeocodingConstants:
-    """Constants related to geocoding"""
-    NOMINATIM_BASE_URL = "https://nominatim.openstreetmap.org/search"
-    USER_AGENT = "MyPlans/1.0 (https://myplans.com; contact@myplans.com)"
-    RATE_LIMIT_DELAY = 1.1  # Slightly more than 1 second to be safe
-    TIMEOUT_CONNECT = 10
-    TIMEOUT_READ = 30
-    EXTRA_DELAY_AFTER_403 = 2  # seconds
-
-
 # CSV Import Messages
 class CSVImportMessages:
     """Messages related to CSV import operations"""
@@ -100,11 +80,4 @@ class CSVImportMessages:
     IMPORTED_UPDATED_SKIPPED = "imported {imported} new properties; updated {updated} existing properties; skipped {skipped} duplicates"
     BATCH_INSERT_FAILED = "Batch insert failed due to duplicates, trying individual inserts..."
     IMPORTED_SKIPPED = "Imported {imported} properties, skipped {skipped} duplicates."
-
-
-# System Messages
-class SystemMessages:
-    """System-level messages"""
-    APP_NAME = "Real Estate Map API"
-    API_V1_PREFIX = "/api/v1"
 
