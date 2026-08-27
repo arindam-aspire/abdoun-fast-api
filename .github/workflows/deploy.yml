@@ -1,44 +1,190 @@
-name: Deploy to EC2
+name: Build and Deploy
 
 on:
   push:
     branches:
       - main
 
+env:
+  AWS_REGION: ${{ vars.AWS_REGION }}
+  ECR_REPOSITORY: ${{ vars.ECR_REPOSITORY }}
+  CONTAINER_NAME: ${{ vars.CONTAINER_NAME }}
+  CONTAINER_PORT: ${{ vars.CONTAINER_PORT }}
+  IMAGE_TAG: ${{ vars.IMAGE_TAG }}
+
 jobs:
-  deploy:
+  build-and-deploy:
+    name: Build, Push and Deploy
     runs-on: ubuntu-latest
-    env:
-      DOCKER_IMAGE_NAME: realestate_api
-      DOCKER_IMAGE_TAG: ${{ github.sha }}
+
+    permissions:
+      id-token: write
+      contents: read
 
     steps:
-      - name: Checkout code
+
+      # --------------------------------------------------
+      # 1. Checkout source code
+      # --------------------------------------------------
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup SSH
-        run: |
-          mkdir -p ~/.ssh
-          printf "%s" "${{ secrets.EC2_SSH_KEY }}" | tr -d '\r' > ~/.ssh/id_rsa
-          chmod 600 ~/.ssh/id_rsa
-          ssh-keygen -y -f ~/.ssh/id_rsa
-          ssh-keyscan -H "${{ secrets.EC2_HOST }}" >> ~/.ssh/known_hosts
+      # --------------------------------------------------
+      # 2. Authenticate to AWS using GitHub OIDC
+      # --------------------------------------------------
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          role-session-name: GitHubActions
 
-      - name: Validate SSH key
+      # --------------------------------------------------
+      # 3. Verify AWS authentication
+      # --------------------------------------------------
+      - name: Verify AWS identity
         run: |
-          ssh-keygen -y -f ~/.ssh/id_rsa
+          aws sts get-caller-identity
 
+      # --------------------------------------------------
+      # 4. Validate image tag
+      # --------------------------------------------------
+      - name: Validate image tag
+        run: |
+          set -euo pipefail
+
+          if [ -z "$IMAGE_TAG" ]; then
+            echo "ERROR: IMAGE_TAG is not configured."
+            exit 1
+          fi
+
+          echo "Using Docker image tag: $IMAGE_TAG"
+
+      # --------------------------------------------------
+      # 5. Login to Amazon ECR
+      # --------------------------------------------------
+      - name: Login to ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      # --------------------------------------------------
+      # 6. Build Docker image
+      # --------------------------------------------------
+      - name: Build Docker image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        run: |
+          IMAGE="$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+
+          echo "Building image: $IMAGE"
+
+          docker build \
+            -t "$IMAGE" \
+            .
+
+      # --------------------------------------------------
+      # 7. Push Docker image to ECR
+      # --------------------------------------------------
+      - name: Push Docker image to ECR
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        run: |
+          IMAGE="$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+
+          echo "Pushing image: $IMAGE"
+
+          docker push "$IMAGE"
+
+      # --------------------------------------------------
+      # 8. Deploy to EC2 through AWS Systems Manager
+      # --------------------------------------------------
       - name: Deploy to EC2
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
         run: |
-          ssh "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" << EOF
-            set -e
-            export DOCKER_IMAGE_NAME="${DOCKER_IMAGE_NAME}"
-            export DOCKER_IMAGE_TAG="${DOCKER_IMAGE_TAG}"
-            cd /var/www/app
-            git pull origin main
-            docker compose down --remove-orphans || true
-            docker rm -f realestate_api || true
-            docker ps -q | xargs -r docker stop
-            docker ps -aq | xargs -r docker rm
-            docker compose up -d --build --force-recreate
-          EOF
+          set -euo pipefail
+
+          IMAGE="$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+
+          echo "Deploying image: $IMAGE"
+
+          COMMAND_ID=$(aws ssm send-command \
+            --instance-ids "${{ secrets.EC2_INSTANCE_ID }}" \
+            --document-name "AWS-RunShellScript" \
+            --comment "Deploy $IMAGE" \
+            --parameters "commands=[
+              \"set -e\",
+              \"echo Starting deployment\",
+              \"echo Image: $IMAGE\",
+              \"aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $ECR_REGISTRY\",
+              \"docker pull $IMAGE\",
+              \"docker stop $CONTAINER_NAME || true\",
+              \"docker rm $CONTAINER_NAME || true\",
+              \"docker run -d --name $CONTAINER_NAME --restart unless-stopped --env-file /home/ec2-user/abdoun_fast_api/docker-infra/mls.env -p $CONTAINER_PORT:$CONTAINER_PORT $IMAGE\",
+              \"sleep 10\",
+              \"docker ps --filter name=$CONTAINER_NAME\",
+              \"docker inspect --format='{{.State.Status}}' $CONTAINER_NAME\"
+            ]" \
+            --query "Command.CommandId" \
+            --output text \
+            --region "$AWS_REGION")
+
+          echo "SSM Command ID: $COMMAND_ID"
+
+          echo "Waiting for EC2 deployment..."
+
+          set +e
+
+          aws ssm wait command-executed \
+            --command-id "$COMMAND_ID" \
+            --instance-id "${{ secrets.EC2_INSTANCE_ID }}" \
+            --region "$AWS_REGION"
+
+          WAITER_EXIT_CODE=$?
+
+          set -e
+
+          echo "Waiter exit code: $WAITER_EXIT_CODE"
+
+          echo ""
+          echo "========================================"
+          echo "Retrieving remote deployment result"
+          echo "========================================"
+
+          INVOCATION=$(aws ssm get-command-invocation \
+            --command-id "$COMMAND_ID" \
+            --instance-id "${{ secrets.EC2_INSTANCE_ID }}" \
+            --region "$AWS_REGION")
+
+          STATUS=$(echo "$INVOCATION" | jq -r '.Status')
+
+          echo ""
+          echo "SSM deployment status: $STATUS"
+
+          echo ""
+          echo "----- Remote stdout -----"
+          echo "$INVOCATION" | jq -r '.StandardOutputContent'
+
+          echo ""
+          echo "----- Remote stderr -----"
+          echo "$INVOCATION" | jq -r '.StandardErrorContent'
+
+          echo ""
+          echo "========================================"
+
+          if [ "$STATUS" != "Success" ]; then
+            echo "Deployment failed on EC2."
+            exit 1
+          fi
+
+          echo "Deployment completed successfully."
+
+      # --------------------------------------------------
+      # 9. Deployment result
+      # --------------------------------------------------
+      - name: Deployment completed
+        run: |
+          echo "========================================"
+          echo "Deployment completed successfully"
+          echo "Image tag: $IMAGE_TAG"
+          echo "========================================"
