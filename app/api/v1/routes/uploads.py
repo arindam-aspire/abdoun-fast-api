@@ -22,6 +22,23 @@ router = APIRouter()
 
 AuthenticatedContext = Annotated[RequestContext, Depends(require_authenticated_user)]
 
+PROPERTY_UPLOAD_TYPES = {
+    "property_media_image": {
+        ".jpg": {"image/jpeg"},
+        ".jpeg": {"image/jpeg"},
+        ".png": {"image/png"},
+        ".webp": {"image/webp"},
+        ".gif": {"image/gif"},
+        ".mp4": {"video/mp4"},
+        ".mov": {"video/quicktime"},
+    },
+    "property_document": {
+        ".doc": {"application/msword"},
+        ".docx": {"application/vnd.openxmlformats-officedocument.wordprocessingml.document"},
+        ".pdf": {"application/pdf"},
+    },
+}
+
 
 def _object_owner(payload: PresignedUploadRequest, context: RequestContext) -> str:
     if payload.context == "agency_legal_document":
@@ -37,6 +54,18 @@ def create_presigned_upload_url(payload: PresignedUploadRequest, context: Authen
         raise HTTPException(status_code=STATUS_BAD_REQUEST, detail="draft_client_id is required for owner documents")
     if payload.context in {"property_media_image", "property_document"} and not (payload.submission_id or payload.draft_client_id):
         raise HTTPException(status_code=STATUS_BAD_REQUEST, detail="submission_id or draft_client_id is required for property uploads")
+    content_type = (payload.content_type or "").strip()
+    if allowed_types := PROPERTY_UPLOAD_TYPES.get(payload.context):
+        if not content_type:
+            raise HTTPException(status_code=STATUS_BAD_REQUEST, detail="content_type is required")
+        extension = PurePosixPath(payload.file_name.strip()).suffix.lower()
+        normalized_content_type = content_type.split(";", 1)[0].strip().lower()
+        if extension not in allowed_types or normalized_content_type not in allowed_types[extension]:
+            kind = "media" if payload.context == "property_media_image" else "document"
+            raise HTTPException(
+                status_code=STATUS_BAD_REQUEST,
+                detail=f"Unsupported property {kind} file extension or content type",
+            )
     if payload.context == "agent_identity_document":
         from app.schemas.agents import ALLOWED_IDENTITY_EXTENSIONS, IDENTITY_DOCUMENT_MAX_BYTES
 
@@ -46,7 +75,6 @@ def create_presigned_upload_url(payload: PresignedUploadRequest, context: Authen
         if payload.file_size > IDENTITY_DOCUMENT_MAX_BYTES:
             raise HTTPException(status_code=STATUS_BAD_REQUEST, detail="identity document must be 5 MB or smaller")
 
-    content_type = (payload.content_type or "").strip()
     if not content_type:
         raise HTTPException(status_code=STATUS_BAD_REQUEST, detail="content_type is required")
 

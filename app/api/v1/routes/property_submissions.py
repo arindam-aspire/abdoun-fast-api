@@ -31,7 +31,13 @@ router = APIRouter()
 AuthenticatedContext = Annotated[RequestContext, Depends(require_authenticated_user)]
 
 
-def _resolved_agency_id(payload_agency_id: UUID | None, context: RequestContext) -> UUID | None:
+def _resolved_agency_id(
+    route_through_agency: bool,
+    payload_agency_id: UUID | None,
+    context: RequestContext,
+) -> UUID | None:
+    if not route_through_agency:
+        return None
     return payload_agency_id or context.agency_id
 
 
@@ -44,7 +50,9 @@ def create_property_submission(
     submission = create_submission(
         db,
         user_id=context.user_id,
-        agency_id=_resolved_agency_id(payload.agency_id, context),
+        roles=context.roles,
+        route_through_agency=payload.route_through_agency,
+        agency_id=_resolved_agency_id(payload.route_through_agency, payload.agency_id, context),
         payload=payload.payload,
         current_step=payload.current_step,
         last_completed_step=payload.last_completed_step,
@@ -63,7 +71,9 @@ def submit_new_property_submission(
     submission = create_submission(
         db,
         user_id=context.user_id,
-        agency_id=_resolved_agency_id(payload.agency_id, context),
+        roles=context.roles,
+        route_through_agency=payload.route_through_agency,
+        agency_id=_resolved_agency_id(payload.route_through_agency, payload.agency_id, context),
         payload=payload.payload,
         current_step=8,
         last_completed_step=8,
@@ -98,7 +108,10 @@ def update_property_submission(
     update_submission(
         db,
         submission,
-        agency_id=_resolved_agency_id(payload.agency_id, context),
+        user_id=context.user_id,
+        roles=context.roles,
+        route_through_agency=payload.route_through_agency,
+        agency_id=payload.agency_id,
         payload=payload.payload,
         current_step=payload.current_step,
         last_completed_step=payload.last_completed_step,

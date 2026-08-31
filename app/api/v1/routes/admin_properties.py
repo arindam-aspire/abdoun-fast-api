@@ -9,7 +9,6 @@ from app.api.deps import DBSessionDep, RequestContext, require_any_role
 from app.schemas.property_submissions import PropertyAssignAgentRequest, PropertySubmissionReviewRequest
 from app.services.property_submissions import (
     assign_agent_to_property,
-    assert_can_review_submission,
     deactivate_submission,
     get_submission_or_404,
     list_submissions,
@@ -70,11 +69,12 @@ def review_admin_property_submission(
     db: DBSessionDep,
 ) -> dict:
     submission = get_submission_or_404(db, submission_id)
-    assert_can_review_submission(db, submission, roles=context.roles, agency_id=context.agency_id)
     review_submission(
         db,
         submission,
         actor_id=context.user_id,
+        actor_roles=context.roles,
+        actor_agency_id=context.agency_id,
         action=payload.action,
         reason=payload.reason,
     )

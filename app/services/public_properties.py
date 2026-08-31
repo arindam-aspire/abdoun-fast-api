@@ -29,8 +29,10 @@ from app.services.media_urls import resolve_readable_media_url
 from app.services.property_submissions import (
     _assigned_agent_id,
     can_view_submission,
+    displayed_reference_number,
     serialize_agent_contact_by_id,
     serialize_property_detail_workflow,
+    show_location_for_submission,
     stable_property_hash,
 )
 from app.utils.status_codes import STATUS_NOT_FOUND
@@ -267,6 +269,8 @@ def _taxonomy_maps(db: Session) -> tuple[dict[int, PropertyCategory], dict[int, 
 
 
 def _agency_for_submission(db: Session, submission: PropertyListingSubmission, user: User | None = None) -> AgencyMaster | None:
+    if not bool(getattr(submission, "route_through_agency", False)):
+        return None
     agency_id = submission.agency_id or (user.agency_id if user else None)
     if not agency_id:
         return None
@@ -393,6 +397,7 @@ def serialize_property_listing(
     settings = get_settings()
     latitude = _float(location.get("latitude") or location.get("lat"))
     longitude = _float(location.get("longitude") or location.get("lng"))
+    show_location = show_location_for_submission(submission, payload)
     location_query = ", ".join(
         part
         for part in [
@@ -408,11 +413,26 @@ def serialize_property_listing(
         longitude=longitude,
         query=location_query,
     )
+    location_payload = {
+        "country_id": settings.default_country_id,
+        "country": settings.default_country,
+        "city_id": city.id if city else 0,
+        "city": city.name if city else "",
+        "region_id": area.id if area else 0,
+        "region": area.name if area else "",
+        "address": address,
+        "latitude": latitude,
+        "longitude": longitude,
+        "map_embed_url": map_embed_url,
+        "show_location": show_location,
+    }
 
     item: dict[str, Any] = {
         "id": property_hash,
         "property_id": str(property_id),
-        "reference_number": details.get("reference_number") or str(property_id)[:8],
+        "reference_number": displayed_reference_number(submission, payload=payload, property_id=property_id),
+        "route_through_agency": bool(getattr(submission, "route_through_agency", False)),
+        "agency_id": str(submission.agency_id) if submission.agency_id else None,
         "title": localized_text(basic.get("title") or settings.untitled_property_title),
         "description": localized_nullable_text(basic.get("description")),
         "price": str(pricing.get("price") or "0"),
@@ -424,30 +444,9 @@ def serialize_property_listing(
         "areaName": area.name if area else "",
         "propertyType": property_type.name if property_type else "",
         "media": media,
-        "location": {
-            "country_id": settings.default_country_id,
-            "country": settings.default_country,
-            "city_id": city.id if city else 0,
-            "city": city.name if city else "",
-            "region_id": area.id if area else 0,
-            "region": area.name if area else "",
-            "address": address,
-            "latitude": latitude,
-            "longitude": longitude,
-            "map_embed_url": map_embed_url,
-        },
-        "location_detail": {
-            "country_id": settings.default_country_id,
-            "country": settings.default_country,
-            "city_id": city.id if city else 0,
-            "city": city.name if city else "",
-            "region_id": area.id if area else 0,
-            "region": area.name if area else "",
-            "address": address,
-            "latitude": latitude,
-            "longitude": longitude,
-            "map_embed_url": map_embed_url,
-        },
+        "location": location_payload,
+        "location_detail": dict(location_payload),
+        "show_location": show_location,
         "beds": _int(details.get("bedrooms")),
         "baths": _int(details.get("bathrooms")),
         "area": str(details.get("built_up_area")) if details.get("built_up_area") is not None else None,
@@ -470,6 +469,8 @@ def serialize_property_listing(
     }
     if include_owners:
         item["owners"] = _owners(payload)
+        item["guard_name"] = details.get("guard_name")
+        item["guard_phone_number"] = details.get("guard_phone_number")
     if include_agent:
         assigned_agent_id = _assigned_agent_id(submission)
         agent = (
@@ -588,6 +589,8 @@ def serialize_property_detail(
             "listing_type": listing_type,
             "selling_price": _float(pricing.get("price")),
             "currency": pricing.get("currency") or settings.default_currency,
+            "service_charge": _float(pricing.get("service_charge")),
+            "maintenance_fee": _float(pricing.get("maintenance_fee")),
             "price_on_request": False,
             "rent_commission_percent": None,
             "contract_duration": None,
@@ -609,6 +612,10 @@ def serialize_property_detail(
     }
     if is_authenticated:
         detail["agency"] = _agency_payload(agency)
+        detail["guard_name"] = details.get("guard_name")
+        detail["guard_phone_number"] = details.get("guard_phone_number")
+        detail["details"]["guard_name"] = details.get("guard_name")
+        detail["details"]["guard_phone_number"] = details.get("guard_phone_number")
     detail.pop("owner", None)
     if not is_authenticated:
         detail = _strip_anonymous_property_detail_fields(detail)
@@ -616,6 +623,15 @@ def serialize_property_detail(
         detail["agent"] = agent
     else:
         detail.pop("agent", None)
+    # Location tab: show_location=true exposes location to every role, including anonymous.
+    # show_location=false keeps the current location payload on the detail response.
+    show_location = bool(listing.get("show_location"))
+    detail["show_location"] = show_location
+    if show_location:
+        detail["location"] = listing["location"]
+        detail["location_detail"] = listing["location_detail"]
+        detail["latitude"] = listing["location_detail"]["latitude"]
+        detail["longitude"] = listing["location_detail"]["longitude"]
     return detail
 
 
