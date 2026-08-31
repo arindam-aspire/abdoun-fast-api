@@ -1,9 +1,11 @@
 {
+  "supported": ["JOD", "USD", "GBP", "INR"],
   "symbols": {
     "JOD": "JD",
     "USD": "$",
     "EUR": "€",
     "GBP": "£",
+    "INR": "₹",
     "AED": "د.إ",
     "SAR": "ر.س"
   }

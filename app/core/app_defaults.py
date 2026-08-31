@@ -16,6 +16,13 @@ def get_currency_symbols() -> dict[str, str]:
 
 
 @lru_cache
+def get_supported_currencies() -> frozenset[str]:
+    data = load_json_config("currencies.json")
+    configured = data.get("supported") or ["JOD", "USD", "GBP", "INR"]
+    return frozenset(str(code).upper() for code in configured)
+
+
+@lru_cache
 def get_geocoding_config() -> dict[str, Any]:
     return load_json_config("geocoding.json")
 

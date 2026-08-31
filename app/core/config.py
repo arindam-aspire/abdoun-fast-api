@@ -172,6 +172,18 @@ class Settings(BaseModel):
     azure_openai_max_tokens: int = _env_int("AZURE_OPENAI_MAX_TOKENS", 100)
 
     default_currency: str = (_env_str("DEFAULT_CURRENCY", "JOD") or "JOD").upper()
+    exchange_rate_api_base_url: str = (
+        _env_str("EXCHANGE_RATE_API_BASE_URL", "https://open.er-api.com/v6/latest")
+        or "https://open.er-api.com/v6/latest"
+    )
+    exchange_rate_fallback_api_base_url: str = (
+        _env_str(
+            "EXCHANGE_RATE_FALLBACK_API_BASE_URL",
+            "https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies",
+        )
+        or "https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies"
+    )
+    exchange_rate_timeout_seconds: int = _env_int("EXCHANGE_RATE_TIMEOUT_SECONDS", 10)
     default_measurement_unit: str = _env_str("DEFAULT_MEASUREMENT_UNIT", "sqm") or "sqm"
     default_country: str = _env_str("DEFAULT_COUNTRY", "Jordan") or "Jordan"
     default_country_id: int = _env_int("DEFAULT_COUNTRY_ID", 1)

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import math
+import secrets
 from datetime import datetime, timezone
+from decimal import Decimal, InvalidOperation
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -11,8 +13,10 @@ from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
 
 from app.core.config import get_settings
-from app.models.live_schema import AgencyMaster, PropertyListingSubmission, PropertyMedia, User
+from app.models.live_schema import AgencyMaster, PropertyCategory, PropertyListingSubmission, PropertyMedia, PropertyType, User
+from app.schemas.agents import validate_e164_phone
 from app.services.audit import record_activity
+from app.services.exchange_rates import assert_supported_currency, convert_amount_to_jod_or_http_error
 from app.services.media_urls import canonicalize_media_url, with_canonical_media_urls, with_readable_media_urls
 from app.services.notifications import create_in_app_notification, send_email_notification, send_sms_notification
 from app.services.property_workflow_config import get_property_workflow_config
@@ -24,7 +28,7 @@ from app.services.user_agencies import (
     ensure_user_agency_mapping,
     user_has_active_agency_mapping,
 )
-from app.utils.status_codes import STATUS_BAD_REQUEST, STATUS_FORBIDDEN, STATUS_NOT_FOUND
+from app.utils.status_codes import STATUS_BAD_REQUEST, STATUS_FORBIDDEN, STATUS_INTERNAL_SERVER_ERROR, STATUS_NOT_FOUND
 
 
 WORKFLOW_CONFIG = get_property_workflow_config()
@@ -515,19 +519,440 @@ def compute_step_completion(payload: dict[str, Any]) -> dict[str, bool]:
     return {section: bool(payload.get(section)) for section in SUBMISSION_SECTIONS}
 
 
+def coerce_bool(value: Any, default: bool = False) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return default
+    if isinstance(value, (int, float)):
+        return value != 0
+    if isinstance(value, str):
+        normalized = value.strip().casefold()
+        if normalized in {"true", "1", "yes", "on"}:
+            return True
+        if normalized in {"false", "0", "no", "off", ""}:
+            return False
+    return default
+
+
+def resolve_show_location(payload: dict[str, Any] | None, *, fallback: bool | None = None) -> bool:
+    data = payload or {}
+    location = data.get("location")
+    if isinstance(location, dict) and "show_location" in location:
+        return coerce_bool(location.get("show_location"), default=False)
+    if "show_location" in data:
+        return coerce_bool(data.get("show_location"), default=False)
+    if fallback is not None:
+        return bool(fallback)
+    return False
+
+
+def apply_show_location_to_payload(
+    payload: dict[str, Any] | None,
+    show_location: bool | None = None,
+) -> tuple[dict[str, Any], bool]:
+    """Persist show_location onto payload.location when that step exists. Does not create location."""
+    normalized = dict(payload or {})
+    value = resolve_show_location(normalized) if show_location is None else coerce_bool(show_location, default=False)
+    location = normalized.get("location")
+    if isinstance(location, dict):
+        location = dict(location)
+        location["show_location"] = value
+        normalized["location"] = location
+    return normalized, value
+
+
+def show_location_for_submission(submission: PropertyListingSubmission, payload: dict[str, Any] | None = None) -> bool:
+    column_value = getattr(submission, "show_location", None)
+    if column_value is not None:
+        return coerce_bool(column_value, default=False)
+    return resolve_show_location(payload if payload is not None else submission.payload)
+
+
+def remove_owner_address(payload: dict[str, Any] | None) -> dict[str, Any]:
+    """Remove the retired owner_address field while preserving all other owner data."""
+    normalized = dict(payload or {})
+    owner_information = normalized.get("owner_information")
+    if not isinstance(owner_information, dict):
+        return normalized
+
+    owner_information = dict(owner_information)
+    owner_information.pop("owner_address", None)
+    owners = owner_information.get("owners")
+    if isinstance(owners, list):
+        owner_information["owners"] = [
+            {key: value for key, value in owner.items() if key != "owner_address"}
+            if isinstance(owner, dict)
+            else owner
+            for owner in owners
+        ]
+    normalized["owner_information"] = owner_information
+    return normalized
+
+
+def prepare_property_contact_fields(payload: dict[str, Any] | None) -> dict[str, Any]:
+    """Validate optional guard fields and remove the retired owner field."""
+    normalized = remove_owner_address(payload)
+    details = normalized.get("property_details")
+    if not isinstance(details, dict):
+        return normalized
+
+    details = dict(details)
+    if "guard_name" in details and details["guard_name"] is not None:
+        if not isinstance(details["guard_name"], str):
+            raise HTTPException(status_code=STATUS_BAD_REQUEST, detail="guard_name must be a string")
+        guard_name = details["guard_name"].strip()
+        if len(guard_name) > 255:
+            raise HTTPException(status_code=STATUS_BAD_REQUEST, detail="guard_name must not exceed 255 characters")
+        details["guard_name"] = guard_name or None
+
+    if "guard_phone_number" in details and details["guard_phone_number"] is not None:
+        if not isinstance(details["guard_phone_number"], str):
+            raise HTTPException(status_code=STATUS_BAD_REQUEST, detail="guard_phone_number must be a string")
+        guard_phone_number = details["guard_phone_number"].strip()
+        if guard_phone_number:
+            try:
+                details["guard_phone_number"] = validate_e164_phone(
+                    guard_phone_number,
+                    field_name="guard_phone_number",
+                )
+            except ValueError as exc:
+                raise HTTPException(status_code=STATUS_BAD_REQUEST, detail=str(exc)) from exc
+        else:
+            details["guard_phone_number"] = None
+
+    normalized["property_details"] = details
+    return normalized
+
+
+SQFT_TO_SQM = Decimal("0.09290304")
+BUILT_UP_AREA_UNIT_KEYS = ("built_up_area_unit", "area_unit")
+
+
+def _validated_built_up_area(payload: dict[str, Any] | None) -> tuple[Decimal, str | None, str] | None:
+    details = (payload or {}).get("property_details")
+    if not isinstance(details, dict) or "built_up_area" not in details or details.get("built_up_area") is None:
+        return None
+
+    unit_key = next((key for key in BUILT_UP_AREA_UNIT_KEYS if key in details), None)
+    unit = details.get(unit_key) if unit_key else "sqm"
+    if unit not in {"sqm", "sqft"}:
+        raise HTTPException(status_code=STATUS_BAD_REQUEST, detail="Built-up area unit must be 'sqm' or 'sqft'")
+
+    value = details["built_up_area"]
+    if isinstance(value, bool):
+        raise HTTPException(status_code=STATUS_BAD_REQUEST, detail="Built-up area must be a numeric value greater than 0")
+    try:
+        decimal_value = Decimal(str(value))
+    except (InvalidOperation, TypeError, ValueError):
+        raise HTTPException(status_code=STATUS_BAD_REQUEST, detail="Built-up area must be a numeric value greater than 0")
+    if not decimal_value.is_finite() or decimal_value <= 0:
+        raise HTTPException(status_code=STATUS_BAD_REQUEST, detail="Built-up area must be a numeric value greater than 0")
+
+    return decimal_value, unit_key, unit
+
+
+def validate_built_up_area(payload: dict[str, Any] | None) -> None:
+    """Validate entered area without changing draft payload values or units."""
+    _validated_built_up_area(payload)
+
+
+def normalize_built_up_area_to_sqm(payload: dict[str, Any] | None) -> dict[str, Any]:
+    """Return a submitted payload whose built_up_area is canonical square meters."""
+    normalized = dict(payload or {})
+    validated = _validated_built_up_area(normalized)
+    if validated is None:
+        return normalized
+
+    value, unit_key, unit = validated
+    details = dict(normalized["property_details"])
+    if unit == "sqft":
+        details["built_up_area"] = float(value * SQFT_TO_SQM)
+    if unit_key:
+        details[unit_key] = "sqm"
+    normalized["property_details"] = details
+    return normalized
+
+
+PRICING_AMOUNT_FIELDS = ("price", "service_charge", "maintenance_fee")
+PRICING_CURRENCY_FIELD_KEYS = {
+    "price": "currency",
+    "service_charge": "service_charge_currency",
+    "maintenance_fee": "maintenance_fee_currency",
+}
+
+
+def _validated_pricing_amount(value: Any, *, field_name: str) -> Decimal | None:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        raise HTTPException(
+            status_code=STATUS_BAD_REQUEST,
+            detail=f"{field_name} must be a numeric value greater than or equal to 0",
+        )
+    try:
+        decimal_value = Decimal(str(value))
+    except (InvalidOperation, TypeError, ValueError):
+        raise HTTPException(
+            status_code=STATUS_BAD_REQUEST,
+            detail=f"{field_name} must be a numeric value greater than or equal to 0",
+        )
+    if not decimal_value.is_finite() or decimal_value < 0:
+        raise HTTPException(
+            status_code=STATUS_BAD_REQUEST,
+            detail=f"{field_name} must be a numeric value greater than or equal to 0",
+        )
+    return decimal_value
+
+
+def _pricing_currency_for_field(pricing: dict[str, Any], field: str) -> str:
+    currency_key = PRICING_CURRENCY_FIELD_KEYS[field]
+    if field == "price":
+        return assert_supported_currency(pricing.get("currency"), field_name="currency")
+    override = pricing.get(currency_key)
+    if override is not None:
+        return assert_supported_currency(override, field_name=currency_key)
+    return assert_supported_currency(pricing.get("currency"), field_name="currency")
+
+
+def validate_pricing(payload: dict[str, Any] | None) -> None:
+    """Validate pricing amounts and currencies without changing draft payload values."""
+    pricing = (payload or {}).get("pricing")
+    if not isinstance(pricing, dict):
+        return
+
+    for field in PRICING_AMOUNT_FIELDS:
+        if field in pricing and pricing[field] is not None:
+            _validated_pricing_amount(pricing[field], field_name=field)
+
+    _pricing_currency_for_field(pricing, "price")
+    for currency_key in ("service_charge_currency", "maintenance_fee_currency"):
+        if pricing.get(currency_key) is not None:
+            assert_supported_currency(pricing.get(currency_key), field_name=currency_key)
+
+
+def normalize_pricing_currency_codes(payload: dict[str, Any] | None) -> dict[str, Any]:
+    """Uppercase/default pricing currencies without converting amounts (draft-safe)."""
+    normalized = dict(payload or {})
+    pricing = normalized.get("pricing")
+    if not isinstance(pricing, dict):
+        return normalized
+
+    pricing = dict(pricing)
+    settings = get_settings()
+    pricing["currency"] = assert_supported_currency(pricing.get("currency"), field_name="currency")
+    for currency_key in ("service_charge_currency", "maintenance_fee_currency"):
+        if pricing.get(currency_key) is not None:
+            pricing[currency_key] = assert_supported_currency(pricing.get(currency_key), field_name=currency_key)
+    normalized["pricing"] = pricing
+    return normalized
+
+
+def normalize_pricing_to_jod(payload: dict[str, Any] | None) -> dict[str, Any]:
+    """Return a submitted payload whose pricing amounts are canonical JOD values."""
+    normalized = normalize_pricing_currency_codes(payload)
+    pricing = normalized.get("pricing")
+    if not isinstance(pricing, dict):
+        return normalized
+
+    pricing = dict(pricing)
+    settings = get_settings()
+    for field in PRICING_AMOUNT_FIELDS:
+        if field not in pricing or pricing[field] is None:
+            continue
+        amount = _validated_pricing_amount(pricing[field], field_name=field)
+        if amount is None:
+            continue
+        currency = _pricing_currency_for_field(pricing, field)
+        converted = convert_amount_to_jod_or_http_error(amount, currency, field_name=field)
+        pricing[field] = float(converted)
+
+    pricing["currency"] = settings.default_currency
+    pricing.pop("service_charge_currency", None)
+    pricing.pop("maintenance_fee_currency", None)
+    normalized["pricing"] = pricing
+    return normalized
+
+
+def pricing_response_fields(pricing: dict[str, Any] | None) -> dict[str, Any]:
+    settings = get_settings()
+    data = pricing or {}
+    result = {
+        "price": str(data.get("price") or "0"),
+        "currency": data.get("currency") or settings.default_currency,
+    }
+    if data.get("service_charge") is not None:
+        result["service_charge"] = data.get("service_charge")
+    if data.get("maintenance_fee") is not None:
+        result["maintenance_fee"] = data.get("maintenance_fee")
+    return result
+
+
+REFERENCE_NUMBER_ALPHABET = "abcdefghijklmnopqrstuvwxyz0123456789"
+REFERENCE_NUMBER_SEGMENT_LENGTHS = (8, 9, 6, 6)
+REFERENCE_NUMBER_MAX_ATTEMPTS = 12
+
+
+def _first_letter(value: Any) -> str:
+    if not isinstance(value, str):
+        return ""
+    for character in value.strip():
+        if character.isalpha():
+            return character.upper()
+    return ""
+
+
+def _payload_int_id(value: Any) -> int | None:
+    try:
+        if value is None or value == "":
+            return None
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed else None
+
+
+def _payload_reference_number(payload: dict[str, Any] | None) -> str | None:
+    details = (payload or {}).get("property_details")
+    if not isinstance(details, dict):
+        return None
+    value = details.get("reference_number")
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    return None
+
+
+def stored_reference_number(
+    submission: PropertyListingSubmission | None,
+    payload: dict[str, Any] | None = None,
+) -> str | None:
+    if submission is not None:
+        column_value = getattr(submission, "reference_number", None)
+        if isinstance(column_value, str) and column_value.strip():
+            return column_value.strip()
+        if payload is None:
+            payload = submission.payload
+    return _payload_reference_number(payload)
+
+
+def displayed_reference_number(
+    submission: PropertyListingSubmission,
+    *,
+    payload: dict[str, Any] | None = None,
+    property_id: UUID | None = None,
+) -> str:
+    stored = stored_reference_number(submission, payload)
+    if stored:
+        return stored
+    resolved_id = property_id or submission.property_id or submission.id
+    return str(resolved_id)[:8]
+
+
+def write_payload_reference_number(payload: dict[str, Any] | None, reference_number: str | None) -> dict[str, Any]:
+    """Set or strip reference_number inside property_details without creating that section."""
+    normalized = dict(payload or {})
+    details = normalized.get("property_details")
+    if not isinstance(details, dict):
+        return normalized
+    details = dict(details)
+    if reference_number:
+        details["reference_number"] = reference_number
+    else:
+        details.pop("reference_number", None)
+    normalized["property_details"] = details
+    return normalized
+
+
+def reference_number_prefix(db: Session, payload: dict[str, Any] | None) -> str | None:
+    basic = (payload or {}).get("basic_information") or {}
+    if not isinstance(basic, dict):
+        return None
+    category_id = _payload_int_id(basic.get("category_id"))
+    type_id = _payload_int_id(basic.get("type_id"))
+    if not category_id or not type_id:
+        return None
+    category = db.get(PropertyCategory, category_id)
+    property_type = db.get(PropertyType, type_id)
+    category_letter = _first_letter(getattr(category, "name", None)) or _first_letter(getattr(category, "slug", None))
+    type_letter = _first_letter(getattr(property_type, "name", None)) or _first_letter(getattr(property_type, "slug", None))
+    if category_letter and type_letter:
+        return f"{category_letter}{type_letter}"
+    return None
+
+
+def generate_reference_number(prefix: str) -> str:
+    segments = [
+        "".join(secrets.choice(REFERENCE_NUMBER_ALPHABET) for _ in range(length))
+        for length in REFERENCE_NUMBER_SEGMENT_LENGTHS
+    ]
+    return f"{prefix}-{'-'.join(segments)}"
+
+
+def _reference_number_taken(db: Session, value: str, *, exclude_id: UUID | None = None) -> bool:
+    payload_ref = PropertyListingSubmission.payload.op("#>>")("{property_details,reference_number}")
+    stmt = select(PropertyListingSubmission.id).where(
+        or_(
+            PropertyListingSubmission.reference_number == value,
+            payload_ref == value,
+        )
+    )
+    if exclude_id is not None:
+        stmt = stmt.where(PropertyListingSubmission.id != exclude_id)
+    return db.execute(stmt.limit(1)).first() is not None
+
+
+def allocate_reference_number(db: Session, prefix: str, *, exclude_id: UUID | None = None) -> str:
+    for _ in range(REFERENCE_NUMBER_MAX_ATTEMPTS):
+        candidate = generate_reference_number(prefix)
+        if not _reference_number_taken(db, candidate, exclude_id=exclude_id):
+            return candidate
+    raise HTTPException(status_code=STATUS_INTERNAL_SERVER_ERROR, detail="Unable to allocate a unique property reference number")
+
+
+def assign_reference_number(
+    db: Session,
+    payload: dict[str, Any] | None,
+    *,
+    submission: PropertyListingSubmission | None = None,
+) -> tuple[dict[str, Any], str | None]:
+    """Ignore client-provided reference numbers. Preserve existing or generate once."""
+    preserved = stored_reference_number(submission)
+    if preserved:
+        return write_payload_reference_number(payload, preserved), preserved
+
+    stripped = write_payload_reference_number(payload, None)
+    prefix = reference_number_prefix(db, stripped)
+    if not prefix:
+        return stripped, None
+    generated = allocate_reference_number(
+        db,
+        prefix,
+        exclude_id=submission.id if submission is not None else None,
+    )
+    return write_payload_reference_number(stripped, generated), generated
+
+
 def serialize_submission(submission: PropertyListingSubmission) -> dict:
     payload = submission.payload or {}
     workflow_summary = _submission_workflow_summary(submission)
+    show_location = show_location_for_submission(submission, payload)
+    reference_number = stored_reference_number(submission, payload)
+    readable_payload, _ = apply_show_location_to_payload(with_readable_media_urls(payload), show_location)
+    readable_payload = write_payload_reference_number(readable_payload, reference_number)
+    readable_payload = remove_owner_address(readable_payload)
     return {
         "submission_id": str(submission.id),
         "submitted_by": str(submission.submitted_by),
+        "route_through_agency": bool(getattr(submission, "route_through_agency", False)),
         "agency_id": str(submission.agency_id) if submission.agency_id else None,
         "status": submission.status,
         **workflow_summary,
         "current_step": submission.current_step,
         "last_completed_step": submission.last_completed_step,
         "step_completion": submission.step_completion or compute_step_completion(payload),
-        "payload": with_readable_media_urls(payload),
+        "show_location": show_location,
+        "reference_number": reference_number,
+        "payload": readable_payload,
         "reviewed_by": str(submission.reviewed_by) if submission.reviewed_by else None,
         "reviewed_at": _iso(submission.reviewed_at),
         "review_reason": submission.review_reason,
@@ -555,12 +980,30 @@ def create_submission(
     current_step: int,
     last_completed_step: int,
     status: str = "draft",
+    route_through_agency: bool = False,
+    roles: tuple[str, ...] = (),
 ) -> PropertyListingSubmission:
     submitted_at = utc_now() if status not in DRAFT_STATUSES else None
-    normalized_payload = with_canonical_media_urls(payload)
+    normalized_payload = prepare_property_contact_fields(with_canonical_media_urls(payload))
+    normalized_payload, show_location = apply_show_location_to_payload(normalized_payload)
+    validate_built_up_area(normalized_payload)
+    validate_pricing(normalized_payload)
+    normalized_payload = normalize_pricing_currency_codes(normalized_payload)
+    if status not in DRAFT_STATUSES:
+        normalized_payload = normalize_built_up_area_to_sqm(normalized_payload)
+        normalized_payload = normalize_pricing_to_jod(normalized_payload)
+    normalized_payload, reference_number = assign_reference_number(db, normalized_payload)
+    agency_id = validate_routing_agency(
+        db,
+        route_through_agency=route_through_agency,
+        agency_id=agency_id,
+        user_id=user_id,
+        roles=roles,
+    )
     submission = PropertyListingSubmission(
         id=uuid4(),
         submitted_by=user_id,
+        route_through_agency=route_through_agency,
         agency_id=agency_id,
         status=status,
         current_step=current_step,
@@ -571,6 +1014,8 @@ def create_submission(
         privacy_accepted=bool((normalized_payload.get("review_submit") or {}).get("privacy_accepted")),
         public_display_authorized=bool((normalized_payload.get("review_submit") or {}).get("public_display_authorized")),
         fees_acknowledged=bool((normalized_payload.get("review_submit") or {}).get("fees_acknowledged")),
+        show_location=show_location,
+        reference_number=reference_number,
         submitted_at=submitted_at,
     )
     db.add(submission)
@@ -592,6 +1037,9 @@ def update_submission(
     payload: dict[str, Any],
     current_step: int,
     last_completed_step: int,
+    route_through_agency: bool | None = None,
+    user_id: UUID | None = None,
+    roles: tuple[str, ...] = (),
 ) -> PropertyListingSubmission:
     workflow_stage = _workflow_stage_for_submission(submission)
     is_editable_status = submission.status in {"draft", REJECTED_STATUS, "in_progress", AGENT_ASSIGNED_STATUS} or (
@@ -599,13 +1047,34 @@ def update_submission(
     )
     if not is_editable_status:
         raise HTTPException(status_code=STATUS_BAD_REQUEST, detail="This property submission is not editable in its current workflow stage")
-    next_payload = with_canonical_media_urls(dict(payload))
+    next_payload = prepare_property_contact_fields(with_canonical_media_urls(dict(payload)))
+    next_payload, show_location = apply_show_location_to_payload(next_payload)
+    validate_built_up_area(next_payload)
+    validate_pricing(next_payload)
+    next_payload = normalize_pricing_currency_codes(next_payload)
     existing_workflow = _workflow_from_submission(submission)
     if existing_workflow:
         next_payload["_workflow"] = existing_workflow
+    next_payload, reference_number = assign_reference_number(db, next_payload, submission=submission)
     submission.payload = next_payload
-    if agency_id is not None:
-        submission.agency_id = agency_id
+    submission.show_location = show_location
+    submission.reference_number = reference_number
+    effective_route = (
+        bool(getattr(submission, "route_through_agency", False))
+        if route_through_agency is None
+        else route_through_agency
+    )
+    submission.route_through_agency = effective_route
+    if effective_route:
+        submission.agency_id = validate_routing_agency(
+            db,
+            route_through_agency=True,
+            agency_id=agency_id if agency_id is not None else submission.agency_id,
+            user_id=user_id or submission.submitted_by,
+            roles=roles,
+        )
+    else:
+        submission.agency_id = None
     submission.current_step = current_step
     submission.last_completed_step = last_completed_step
     submission.step_completion = compute_step_completion(next_payload)
@@ -779,10 +1248,18 @@ def can_review_submission(
 ) -> bool:
     role_names = _role_names(roles)
     if "super_admin" in role_names:
-        return False
+        return submission.agency_id is None
     if "admin" in role_names and agency_id and _submitter_agency_id(db, submission) == agency_id:
         return True
     return False
+
+
+def _is_agencyless_super_admin_review(
+    submission: PropertyListingSubmission,
+    *,
+    roles: tuple[str, ...],
+) -> bool:
+    return submission.agency_id is None and "super_admin" in _role_names(roles)
 
 
 def assert_can_review_submission(
@@ -792,9 +1269,19 @@ def assert_can_review_submission(
     roles: tuple[str, ...],
     agency_id: UUID | None,
 ) -> None:
-    if submission.status not in {AGENT_ASSIGNED_STATUS, PENDING_APPROVAL_STATUS}:
+    is_direct_super_admin_review = _is_agencyless_super_admin_review(submission, roles=roles)
+    if submission.agency_id is None and submission.status == SUBMITTED_STATUS and not is_direct_super_admin_review:
+        raise HTTPException(status_code=STATUS_FORBIDDEN, detail="Insufficient permissions")
+
+    allowed_statuses = {AGENT_ASSIGNED_STATUS, PENDING_APPROVAL_STATUS}
+    allowed_stages = AGENCY_REVIEW_STAGES
+    if is_direct_super_admin_review:
+        allowed_statuses = {*allowed_statuses, SUBMITTED_STATUS}
+        allowed_stages = {*allowed_stages, WORKFLOW_STAGE_SUBMITTED}
+
+    if submission.status not in allowed_statuses:
         raise HTTPException(status_code=STATUS_BAD_REQUEST, detail="Only agent assigned or pending approval submissions can be reviewed")
-    if _workflow_stage_for_submission(submission) not in AGENCY_REVIEW_STAGES:
+    if _workflow_stage_for_submission(submission) not in allowed_stages:
         raise HTTPException(status_code=STATUS_BAD_REQUEST, detail="Submission is not ready for agency review")
     if not can_review_submission(db, submission, roles=roles, agency_id=agency_id):
         raise HTTPException(status_code=STATUS_FORBIDDEN, detail="Insufficient permissions")
@@ -816,16 +1303,23 @@ def create_revision_from_active(
     if not can_edit_active_submission(db, source, user_id=user_id, roles=roles, agency_id=agency_id):
         raise HTTPException(status_code=STATUS_FORBIDDEN, detail="Active property cannot be edited by this user")
 
-    revision_payload = dict(payload)
+    revision_payload, show_location = apply_show_location_to_payload(dict(payload))
+    validate_built_up_area(revision_payload)
+    validate_pricing(revision_payload)
+    revision_payload = normalize_built_up_area_to_sqm(revision_payload)
+    revision_payload = normalize_pricing_to_jod(revision_payload)
+    revision_payload, reference_number = assign_reference_number(db, revision_payload, submission=source)
     workflow = _payload_workflow(revision_payload)
     workflow["revision_of_submission_id"] = str(source.id)
     workflow["revision_property_id"] = str(source.property_id or source.id)
     workflow["revision_status"] = "pending_reapproval"
 
+    route_through_agency = bool(getattr(source, "route_through_agency", False))
     revision = PropertyListingSubmission(
         id=uuid4(),
         submitted_by=user_id,
-        agency_id=_submitter_agency_id(db, source),
+        route_through_agency=route_through_agency,
+        agency_id=source.agency_id if route_through_agency else None,
         property_id=source.property_id or source.id,
         status=PENDING_APPROVAL_STATUS,
         current_step=current_step,
@@ -836,6 +1330,8 @@ def create_revision_from_active(
         privacy_accepted=True,
         public_display_authorized=True,
         fees_acknowledged=True,
+        show_location=show_location,
+        reference_number=reference_number,
         submitted_at=utc_now(),
     )
     db.add(revision)
@@ -884,11 +1380,20 @@ def submit_submission(
         raise HTTPException(status_code=STATUS_BAD_REQUEST, detail="Active submissions cannot be resubmitted")
     if not _has_property_image(submission.payload or {}):
         raise HTTPException(status_code=STATUS_BAD_REQUEST, detail="At least one property image is required before submitting")
-    if agency_id is not None and submission.status in {"draft", REJECTED_STATUS, "in_progress"}:
-        submission.agency_id = agency_id
-    resolve_listing_agency_or_400(db, submission.agency_id)
-    assert_owner_agency_rule(db, user_id=user_id, agency_id=submission.agency_id, roles=roles)
-    record_owner_agency_mapping_for_submission(db, user_id=user_id, agency_id=submission.agency_id, roles=roles)
+    route_through_agency = bool(getattr(submission, "route_through_agency", False))
+    submission.agency_id = validate_routing_agency(
+        db,
+        route_through_agency=route_through_agency,
+        agency_id=submission.agency_id or agency_id,
+        user_id=user_id,
+        roles=roles,
+    )
+    if route_through_agency:
+        record_owner_agency_mapping_for_submission(db, user_id=user_id, agency_id=submission.agency_id, roles=roles)
+    submission.payload = normalize_pricing_to_jod(
+        normalize_built_up_area_to_sqm(prepare_property_contact_fields(submission.payload))
+    )
+    flag_modified(submission, "payload")
     origin = _workflow_from_submission(submission).get("submission_origin") or _submission_origin_for_roles(roles)
     next_status = _next_status_on_submit(submission, user_id=user_id, roles=roles)
     assigned_agent_id = _assigned_agent_id(submission)
@@ -942,6 +1447,21 @@ def resolve_listing_agency_or_400(db: Session, agency_id: UUID | None) -> Agency
     if not agency or not agency.is_active:
         raise HTTPException(status_code=STATUS_BAD_REQUEST, detail="Selected agency is not available for property submission")
     return agency
+
+
+def validate_routing_agency(
+    db: Session,
+    *,
+    route_through_agency: bool,
+    agency_id: UUID | None,
+    user_id: UUID,
+    roles: tuple[str, ...],
+) -> UUID | None:
+    if not route_through_agency:
+        return None
+    resolve_listing_agency_or_400(db, agency_id)
+    assert_owner_agency_rule(db, user_id=user_id, agency_id=agency_id, roles=roles)
+    return agency_id
 
 
 def assert_owner_agency_rule(
@@ -1057,16 +1577,27 @@ def review_submission(
     submission: PropertyListingSubmission,
     *,
     actor_id: UUID,
+    actor_roles: tuple[str, ...],
+    actor_agency_id: UUID | None,
     action: str,
     reason: str | None = None,
 ) -> PropertyListingSubmission:
-    if submission.status not in {AGENT_ASSIGNED_STATUS, PENDING_APPROVAL_STATUS}:
-        raise HTTPException(status_code=STATUS_BAD_REQUEST, detail="Only agent assigned or pending approval submissions can be reviewed")
+    assert_can_review_submission(
+        db,
+        submission,
+        roles=actor_roles,
+        agency_id=actor_agency_id,
+    )
+    is_direct_super_admin_review = _is_agencyless_super_admin_review(submission, roles=actor_roles)
     workflow = _workflow_from_submission(submission)
     submission_origin = workflow.get("submission_origin") or SUBMISSION_ORIGIN_OWNER
     recipient_user_id = submission.submitted_by
     if action == "approve":
-        if WORKFLOW_CONFIG.enabled("agent_assignment_required_before_activation", default=True) and not _assigned_agent_id(submission):
+        if (
+            not is_direct_super_admin_review
+            and WORKFLOW_CONFIG.enabled("agent_assignment_required_before_activation", default=True)
+            and not _assigned_agent_id(submission)
+        ):
             raise HTTPException(status_code=STATUS_BAD_REQUEST, detail="Assign an agent before approving this property")
         submission.status = ACTIVE_STATUS
         submission.review_reason = None
@@ -1116,6 +1647,7 @@ def review_submission(
 def serialize_draft_list_item(submission: PropertyListingSubmission) -> dict:
     return {
         "submission_id": str(submission.id),
+        "route_through_agency": bool(getattr(submission, "route_through_agency", False)),
         "agency_id": str(submission.agency_id) if submission.agency_id else None,
         "status": submission.status,
         "current_step": submission.current_step,
@@ -1213,6 +1745,11 @@ def serialize_property_detail_workflow(
             and actor_agency_id is not None
             and _submitter_agency_id(db, submission) == actor_agency_id
         )
+        can_directly_review_agencyless_submission = (
+            "super_admin" in role_names
+            and submission.agency_id is None
+            and workflow_label in {SUBMITTED_STATUS, AGENT_ASSIGNED_STATUS, PENDING_APPROVAL_STATUS}
+        )
         can_review_deal_closure = (
             "admin" in role_names
             and actor_agency_id is not None
@@ -1222,6 +1759,13 @@ def serialize_property_detail_workflow(
         if workflow_label == ACTIVE_STATUS:
             if "super_admin" in role_names:
                 actions.append({"id": "deactivate", "label": "Deactivate", "tone": "danger"})
+        elif can_directly_review_agencyless_submission:
+            actions.extend(
+                [
+                    {"id": "approve", "label": "Approve"},
+                    {"id": "reject", "label": "Reject", "tone": "danger"},
+                ]
+            )
         elif workflow_label == SUBMITTED_STATUS and can_manage_agency_submission:
             actions.append({"id": "assign", "label": "Assign Agent"})
         elif workflow_label == AGENT_ASSIGNED_STATUS and can_manage_agency_submission:
@@ -1318,6 +1862,7 @@ def serialize_agent_property_item(
         )
     )
     settings = get_settings()
+    pricing_fields = pricing_response_fields(pricing)
     return {
         "property_id": str(property_id),
         "property_hash": stable_property_hash(property_id),
@@ -1329,9 +1874,11 @@ def serialize_agent_property_item(
         "category_slug": str(basic.get("category_id") or ""),
         "status_name": _status_display_name(workflow_label),
         "status_slug": submission.status,
-        "price": str(pricing.get("price") or "0"),
-        "currency": pricing.get("currency") or settings.default_currency,
-        "reference_number": (payload.get("property_details") or {}).get("reference_number") or str(property_id)[:8],
+        "price": pricing_fields["price"],
+        "currency": pricing_fields["currency"],
+        "service_charge": pricing_fields.get("service_charge"),
+        "maintenance_fee": pricing_fields.get("maintenance_fee"),
+        "reference_number": displayed_reference_number(submission, payload=payload, property_id=property_id),
         "created_at": _iso(submission.created_at),
         "updated_at": _iso(submission.updated_at),
         "submission_id": str(submission.id),
@@ -1343,6 +1890,8 @@ def serialize_agent_property_item(
         **workflow_summary,
         "can_edit_submission": can_edit_submission,
         "can_delete_submission": can_delete_submission_value,
+        "route_through_agency": bool(getattr(submission, "route_through_agency", False)),
+        "agency_id": str(submission.agency_id) if submission.agency_id else None,
         "agency": agency,
         "submitted_by": submitter.full_name if submitter and submitter.full_name else str(submission.submitted_by),
         "agent_user_id": workflow.get("assigned_agent_id"),
@@ -1380,6 +1929,7 @@ def serialize_admin_submission_item(
     )
     return {
         "submission_id": str(submission.id),
+        "route_through_agency": bool(getattr(submission, "route_through_agency", False)),
         "agency_id": str(submission.agency_id) if submission.agency_id else None,
         "submitted_by": str(submission.submitted_by),
         "submitted_by_name": submitter.full_name if submitter else "",
@@ -1394,7 +1944,7 @@ def serialize_admin_submission_item(
         "has_assigned_agent": bool(workflow.get("assigned_agent_id")),
         "property_hash": stable_property_hash(property_id),
         "property_title": _title(payload) or get_settings().untitled_property_title,
-        "property_reference_number": (payload.get("property_details") or {}).get("reference_number"),
+        "property_reference_number": stored_reference_number(submission, payload),
         "current_step": submission.current_step,
         "submitted_at": _iso(submission.submitted_at) or _iso(submission.created_at),
         "reviewed_at": _iso(submission.reviewed_at),
