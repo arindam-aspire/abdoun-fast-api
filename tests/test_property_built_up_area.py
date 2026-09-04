@@ -101,6 +101,23 @@ def test_legacy_area_without_unit_is_treated_as_sqm() -> None:
     assert normalized["property_details"] == {"built_up_area": 80}
 
 
+def test_null_area_unit_is_treated_as_sqm() -> None:
+    payload = {"property_details": {"built_up_area": 80, "built_up_area_unit": None}}
+
+    normalized = normalize_built_up_area_to_sqm(payload)
+
+    assert normalized["property_details"] == {"built_up_area": 80, "built_up_area_unit": "sqm"}
+
+
+def test_uppercase_frontend_area_unit_is_supported() -> None:
+    payload = {"property_details": {"built_up_area": 100, "built_up_area_unit": "SQFT"}}
+
+    normalized = normalize_built_up_area_to_sqm(payload)
+
+    assert normalized["property_details"]["built_up_area"] == pytest.approx(9.290304)
+    assert normalized["property_details"]["built_up_area_unit"] == "sqm"
+
+
 @pytest.mark.parametrize(
     ("value", "unit"),
     [

@@ -613,8 +613,10 @@ def serialize_property_detail(
     if is_authenticated:
         detail["agency"] = _agency_payload(agency)
         detail["guard_name"] = details.get("guard_name")
+        detail["guard_number"] = details.get("guard_number")
         detail["guard_phone_number"] = details.get("guard_phone_number")
         detail["details"]["guard_name"] = details.get("guard_name")
+        detail["details"]["guard_number"] = details.get("guard_number")
         detail["details"]["guard_phone_number"] = details.get("guard_phone_number")
     detail.pop("owner", None)
     if not is_authenticated:
