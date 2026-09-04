@@ -120,9 +120,9 @@ def test_super_admin_cannot_review_agency_assigned_property() -> None:
     assert exc_info.value.status_code == 403
 
 
-def test_agency_admin_approval_flow_is_unchanged(review_side_effects) -> None:
+def test_agency_admin_can_directly_approve_submitted_property(review_side_effects) -> None:
     agency_id = uuid4()
-    submission = _submission(agency_id=agency_id, status="pending-approval", assigned_agent_id=uuid4())
+    submission = _submission(agency_id=agency_id)
 
     review_submission(
         MagicMock(),
@@ -134,6 +134,21 @@ def test_agency_admin_approval_flow_is_unchanged(review_side_effects) -> None:
     )
 
     assert submission.status == ACTIVE_STATUS
+
+
+def test_agency_admin_direct_review_actions_are_exposed() -> None:
+    agency_id = uuid4()
+    submission = _submission(agency_id=agency_id)
+
+    workflow = serialize_property_detail_workflow(
+        MagicMock(),
+        submission,
+        actor_user_id=uuid4(),
+        actor_roles=("admin",),
+        actor_agency_id=agency_id,
+    )
+
+    assert [action["id"] for action in workflow["workflow_actions"]] == ["approve", "reject"]
 
 
 def test_super_admin_actions_are_exposed_only_for_agencyless_submission() -> None:

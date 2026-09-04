@@ -122,6 +122,8 @@ class PropertyDetail(BaseModel):
     latitude: Optional[float] = None
     longitude: Optional[float] = None
     location_name: Optional[str] = None
+    guard_name: Optional[str] = None
+    guard_number: Optional[str] = None
 
     @classmethod
     def from_orm_obj(cls, obj: Property) -> "PropertyDetail":
@@ -162,6 +164,8 @@ class PropertyDetail(BaseModel):
             latitude=obj.latitude,
             longitude=obj.longitude,
             location_name=obj.location_name,
+            guard_name=getattr(obj, "guard_name", None),
+            guard_number=getattr(obj, "guard_number", None),
         )
 
 

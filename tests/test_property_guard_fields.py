@@ -181,6 +181,7 @@ def test_authenticated_property_detail_returns_guard_fields(monkeypatch) -> None
         payload={
             "property_details": {
                 "guard_name": "Ahmad",
+                "guard_number": "+962790000000",
                 "guard_phone_number": "+962790000000",
             }
         },
@@ -198,6 +199,8 @@ def test_authenticated_property_detail_returns_guard_fields(monkeypatch) -> None
     )
 
     assert detail["guard_name"] == "Ahmad"
+    assert detail["guard_number"] == "+962790000000"
     assert detail["guard_phone_number"] == "+962790000000"
     assert detail["details"]["guard_name"] == "Ahmad"
+    assert detail["details"]["guard_number"] == "+962790000000"
     assert detail["details"]["guard_phone_number"] == "+962790000000"

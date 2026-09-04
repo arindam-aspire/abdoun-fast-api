@@ -635,7 +635,8 @@ def _validated_built_up_area(payload: dict[str, Any] | None) -> tuple[Decimal, s
         return None
 
     unit_key = next((key for key in BUILT_UP_AREA_UNIT_KEYS if key in details), None)
-    unit = details.get(unit_key) if unit_key else "sqm"
+    unit_value = details.get(unit_key)
+    unit = "sqm" if unit_value is None else str(unit_value).strip().lower()
     if unit not in {"sqm", "sqft"}:
         raise HTTPException(status_code=STATUS_BAD_REQUEST, detail="Built-up area unit must be 'sqm' or 'sqft'")
 
@@ -1278,6 +1279,9 @@ def assert_can_review_submission(
     if is_direct_super_admin_review:
         allowed_statuses = {*allowed_statuses, SUBMITTED_STATUS}
         allowed_stages = {*allowed_stages, WORKFLOW_STAGE_SUBMITTED}
+    elif not WORKFLOW_CONFIG.enabled("agent_assignment_required_before_activation", default=True):
+        allowed_statuses = {*allowed_statuses, SUBMITTED_STATUS}
+        allowed_stages = {*allowed_stages, WORKFLOW_STAGE_SUBMITTED}
 
     if submission.status not in allowed_statuses:
         raise HTTPException(status_code=STATUS_BAD_REQUEST, detail="Only agent assigned or pending approval submissions can be reviewed")
@@ -1767,7 +1771,15 @@ def serialize_property_detail_workflow(
                 ]
             )
         elif workflow_label == SUBMITTED_STATUS and can_manage_agency_submission:
-            actions.append({"id": "assign", "label": "Assign Agent"})
+            if WORKFLOW_CONFIG.enabled("agent_assignment_required_before_activation", default=True):
+                actions.append({"id": "assign", "label": "Assign Agent"})
+            else:
+                actions.extend(
+                    [
+                        {"id": "approve", "label": "Approve"},
+                        {"id": "reject", "label": "Reject", "tone": "danger"},
+                    ]
+                )
         elif workflow_label == AGENT_ASSIGNED_STATUS and can_manage_agency_submission:
             actions.extend(
                 [
@@ -1786,7 +1798,10 @@ def serialize_property_detail_workflow(
         ):
             actions.append({"id": "edit", "label": "Review and Submit"})
         elif workflow_label == PENDING_APPROVAL_STATUS and can_manage_agency_submission:
-            if not assigned_agent_id:
+            if (
+                not assigned_agent_id
+                and WORKFLOW_CONFIG.enabled("agent_assignment_required_before_activation", default=True)
+            ):
                 actions.append({"id": "assign", "label": "Assign Agent"})
             else:
                 actions.extend(

@@ -38,7 +38,7 @@
   "rules": {
     "active_editable": false,
     "agent_submission_auto_assigns_self": true,
-    "agent_assignment_required_before_activation": true,
+    "agent_assignment_required_before_activation": false,
     "agency_admin_can_direct_approve_after_assignment": true,
     "rejection_requires_reason": true,
     "clear_agent_on_rejected_resubmit": true
