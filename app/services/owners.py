@@ -176,6 +176,15 @@ def _assert_can_manage_owner(
         )
 
 
+def _assert_can_deactivate_owner(actor_roles: tuple[str, ...]) -> None:
+    if not _is_super_admin(actor_roles):
+        raise_api_error(
+            status_code=STATUS_FORBIDDEN,
+            code="FORBIDDEN",
+            message="Insufficient permissions",
+        )
+
+
 def _owner_base_query() -> Any:
     return (
         select(User)
@@ -554,6 +563,7 @@ def deactivate_owner(
 ) -> dict[str, Any]:
     user = _assert_owner_user(db, user_id=owner_id)
     _assert_can_manage_owner(db, user=user, actor_roles=actor_roles, actor_agency_id=actor_agency_id)
+    _assert_can_deactivate_owner(actor_roles)
     if not user.is_active:
         raise_api_error(status_code=STATUS_BAD_REQUEST, code="VALIDATION_ERROR", message="Owner is already inactive")
 
@@ -690,6 +700,7 @@ def update_owner_status(
         return result
 
     if normalized in {"SUSPENDED", "INACTIVE", "DISABLED"}:
+        _assert_can_deactivate_owner(actor_roles)
         if not user.is_active:
             result = serialize_owner(
                 db,
