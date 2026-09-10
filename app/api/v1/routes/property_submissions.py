@@ -24,7 +24,8 @@ from app.services.property_submissions import (
     update_submission,
 )
 from app.services.audit import record_activity
-from app.utils.api_response import success_response
+from app.utils.api_response import raise_api_error, success_response
+from app.utils.status_codes import STATUS_BAD_REQUEST
 
 router = APIRouter()
 
@@ -68,6 +69,19 @@ def submit_new_property_submission(
     context: AuthenticatedContext,
     db: DBSessionDep,
 ) -> dict:
+    if not payload.confirm_submit:
+        raise_api_error(
+            status_code=STATUS_BAD_REQUEST,
+            code="VALIDATION_ERROR",
+            message="Property submission must be confirmed",
+            details=[
+                {
+                    "field": "confirm_submit",
+                    "code": "missing_required_field",
+                    "message": "Property submission must be confirmed",
+                }
+            ],
+        )
     submission = create_submission(
         db,
         user_id=context.user_id,
@@ -150,6 +164,19 @@ def submit_existing_property_submission(
     context: AuthenticatedContext,
     db: DBSessionDep,
 ) -> dict:
+    if not payload.confirm_submit:
+        raise_api_error(
+            status_code=STATUS_BAD_REQUEST,
+            code="VALIDATION_ERROR",
+            message="Property submission must be confirmed",
+            details=[
+                {
+                    "field": "confirm_submit",
+                    "code": "missing_required_field",
+                    "message": "Property submission must be confirmed",
+                }
+            ],
+        )
     submission = get_submission_or_404(db, submission_id)
     assert_can_edit_working_submission(db, submission, user_id=context.user_id, roles=context.roles, agency_id=context.agency_id)
     submit_submission(

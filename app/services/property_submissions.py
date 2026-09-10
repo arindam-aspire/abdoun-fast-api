@@ -4,7 +4,7 @@ import math
 import secrets
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
-from typing import Any
+from typing import Any, NoReturn
 from uuid import UUID, uuid4
 
 from fastapi import HTTPException
@@ -13,13 +13,24 @@ from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
 
 from app.core.config import get_settings
-from app.models.live_schema import AgencyMaster, PropertyCategory, PropertyListingSubmission, PropertyMedia, PropertyType, User
+from app.models.live_schema import (
+    AgencyMaster,
+    Feature,
+    PropertyCategory,
+    PropertyListingSubmission,
+    PropertyMedia,
+    PropertyType,
+    Role,
+    User,
+    UserRole,
+)
 from app.schemas.agents import validate_e164_phone
 from app.services.audit import record_activity
 from app.services.exchange_rates import assert_supported_currency, convert_amount_to_jod_or_http_error
 from app.services.media_urls import canonicalize_media_url, with_canonical_media_urls, with_readable_media_urls
 from app.services.notifications import create_in_app_notification, send_email_notification, send_sms_notification
 from app.services.property_workflow_config import get_property_workflow_config
+from app.services.property_options import resolve_property_option
 from app.services.user_agencies import (
     REL_AGENT,
     REL_PROPERTY_OWNER,
@@ -28,7 +39,14 @@ from app.services.user_agencies import (
     ensure_user_agency_mapping,
     user_has_active_agency_mapping,
 )
-from app.utils.status_codes import STATUS_BAD_REQUEST, STATUS_FORBIDDEN, STATUS_INTERNAL_SERVER_ERROR, STATUS_NOT_FOUND
+from app.utils.api_response import raise_api_error
+from app.utils.status_codes import (
+    STATUS_BAD_REQUEST,
+    STATUS_CONFLICT,
+    STATUS_FORBIDDEN,
+    STATUS_INTERNAL_SERVER_ERROR,
+    STATUS_NOT_FOUND,
+)
 
 
 WORKFLOW_CONFIG = get_property_workflow_config()
@@ -493,11 +511,11 @@ def sync_property_media_from_payload(
                 )
             )
 
-    if rows and not any(row.is_primary for row in rows if row.media_type == "image"):
-        for row in rows:
-            if row.media_type == "image":
-                row.is_primary = True
-                break
+    image_rows = [row for row in rows if row.media_type == "image"]
+    if image_rows:
+        primary_image = next((row for row in image_rows if row.is_primary), image_rows[0])
+        for row in image_rows:
+            row.is_primary = row is primary_image
 
     for row in rows:
         db.add(row)
@@ -569,6 +587,130 @@ def show_location_for_submission(submission: PropertyListingSubmission, payload:
     return resolve_show_location(payload if payload is not None else submission.payload)
 
 
+FURNISHING_OPTION_KEYS = (
+    "furnishing_status_id",
+    "furnishingStatusId",
+    "furnishing_status",
+    "furnishingStatus",
+    "furniture_status",
+    "furnitureStatus",
+    "furnishing",
+)
+FLOOR_OPTION_KEYS = (
+    "floor_id",
+    "floorId",
+    "floor",
+    "floor_level",
+    "floorLevel",
+    "floor_number",
+    "floorNumber",
+)
+
+
+def _optional_int(value: Any) -> int | None:
+    if value in (None, ""):
+        return None
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str) and value.strip().isdigit():
+        return int(value.strip())
+    return None
+
+
+def _property_details_dict(payload: dict[str, Any] | None) -> dict[str, Any]:
+    details = (payload or {}).get("property_details")
+    if not isinstance(details, dict):
+        details = (payload or {}).get("propertyDetails")
+    return dict(details) if isinstance(details, dict) else {}
+
+
+def _first_supplied_key(details: dict[str, Any], keys: tuple[str, ...]) -> str | None:
+    return next((key for key in keys if details.get(key) not in (None, "")), None)
+
+
+def property_option_ids_from_payload(payload: dict[str, Any] | None) -> tuple[int | None, int | None]:
+    details = _property_details_dict(payload)
+    furnishing_status_id = _optional_int(
+        details.get("furnishing_status_id")
+        if details.get("furnishing_status_id") not in (None, "")
+        else details.get("furnishingStatusId")
+    )
+    floor_id = _optional_int(
+        details.get("floor_id")
+        if details.get("floor_id") not in (None, "")
+        else details.get("floorId")
+    )
+    return furnishing_status_id, floor_id
+
+
+def stored_furnishing_status_id(
+    submission: PropertyListingSubmission,
+    payload: dict[str, Any] | None = None,
+) -> int | None:
+    column_value = _optional_int(getattr(submission, "furnishing_status_id", None))
+    if column_value is not None:
+        return column_value
+    furnishing_status_id, _ = property_option_ids_from_payload(
+        payload if payload is not None else getattr(submission, "payload", None)
+    )
+    return furnishing_status_id
+
+
+def stored_floor_id(
+    submission: PropertyListingSubmission,
+    payload: dict[str, Any] | None = None,
+) -> int | None:
+    column_value = _optional_int(getattr(submission, "floor_id", None))
+    if column_value is not None:
+        return column_value
+    _, floor_id = property_option_ids_from_payload(
+        payload if payload is not None else getattr(submission, "payload", None)
+    )
+    return floor_id
+
+
+def apply_property_option_ids_to_payload(
+    payload: dict[str, Any] | None,
+    *,
+    furnishing_status_id: int | None = None,
+    floor_id: int | None = None,
+) -> dict[str, Any]:
+    normalized = dict(payload or {})
+    details = _property_details_dict(normalized)
+    if furnishing_status_id is not None:
+        details["furnishing_status_id"] = furnishing_status_id
+        details["furnishingStatusId"] = furnishing_status_id
+        details.setdefault("furnishingStatus", details.get("furnishing_status") or details.get("furnishing"))
+    if floor_id is not None:
+        details["floor_id"] = floor_id
+        details["floorId"] = floor_id
+        if details.get("floor_number") not in (None, ""):
+            details.setdefault("floorNumber", details["floor_number"])
+        stored_floor = _optional_int(details.get("floor"))
+        if stored_floor == floor_id and details.get("floor_number") not in (None, "") and stored_floor != _optional_int(
+            details.get("floor_number")
+        ):
+            details["floor"] = details["floor_number"]
+        elif details.get("floor") in (None, ""):
+            details["floor"] = (
+                details["floor_number"] if details.get("floor_number") not in (None, "") else floor_id
+            )
+    if details:
+        normalized["property_details"] = details
+    return normalized
+
+
+def persist_property_option_columns(
+    submission: PropertyListingSubmission,
+    payload: dict[str, Any] | None,
+) -> None:
+    furnishing_status_id, floor_id = property_option_ids_from_payload(payload)
+    submission.furnishing_status_id = furnishing_status_id
+    submission.floor_id = floor_id
+
+
 def remove_owner_address(payload: dict[str, Any] | None) -> dict[str, Any]:
     """Remove the retired owner_address field while preserving all other owner data."""
     normalized = dict(payload or {})
@@ -590,6 +732,391 @@ def remove_owner_address(payload: dict[str, Any] | None) -> dict[str, Any]:
     return normalized
 
 
+def remove_dld_number(payload: dict[str, Any] | None) -> dict[str, Any]:
+    normalized = dict(payload or {})
+    details = normalized.get("property_details")
+    if not isinstance(details, dict):
+        return normalized
+    details = dict(details)
+    for key in ("dld_number", "dldNumber", "DLD_number", "DLDNumber"):
+        details.pop(key, None)
+    normalized["property_details"] = details
+    return normalized
+
+
+def add_map_pin_to_response(payload: dict[str, Any]) -> dict[str, Any]:
+    normalized = dict(payload)
+    location = normalized.get("location")
+    if not isinstance(location, dict):
+        return normalized
+    location = dict(location)
+    latitude = location.get("latitude")
+    longitude = location.get("longitude")
+    location["map_pin"] = (
+        {"latitude": latitude, "longitude": longitude}
+        if latitude is not None and longitude is not None
+        else None
+    )
+    normalized["location"] = location
+    return normalized
+
+
+def _property_field_error(
+    *,
+    field: str,
+    code: str,
+    message: str,
+    status_code: int = STATUS_BAD_REQUEST,
+    error_code: str = "VALIDATION_ERROR",
+) -> NoReturn:
+    raise_api_error(
+        status_code=status_code,
+        code=error_code,
+        message=message,
+        details=[{"field": field, "code": code, "message": message}],
+    )
+
+
+def _normalize_primary_images(payload: dict[str, Any]) -> dict[str, Any]:
+    media = payload.get("media_documents")
+    if not isinstance(media, dict):
+        return payload
+    media = dict(media)
+    images = media.get("images")
+    if not isinstance(images, list):
+        return payload
+
+    normalized_images: list[Any] = []
+    selected_primary = False
+    for index, raw_image in enumerate(images):
+        if not isinstance(raw_image, dict):
+            normalized_images.append(raw_image)
+            continue
+        image = dict(raw_image)
+        requested_primary = coerce_bool(image.get("is_primary"), default=False)
+        image["is_primary"] = requested_primary and not selected_primary
+        if image["is_primary"]:
+            selected_primary = True
+        normalized_images.append(image)
+    if normalized_images and not selected_primary:
+        for index, image in enumerate(normalized_images):
+            if isinstance(image, dict) and _media_item_url(image):
+                image["is_primary"] = True
+                break
+    media["images"] = normalized_images
+    payload["media_documents"] = media
+    return payload
+
+
+def _optional_coordinate(value: Any) -> Any:
+    if value is None:
+        return None
+    if isinstance(value, str) and not value.strip():
+        return None
+    return value
+
+
+def _normalize_location(payload: dict[str, Any]) -> dict[str, Any]:
+    location = payload.get("location")
+    if not isinstance(location, dict):
+        return payload
+    location = dict(location)
+    if isinstance(location.get("area_id"), (list, tuple, set, dict)):
+        _property_field_error(
+            field="location.area_id",
+            code="single_value_required",
+            message="Add Property area must be a single master-data value",
+        )
+    map_pin = location.get("map_pin")
+    if isinstance(map_pin, dict):
+        location.setdefault("latitude", map_pin.get("latitude", map_pin.get("lat")))
+        location.setdefault("longitude", map_pin.get("longitude", map_pin.get("lng")))
+    if "lat" in location and "latitude" not in location:
+        location["latitude"] = location.get("lat")
+    if "lng" in location and "longitude" not in location:
+        location["longitude"] = location.get("lng")
+    location.pop("lat", None)
+    location.pop("lng", None)
+    location.pop("map_pin", None)
+
+    latitude = _optional_coordinate(location.get("latitude"))
+    longitude = _optional_coordinate(location.get("longitude"))
+    if latitude is None or longitude is None:
+        location["latitude"] = None
+        location["longitude"] = None
+        payload["location"] = location
+        return payload
+    try:
+        latitude = float(latitude)
+        longitude = float(longitude)
+    except (TypeError, ValueError):
+        _property_field_error(
+            field="location",
+            code="invalid_coordinates",
+            message="Latitude and longitude must be numeric",
+        )
+    if not -90 <= latitude <= 90:
+        _property_field_error(field="location.latitude", code="invalid_value", message="Latitude must be between -90 and 90")
+    if not -180 <= longitude <= 180:
+        _property_field_error(field="location.longitude", code="invalid_value", message="Longitude must be between -180 and 180")
+    location["latitude"] = latitude
+    location["longitude"] = longitude
+    payload["location"] = location
+    return payload
+
+
+def _normalize_property_details(db: Session, payload: dict[str, Any]) -> dict[str, Any]:
+    details = payload.get("property_details")
+    if not isinstance(details, dict):
+        details = payload.get("propertyDetails")
+    if not isinstance(details, dict):
+        return payload
+    details = dict(details)
+
+    if "built_up_area" not in details:
+        for alias in ("property_area", "area"):
+            if alias in details:
+                details["built_up_area"] = details.pop(alias)
+                break
+    if isinstance(details.get("built_up_area"), (list, tuple, set, dict)):
+        _property_field_error(
+            field="property_details.built_up_area",
+            code="single_value_required",
+            message="Property area must be a single numeric value",
+        )
+
+    option_fields = (
+        ("completion_status", ("completion_status",), "completion_status"),
+        ("direction", ("direction",), "direction"),
+    )
+    for group, aliases, storage_key in option_fields:
+        supplied_key = next((key for key in aliases if details.get(key) not in (None, "")), None)
+        if supplied_key:
+            option = resolve_property_option(
+                db,
+                group=group,
+                value=details[supplied_key],
+                field=f"property_details.{supplied_key}",
+            )
+            for alias in aliases:
+                if alias != storage_key:
+                    details.pop(alias, None)
+            details[storage_key] = option.slug
+
+    furnishing_key = _first_supplied_key(details, FURNISHING_OPTION_KEYS)
+    if furnishing_key:
+        furnishing = resolve_property_option(
+            db,
+            group="furnishing_status",
+            value=details[furnishing_key],
+            field=f"property_details.{furnishing_key}",
+        )
+        for key in FURNISHING_OPTION_KEYS:
+            details.pop(key, None)
+        details["furnishing"] = furnishing.slug
+        details["furnishing_status"] = furnishing.slug
+        details["furnishingStatus"] = furnishing.slug
+        details["furnishing_status_id"] = furnishing.id
+        details["furnishingStatusId"] = furnishing.id
+
+    floor_key = _first_supplied_key(details, FLOOR_OPTION_KEYS)
+    if floor_key:
+        supplied_floor = details.get("floor")
+        floor = resolve_property_option(
+            db,
+            group="floor",
+            value=details[floor_key],
+            field=f"property_details.{floor_key}",
+        )
+        for key in FLOOR_OPTION_KEYS:
+            details.pop(key, None)
+        details["floor_id"] = floor.id
+        details["floorId"] = floor.id
+        details["floor_number"] = floor.numeric_value
+        details["floorNumber"] = floor.numeric_value
+        details["floor_level"] = floor.name
+        details["floorLevel"] = floor.name
+        if isinstance(supplied_floor, dict):
+            details["floor"] = (
+                supplied_floor.get("id")
+                or supplied_floor.get("value")
+                or supplied_floor.get("numeric_value")
+                or supplied_floor.get("numericValue")
+                or floor.numeric_value
+            )
+        elif supplied_floor not in (None, ""):
+            details["floor"] = supplied_floor
+        elif floor.numeric_value is not None:
+            details["floor"] = floor.numeric_value
+        else:
+            details["floor"] = floor.slug
+
+    if "year_of_construction" in details and "year_built" not in details:
+        details["year_built"] = details.pop("year_of_construction")
+    year_built = details.get("year_built")
+    if year_built is not None:
+        try:
+            year_built = int(year_built)
+        except (TypeError, ValueError):
+            _property_field_error(field="property_details.year_built", code="invalid_value", message="Year built must be a four-digit year")
+        if year_built < 1800 or year_built > utc_now().year + 1:
+            _property_field_error(field="property_details.year_built", code="invalid_value", message="Year built is outside the valid range")
+        details["year_built"] = year_built
+
+    for field in ("apartment_number", "plot_number", "basin_number", "building_number", "parcel_number"):
+        if field in details and details[field] is not None:
+            value = str(details[field]).strip()
+            if len(value) > 100:
+                _property_field_error(
+                    field=f"property_details.{field}",
+                    code="max_length",
+                    message=f"{field} must not exceed 100 characters",
+                )
+            details[field] = value or None
+
+    payload["property_details"] = details
+    return payload
+
+
+def _normalize_listing_purpose(db: Session, payload: dict[str, Any]) -> dict[str, Any]:
+    basic = payload.get("basic_information")
+    if not isinstance(basic, dict) or basic.get("listing_purpose") in (None, ""):
+        return payload
+    basic = dict(basic)
+    option = resolve_property_option(
+        db,
+        group="listing_purpose",
+        value=basic["listing_purpose"],
+        field="basic_information.listing_purpose",
+    )
+    basic["listing_purpose"] = "sale_or_rent" if option.slug == "sale-or-rent" else option.slug
+    payload["basic_information"] = basic
+    return payload
+
+
+def _validate_feature_ids(db: Session, payload: dict[str, Any]) -> None:
+    amenities = payload.get("amenities")
+    if not isinstance(amenities, dict) or "feature_ids" not in amenities:
+        return
+    raw_ids = amenities.get("feature_ids")
+    if not isinstance(raw_ids, list):
+        _property_field_error(
+            field="amenities.feature_ids",
+            code="invalid_type",
+            message="Property feature IDs must be an array",
+        )
+    try:
+        feature_ids = list(dict.fromkeys(int(value) for value in raw_ids))
+    except (TypeError, ValueError):
+        _property_field_error(
+            field="amenities.feature_ids",
+            code="invalid_value",
+            message="Property feature IDs must be integers from the feature catalog",
+        )
+    existing_ids = set(
+        db.execute(
+            select(Feature.id).where(Feature.id.in_(feature_ids), Feature.is_active.is_(True))
+        ).scalars().all()
+    )
+    invalid_ids = [feature_id for feature_id in feature_ids if feature_id not in existing_ids]
+    if invalid_ids:
+        raise_api_error(
+            status_code=STATUS_BAD_REQUEST,
+            code="INVALID_VALUE",
+            message="One or more property features are invalid",
+            details=[
+                {
+                    "field": "amenities.feature_ids",
+                    "code": "invalid_value",
+                    "message": f"Unknown or inactive feature IDs: {invalid_ids}",
+                }
+            ],
+        )
+    amenities = dict(amenities)
+    amenities["feature_ids"] = feature_ids
+    payload["amenities"] = amenities
+
+
+def _validate_and_enrich_owners(db: Session, payload: dict[str, Any]) -> None:
+    owner_information = payload.get("owner_information")
+    if not isinstance(owner_information, dict):
+        return
+    owners = owner_information.get("owners")
+    if not isinstance(owners, list):
+        return
+    normalized_owners: list[Any] = []
+    seen_owner_ids: set[UUID] = set()
+    for index, raw_owner in enumerate(owners):
+        if not isinstance(raw_owner, dict):
+            normalized_owners.append(raw_owner)
+            continue
+        owner = dict(raw_owner)
+        raw_owner_id = owner.get("owner_user_id") or owner.get("owner_id") or owner.get("id")
+        if not raw_owner_id:
+            normalized_owners.append(owner)
+            continue
+        try:
+            owner_id = UUID(str(raw_owner_id))
+        except ValueError:
+            _property_field_error(
+                field=f"owner_information.owners.{index}.owner_user_id",
+                code="invalid_value",
+                message="Selected owner ID is invalid",
+            )
+        if owner_id in seen_owner_ids:
+            _property_field_error(
+                field=f"owner_information.owners.{index}.owner_user_id",
+                code="duplicate",
+                message="The same owner cannot be selected more than once",
+                status_code=STATUS_CONFLICT,
+                error_code="DUPLICATE_OWNER",
+            )
+        user = db.get(User, owner_id)
+        owner_role = (
+            db.execute(
+                select(Role.name)
+                .join(UserRole, UserRole.role_id == Role.id)
+                .where(UserRole.user_id == owner_id, Role.name.in_(["owner", "registered_user"]))
+                .limit(1)
+            ).scalar_one_or_none()
+            if user
+            else None
+        )
+        if not user or not user.is_active or not owner_role:
+            _property_field_error(
+                field=f"owner_information.owners.{index}.owner_user_id",
+                code="owner_not_found",
+                message="Selected owner was not found or is inactive",
+                error_code="OWNER_NOT_FOUND",
+            )
+        seen_owner_ids.add(owner_id)
+        owner["id"] = str(owner_id)
+        owner["owner_user_id"] = str(owner_id)
+        owner.setdefault("full_name", user.full_name)
+        owner.setdefault("email", user.email)
+        owner.setdefault("phone", user.phone_number)
+        normalized_owners.append(owner)
+    owner_information = dict(owner_information)
+    owner_information["owners"] = normalized_owners
+    payload["owner_information"] = owner_information
+
+
+def prepare_property_payload(
+    db: Session,
+    payload: dict[str, Any] | None,
+    *,
+    for_submit: bool = False,
+) -> dict[str, Any]:
+    normalized = remove_dld_number(payload)
+    normalized = _normalize_listing_purpose(db, normalized)
+    normalized = _normalize_property_details(db, normalized)
+    normalized = _normalize_location(normalized)
+    normalized = _normalize_primary_images(normalized)
+    _validate_feature_ids(db, normalized)
+    _validate_and_enrich_owners(db, normalized)
+    return normalized
+
+
 def prepare_property_contact_fields(payload: dict[str, Any] | None) -> dict[str, Any]:
     """Validate optional guard fields and remove the retired owner field."""
     normalized = remove_owner_address(payload)
@@ -600,15 +1127,19 @@ def prepare_property_contact_fields(payload: dict[str, Any] | None) -> dict[str,
     details = dict(details)
     if "guard_name" in details and details["guard_name"] is not None:
         if not isinstance(details["guard_name"], str):
-            raise HTTPException(status_code=STATUS_BAD_REQUEST, detail="guard_name must be a string")
+            _property_field_error(field="property_details.guard_name", code="invalid_type", message="guard_name must be a string")
         guard_name = details["guard_name"].strip()
         if len(guard_name) > 255:
-            raise HTTPException(status_code=STATUS_BAD_REQUEST, detail="guard_name must not exceed 255 characters")
+            _property_field_error(field="property_details.guard_name", code="max_length", message="guard_name must not exceed 255 characters")
         details["guard_name"] = guard_name or None
 
     if "guard_phone_number" in details and details["guard_phone_number"] is not None:
         if not isinstance(details["guard_phone_number"], str):
-            raise HTTPException(status_code=STATUS_BAD_REQUEST, detail="guard_phone_number must be a string")
+            _property_field_error(
+                field="property_details.guard_phone_number",
+                code="invalid_type",
+                message="guard_phone_number must be a string",
+            )
         guard_phone_number = details["guard_phone_number"].strip()
         if guard_phone_number:
             try:
@@ -617,7 +1148,11 @@ def prepare_property_contact_fields(payload: dict[str, Any] | None) -> dict[str,
                     field_name="guard_phone_number",
                 )
             except ValueError as exc:
-                raise HTTPException(status_code=STATUS_BAD_REQUEST, detail=str(exc)) from exc
+                _property_field_error(
+                    field="property_details.guard_phone_number",
+                    code="invalid_value",
+                    message=str(exc),
+                )
         else:
             details["guard_phone_number"] = None
 
@@ -638,17 +1173,33 @@ def _validated_built_up_area(payload: dict[str, Any] | None) -> tuple[Decimal, s
     unit_value = details.get(unit_key)
     unit = "sqm" if unit_value is None else str(unit_value).strip().lower()
     if unit not in {"sqm", "sqft"}:
-        raise HTTPException(status_code=STATUS_BAD_REQUEST, detail="Built-up area unit must be 'sqm' or 'sqft'")
+        _property_field_error(
+            field=f"property_details.{unit_key or 'built_up_area_unit'}",
+            code="invalid_value",
+            message="Built-up area unit must be 'sqm' or 'sqft'",
+        )
 
     value = details["built_up_area"]
     if isinstance(value, bool):
-        raise HTTPException(status_code=STATUS_BAD_REQUEST, detail="Built-up area must be a numeric value greater than 0")
+        _property_field_error(
+            field="property_details.built_up_area",
+            code="invalid_value",
+            message="Built-up area must be a numeric value greater than 0",
+        )
     try:
         decimal_value = Decimal(str(value))
     except (InvalidOperation, TypeError, ValueError):
-        raise HTTPException(status_code=STATUS_BAD_REQUEST, detail="Built-up area must be a numeric value greater than 0")
+        _property_field_error(
+            field="property_details.built_up_area",
+            code="invalid_value",
+            message="Built-up area must be a numeric value greater than 0",
+        )
     if not decimal_value.is_finite() or decimal_value <= 0:
-        raise HTTPException(status_code=STATUS_BAD_REQUEST, detail="Built-up area must be a numeric value greater than 0")
+        _property_field_error(
+            field="property_details.built_up_area",
+            code="invalid_value",
+            message="Built-up area must be a numeric value greater than 0",
+        )
 
     return decimal_value, unit_key, unit
 
@@ -675,9 +1226,20 @@ def normalize_built_up_area_to_sqm(payload: dict[str, Any] | None) -> dict[str, 
     return normalized
 
 
-PRICING_AMOUNT_FIELDS = ("price", "service_charge", "maintenance_fee")
+SALE_PRICE_FIELDS = ("furnished_sale_price", "unfurnished_sale_price")
+RENT_PRICE_FIELDS = (
+    "furnished_rent_price",
+    "unfurnished_rent_price",
+    "semi_furnished_rent_price",
+)
+PRICING_AMOUNT_FIELDS = ("price", *SALE_PRICE_FIELDS, *RENT_PRICE_FIELDS, "service_charge", "maintenance_fee")
 PRICING_CURRENCY_FIELD_KEYS = {
     "price": "currency",
+    "furnished_sale_price": "currency",
+    "unfurnished_sale_price": "currency",
+    "furnished_rent_price": "currency",
+    "unfurnished_rent_price": "currency",
+    "semi_furnished_rent_price": "currency",
     "service_charge": "service_charge_currency",
     "maintenance_fee": "maintenance_fee_currency",
 }
@@ -687,36 +1249,50 @@ def _validated_pricing_amount(value: Any, *, field_name: str) -> Decimal | None:
     if value is None:
         return None
     if isinstance(value, bool):
-        raise HTTPException(
-            status_code=STATUS_BAD_REQUEST,
-            detail=f"{field_name} must be a numeric value greater than or equal to 0",
+        _property_field_error(
+            field=f"pricing.{field_name}",
+            code="invalid_value",
+            message=f"{field_name} must be a numeric value greater than or equal to 0",
         )
     try:
         decimal_value = Decimal(str(value))
     except (InvalidOperation, TypeError, ValueError):
-        raise HTTPException(
-            status_code=STATUS_BAD_REQUEST,
-            detail=f"{field_name} must be a numeric value greater than or equal to 0",
+        _property_field_error(
+            field=f"pricing.{field_name}",
+            code="invalid_value",
+            message=f"{field_name} must be a numeric value greater than or equal to 0",
         )
     if not decimal_value.is_finite() or decimal_value < 0:
-        raise HTTPException(
-            status_code=STATUS_BAD_REQUEST,
-            detail=f"{field_name} must be a numeric value greater than or equal to 0",
+        _property_field_error(
+            field=f"pricing.{field_name}",
+            code="invalid_value",
+            message=f"{field_name} must be a numeric value greater than or equal to 0",
         )
     return decimal_value
+
+
+def _supported_pricing_currency(value: Any, *, field_name: str) -> str:
+    try:
+        return assert_supported_currency(value, field_name=field_name)
+    except HTTPException as exc:
+        _property_field_error(
+            field=f"pricing.{field_name}",
+            code="invalid_value",
+            message=str(exc.detail),
+        )
 
 
 def _pricing_currency_for_field(pricing: dict[str, Any], field: str) -> str:
     currency_key = PRICING_CURRENCY_FIELD_KEYS[field]
     if field == "price":
-        return assert_supported_currency(pricing.get("currency"), field_name="currency")
+        return _supported_pricing_currency(pricing.get("currency"), field_name="currency")
     override = pricing.get(currency_key)
     if override is not None:
-        return assert_supported_currency(override, field_name=currency_key)
-    return assert_supported_currency(pricing.get("currency"), field_name="currency")
+        return _supported_pricing_currency(override, field_name=currency_key)
+    return _supported_pricing_currency(pricing.get("currency"), field_name="currency")
 
 
-def validate_pricing(payload: dict[str, Any] | None) -> None:
+def validate_pricing(payload: dict[str, Any] | None, *, for_submit: bool = False) -> None:
     """Validate pricing amounts and currencies without changing draft payload values."""
     pricing = (payload or {}).get("pricing")
     if not isinstance(pricing, dict):
@@ -729,7 +1305,52 @@ def validate_pricing(payload: dict[str, Any] | None) -> None:
     _pricing_currency_for_field(pricing, "price")
     for currency_key in ("service_charge_currency", "maintenance_fee_currency"):
         if pricing.get(currency_key) is not None:
-            assert_supported_currency(pricing.get(currency_key), field_name=currency_key)
+            _supported_pricing_currency(pricing.get(currency_key), field_name=currency_key)
+
+    if not for_submit:
+        return
+    basic = (payload or {}).get("basic_information") or {}
+    details = (payload or {}).get("property_details") or {}
+    purpose = basic.get("listing_purpose")
+    furnishing = (
+        details.get("furnishing")
+        or details.get("furnishing_status")
+        or details.get("furnishingStatus")
+        or details.get("furniture_status")
+    )
+    if not purpose or not furnishing:
+        return
+
+    legacy_price_present = pricing.get("price") is not None
+    furnishing_key = str(furnishing).replace("-", "_")
+    sale_field = {
+        "furnished": "furnished_sale_price",
+        "unfurnished": "unfurnished_sale_price",
+    }.get(furnishing_key)
+    rent_field = {
+        "furnished": "furnished_rent_price",
+        "unfurnished": "unfurnished_rent_price",
+        "semi_furnished": "semi_furnished_rent_price",
+    }.get(furnishing_key)
+
+    if purpose in {"sale", "sale_or_rent"}:
+        has_sale_price = legacy_price_present or (
+            pricing.get(sale_field) is not None if sale_field else any(pricing.get(field) is not None for field in SALE_PRICE_FIELDS)
+        )
+        if not has_sale_price:
+            _property_field_error(
+                field=f"pricing.{sale_field or 'sale_price'}",
+                code="missing_required_field",
+                message="A sale price matching the furnishing status is required",
+            )
+    if purpose in {"rent", "sale_or_rent"}:
+        has_rent_price = legacy_price_present or (rent_field is not None and pricing.get(rent_field) is not None)
+        if not has_rent_price:
+            _property_field_error(
+                field=f"pricing.{rent_field or 'rent_price'}",
+                code="missing_required_field",
+                message="A rent price matching the furnishing status is required",
+            )
 
 
 def normalize_pricing_currency_codes(payload: dict[str, Any] | None) -> dict[str, Any]:
@@ -741,10 +1362,10 @@ def normalize_pricing_currency_codes(payload: dict[str, Any] | None) -> dict[str
 
     pricing = dict(pricing)
     settings = get_settings()
-    pricing["currency"] = assert_supported_currency(pricing.get("currency"), field_name="currency")
+    pricing["currency"] = _supported_pricing_currency(pricing.get("currency"), field_name="currency")
     for currency_key in ("service_charge_currency", "maintenance_fee_currency"):
         if pricing.get(currency_key) is not None:
-            pricing[currency_key] = assert_supported_currency(pricing.get(currency_key), field_name=currency_key)
+            pricing[currency_key] = _supported_pricing_currency(pricing.get(currency_key), field_name=currency_key)
     normalized["pricing"] = pricing
     return normalized
 
@@ -765,7 +1386,21 @@ def normalize_pricing_to_jod(payload: dict[str, Any] | None) -> dict[str, Any]:
         if amount is None:
             continue
         currency = _pricing_currency_for_field(pricing, field)
-        converted = convert_amount_to_jod_or_http_error(amount, currency, field_name=field)
+        try:
+            converted = convert_amount_to_jod_or_http_error(amount, currency, field_name=field)
+        except HTTPException as exc:
+            raise_api_error(
+                status_code=exc.status_code,
+                code="PRICE_CONVERSION_UNAVAILABLE",
+                message="Unable to convert property pricing to JOD at this time",
+                details=[
+                    {
+                        "field": f"pricing.{field}",
+                        "code": "system_error",
+                        "message": "Live currency conversion is temporarily unavailable",
+                    }
+                ],
+            )
         pricing[field] = float(converted)
 
     pricing["currency"] = settings.default_currency
@@ -786,6 +1421,9 @@ def pricing_response_fields(pricing: dict[str, Any] | None) -> dict[str, Any]:
         result["service_charge"] = data.get("service_charge")
     if data.get("maintenance_fee") is not None:
         result["maintenance_fee"] = data.get("maintenance_fee")
+    for field in (*SALE_PRICE_FIELDS, *RENT_PRICE_FIELDS):
+        if data.get(field) is not None:
+            result[field] = data.get(field)
     return result
 
 
@@ -933,6 +1571,69 @@ def assign_reference_number(
     return write_payload_reference_number(stripped, generated), generated
 
 
+def validate_duplicate_property(
+    db: Session,
+    payload: dict[str, Any] | None,
+    *,
+    exclude_submission_id: UUID | None = None,
+) -> None:
+    """Block only exact matches on established physical-property identifiers."""
+    data = payload or {}
+    details = data.get("property_details") or {}
+    location = data.get("location") or {}
+    if not isinstance(details, dict) or not isinstance(location, dict):
+        return
+
+    conditions = []
+    plot_number = str(details.get("plot_number") or "").strip()
+    basin_number = str(details.get("basin_number") or "").strip()
+    if plot_number and basin_number:
+        conditions.append(
+            (
+                PropertyListingSubmission.payload.op("#>>")("{property_details,plot_number}") == plot_number
+            )
+            & (
+                PropertyListingSubmission.payload.op("#>>")("{property_details,basin_number}") == basin_number
+            )
+        )
+
+    apartment_number = str(details.get("apartment_number") or "").strip()
+    city_id = str(location.get("city_id") or "").strip()
+    area_id = str(location.get("area_id") or "").strip()
+    if apartment_number and city_id and area_id:
+        conditions.append(
+            (
+                PropertyListingSubmission.payload.op("#>>")("{property_details,apartment_number}")
+                == apartment_number
+            )
+            & (PropertyListingSubmission.payload.op("#>>")("{location,city_id}") == city_id)
+            & (PropertyListingSubmission.payload.op("#>>")("{location,area_id}") == area_id)
+        )
+
+    if not conditions:
+        return
+    stmt = select(PropertyListingSubmission.id).where(
+        PropertyListingSubmission.deleted_at.is_(None),
+        or_(*conditions),
+    )
+    if exclude_submission_id is not None:
+        stmt = stmt.where(PropertyListingSubmission.id != exclude_submission_id)
+    duplicate_id = db.execute(stmt.limit(1)).scalar_one_or_none()
+    if duplicate_id:
+        raise_api_error(
+            status_code=STATUS_CONFLICT,
+            code="DUPLICATE_PROPERTY",
+            message="A property with the same identification details already exists",
+            details=[
+                {
+                    "field": "property_details",
+                    "code": "duplicate_property",
+                    "message": "Apartment/location or plot/basin identifiers match an existing property",
+                }
+            ],
+        )
+
+
 def serialize_submission(submission: PropertyListingSubmission) -> dict:
     payload = submission.payload or {}
     workflow_summary = _submission_workflow_summary(submission)
@@ -940,7 +1641,16 @@ def serialize_submission(submission: PropertyListingSubmission) -> dict:
     reference_number = stored_reference_number(submission, payload)
     readable_payload, _ = apply_show_location_to_payload(with_readable_media_urls(payload), show_location)
     readable_payload = write_payload_reference_number(readable_payload, reference_number)
-    readable_payload = remove_owner_address(readable_payload)
+    furnishing_status_id = stored_furnishing_status_id(submission, payload)
+    floor_id = stored_floor_id(submission, payload)
+    readable_payload = apply_property_option_ids_to_payload(
+        readable_payload,
+        furnishing_status_id=furnishing_status_id,
+        floor_id=floor_id,
+    )
+    readable_payload = add_map_pin_to_response(
+        remove_dld_number(remove_owner_address(readable_payload))
+    )
     return {
         "submission_id": str(submission.id),
         "submitted_by": str(submission.submitted_by),
@@ -953,6 +1663,8 @@ def serialize_submission(submission: PropertyListingSubmission) -> dict:
         "step_completion": submission.step_completion or compute_step_completion(payload),
         "show_location": show_location,
         "reference_number": reference_number,
+        "furnishing_status_id": furnishing_status_id,
+        "floor_id": floor_id,
         "payload": readable_payload,
         "reviewed_by": str(submission.reviewed_by) if submission.reviewed_by else None,
         "reviewed_at": _iso(submission.reviewed_at),
@@ -985,10 +1697,15 @@ def create_submission(
     roles: tuple[str, ...] = (),
 ) -> PropertyListingSubmission:
     submitted_at = utc_now() if status not in DRAFT_STATUSES else None
-    normalized_payload = prepare_property_contact_fields(with_canonical_media_urls(payload))
+    normalized_payload = prepare_property_payload(
+        db,
+        with_canonical_media_urls(payload),
+        for_submit=status not in DRAFT_STATUSES,
+    )
+    normalized_payload = prepare_property_contact_fields(normalized_payload)
     normalized_payload, show_location = apply_show_location_to_payload(normalized_payload)
     validate_built_up_area(normalized_payload)
-    validate_pricing(normalized_payload)
+    validate_pricing(normalized_payload, for_submit=status not in DRAFT_STATUSES)
     normalized_payload = normalize_pricing_currency_codes(normalized_payload)
     if status not in DRAFT_STATUSES:
         normalized_payload = normalize_built_up_area_to_sqm(normalized_payload)
@@ -1001,6 +1718,7 @@ def create_submission(
         user_id=user_id,
         roles=roles,
     )
+    furnishing_status_id, floor_id = property_option_ids_from_payload(normalized_payload)
     submission = PropertyListingSubmission(
         id=uuid4(),
         submitted_by=user_id,
@@ -1017,6 +1735,8 @@ def create_submission(
         fees_acknowledged=bool((normalized_payload.get("review_submit") or {}).get("fees_acknowledged")),
         show_location=show_location,
         reference_number=reference_number,
+        furnishing_status_id=furnishing_status_id,
+        floor_id=floor_id,
         submitted_at=submitted_at,
     )
     db.add(submission)
@@ -1048,7 +1768,8 @@ def update_submission(
     )
     if not is_editable_status:
         raise HTTPException(status_code=STATUS_BAD_REQUEST, detail="This property submission is not editable in its current workflow stage")
-    next_payload = prepare_property_contact_fields(with_canonical_media_urls(dict(payload)))
+    next_payload = prepare_property_payload(db, with_canonical_media_urls(dict(payload)))
+    next_payload = prepare_property_contact_fields(next_payload)
     next_payload, show_location = apply_show_location_to_payload(next_payload)
     validate_built_up_area(next_payload)
     validate_pricing(next_payload)
@@ -1060,6 +1781,7 @@ def update_submission(
     submission.payload = next_payload
     submission.show_location = show_location
     submission.reference_number = reference_number
+    persist_property_option_columns(submission, next_payload)
     effective_route = (
         bool(getattr(submission, "route_through_agency", False))
         if route_through_agency is None
@@ -1307,9 +2029,11 @@ def create_revision_from_active(
     if not can_edit_active_submission(db, source, user_id=user_id, roles=roles, agency_id=agency_id):
         raise HTTPException(status_code=STATUS_FORBIDDEN, detail="Active property cannot be edited by this user")
 
-    revision_payload, show_location = apply_show_location_to_payload(dict(payload))
+    revision_payload = prepare_property_payload(db, dict(payload), for_submit=True)
+    revision_payload, show_location = apply_show_location_to_payload(revision_payload)
     validate_built_up_area(revision_payload)
-    validate_pricing(revision_payload)
+    validate_pricing(revision_payload, for_submit=True)
+    validate_duplicate_property(db, revision_payload, exclude_submission_id=source.id)
     revision_payload = normalize_built_up_area_to_sqm(revision_payload)
     revision_payload = normalize_pricing_to_jod(revision_payload)
     revision_payload, reference_number = assign_reference_number(db, revision_payload, submission=source)
@@ -1319,6 +2043,7 @@ def create_revision_from_active(
     workflow["revision_status"] = "pending_reapproval"
 
     route_through_agency = bool(getattr(source, "route_through_agency", False))
+    furnishing_status_id, floor_id = property_option_ids_from_payload(revision_payload)
     revision = PropertyListingSubmission(
         id=uuid4(),
         submitted_by=user_id,
@@ -1336,6 +2061,8 @@ def create_revision_from_active(
         fees_acknowledged=True,
         show_location=show_location,
         reference_number=reference_number,
+        furnishing_status_id=furnishing_status_id,
+        floor_id=floor_id,
         submitted_at=utc_now(),
     )
     db.add(revision)
@@ -1383,7 +2110,11 @@ def submit_submission(
     if submission.status in {ACTIVE_STATUS}:
         raise HTTPException(status_code=STATUS_BAD_REQUEST, detail="Active submissions cannot be resubmitted")
     if not _has_property_image(submission.payload or {}):
-        raise HTTPException(status_code=STATUS_BAD_REQUEST, detail="At least one property image is required before submitting")
+        _property_field_error(
+            field="media_documents.images",
+            code="missing_required_field",
+            message="At least one property image is required before submitting",
+        )
     route_through_agency = bool(getattr(submission, "route_through_agency", False))
     submission.agency_id = validate_routing_agency(
         db,
@@ -1394,9 +2125,12 @@ def submit_submission(
     )
     if route_through_agency:
         record_owner_agency_mapping_for_submission(db, user_id=user_id, agency_id=submission.agency_id, roles=roles)
-    submission.payload = normalize_pricing_to_jod(
-        normalize_built_up_area_to_sqm(prepare_property_contact_fields(submission.payload))
-    )
+    submission.payload = prepare_property_payload(db, submission.payload, for_submit=True)
+    submission.payload = prepare_property_contact_fields(submission.payload)
+    persist_property_option_columns(submission, submission.payload)
+    validate_pricing(submission.payload, for_submit=True)
+    validate_duplicate_property(db, submission.payload, exclude_submission_id=submission.id)
+    submission.payload = normalize_pricing_to_jod(normalize_built_up_area_to_sqm(submission.payload))
     flag_modified(submission, "payload")
     origin = _workflow_from_submission(submission).get("submission_origin") or _submission_origin_for_roles(roles)
     next_status = _next_status_on_submit(submission, user_id=user_id, roles=roles)

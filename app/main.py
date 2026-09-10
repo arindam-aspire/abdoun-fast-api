@@ -1,4 +1,5 @@
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
@@ -28,6 +29,64 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    @app.exception_handler(RequestValidationError)
+    async def request_validation_error_handler(_request: Request, exc: RequestValidationError) -> JSONResponse:
+        details = []
+        for error in exc.errors():
+            location = [str(part) for part in error.get("loc", ()) if part not in {"body", "query", "path"}]
+            details.append(
+                {
+                    "field": ".".join(location) or None,
+                    "code": error.get("type") or "invalid_value",
+                    "message": error.get("msg") or "Invalid value",
+                }
+            )
+        message = details[0]["message"] if details else "Request validation failed"
+        return JSONResponse(
+            status_code=422,
+            content={
+                "success": False,
+                "message": message,
+                "data": None,
+                "error": error_payload(code="VALIDATION_ERROR", message=message, details=details),
+                "meta": {},
+            },
+        )
+
+    @app.exception_handler(HTTPException)
+    async def http_error_handler(_request: Request, exc: HTTPException) -> JSONResponse:
+        if isinstance(exc.detail, dict):
+            error = dict(exc.detail)
+            error.setdefault("code", f"HTTP_{exc.status_code}")
+            error.setdefault("message", "Request failed")
+        else:
+            error = error_payload(code=f"HTTP_{exc.status_code}", message=str(exc.detail))
+        return JSONResponse(
+            status_code=exc.status_code,
+            headers=exc.headers,
+            content={
+                "success": False,
+                "message": error["message"],
+                "data": None,
+                "error": error,
+                "meta": {},
+            },
+        )
+
+    @app.exception_handler(Exception)
+    async def unexpected_error_handler(_request: Request, _exc: Exception) -> JSONResponse:
+        message = "An unexpected error prevented the property request from completing"
+        return JSONResponse(
+            status_code=STATUS_INTERNAL_SERVER_ERROR,
+            content={
+                "success": False,
+                "message": message,
+                "data": None,
+                "error": error_payload(code="INTERNAL_ERROR", message=message),
+                "meta": {},
+            },
+        )
 
     @app.exception_handler(EmailConfigurationError)
     async def email_configuration_error_handler(_request: Request, exc: EmailConfigurationError) -> JSONResponse:

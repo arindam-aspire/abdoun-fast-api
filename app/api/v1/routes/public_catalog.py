@@ -11,9 +11,43 @@ from app.services.property_taxonomy import (
     sort_categories,
     sort_property_types,
 )
-from app.utils.api_response import success_response
+from app.services.property_options import OPTION_GROUPS, list_property_options, normalize_group_key, serialize_option
+from app.utils.api_response import raise_api_error, success_response
+from app.utils.status_codes import STATUS_BAD_REQUEST
 
 router = APIRouter()
+
+
+@router.get(
+    "/property-form-options",
+    summary="List Add Property master-data options",
+    description="Alias of /property-options. Returns DB-backed dropdown values from property_option_values.",
+)
+@router.get(
+    "/property-options",
+    summary="List Add Property master-data options",
+    description="Returns DB-backed dropdown values from property_option_values. Filter with group=furnishing_status, floor, listing_purpose, completion_status, or direction.",
+)
+def get_property_options(
+    db: DBSessionDep,
+    group: str | None = None,
+    is_active: bool | None = True,
+) -> dict:
+    normalized_group = normalize_group_key(group)
+    if normalized_group and normalized_group not in OPTION_GROUPS:
+        raise_api_error(
+            status_code=STATUS_BAD_REQUEST,
+            code="INVALID_VALUE",
+            message="Unknown property option group",
+            details=[{"field": "group", "code": "invalid_value", "message": "Unknown property option group"}],
+        )
+    options = list_property_options(db, group=normalized_group, is_active=is_active)
+    grouped: dict[str, list[dict]] = {}
+    for option in options:
+        grouped.setdefault(option.group_key, []).append(serialize_option(option))
+    return success_response(
+        {"items": [serialize_option(option) for option in options], "groups": grouped, "total": len(options)}
+    )
 
 
 @router.get("/features")

@@ -324,6 +324,16 @@ class PropertyListingSubmission(Base):
     show_location: Mapped[Any] = mapped_column(Boolean, nullable=False, server_default=text("false"))
     route_through_agency: Mapped[Any] = mapped_column(Boolean, nullable=False, server_default=text("false"))
     reference_number: Mapped[Any] = mapped_column(String(128), nullable=True)
+    furnishing_status_id: Mapped[Any] = mapped_column(
+        Integer,
+        ForeignKey("property_option_values.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    floor_id: Mapped[Any] = mapped_column(
+        Integer,
+        ForeignKey("property_option_values.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     submitted_at: Mapped[Any] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[Any] = mapped_column(DateTime, nullable=False, server_default=text("now()"))
     updated_at: Mapped[Any] = mapped_column(DateTime, nullable=False, server_default=text("now()"))
@@ -427,6 +437,22 @@ class PropertyStatus(Base):
     display_order: Mapped[Any] = mapped_column(Integer, nullable=True)
     created_at: Mapped[Any] = mapped_column(DateTime, nullable=True, server_default=text("now()"))
     updated_at: Mapped[Any] = mapped_column(DateTime, nullable=True, server_default=text("now()"))
+
+
+class PropertyOptionValue(Base):
+    """DB-backed selectable values used by the property creation workflow."""
+
+    __tablename__ = "property_option_values"
+
+    id: Mapped[Any] = mapped_column(Integer, primary_key=True, nullable=False)
+    group_key: Mapped[Any] = mapped_column(String(50), nullable=False)
+    name: Mapped[Any] = mapped_column(String(100), nullable=False)
+    slug: Mapped[Any] = mapped_column(String(100), nullable=False)
+    numeric_value: Mapped[Any] = mapped_column(Integer, nullable=True)
+    display_order: Mapped[Any] = mapped_column(Integer, nullable=False, server_default=text("0"))
+    is_active: Mapped[Any] = mapped_column(Boolean, nullable=False, server_default=text("true"))
+    created_at: Mapped[Any] = mapped_column(DateTime, nullable=False, server_default=text("now()"))
+    updated_at: Mapped[Any] = mapped_column(DateTime, nullable=False, server_default=text("now()"))
 
 
 class PropertyTranslation(Base):
@@ -677,6 +703,7 @@ __all__ = [
     "PropertyFeature",
     "PropertyListingSubmission",
     "PropertyMedia",
+    "PropertyOptionValue",
     "PropertyOwner",
     "PropertyStatus",
     "PropertyTranslation",

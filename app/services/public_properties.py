@@ -296,7 +296,7 @@ def _owners(payload: dict[str, Any]) -> list[dict[str, Any]]:
     for index, owner in enumerate(owners):
         serialized.append(
             {
-                "owner_id": owner.get("id") or str(index + 1),
+                "owner_id": owner.get("owner_user_id") or owner.get("owner_id") or owner.get("id") or str(index + 1),
                 "full_name": owner.get("full_name") or "",
                 "email": owner.get("email"),
                 "phone": owner.get("phone"),
@@ -308,6 +308,33 @@ def _owners(payload: dict[str, Any]) -> list[dict[str, Any]]:
             }
         )
     return serialized
+
+
+def _furnishing_status(details: dict[str, Any]) -> Any:
+    return (
+        details.get("furnishing")
+        or details.get("furnishing_status")
+        or details.get("furnishingStatus")
+        or details.get("furniture_status")
+    )
+
+
+def _listing_price(pricing: dict[str, Any], purpose: str, furnishing: Any) -> Any:
+    furnishing_key = str(furnishing or "").replace("-", "_")
+    if purpose == "rent":
+        key = {
+            "furnished": "furnished_rent_price",
+            "unfurnished": "unfurnished_rent_price",
+            "semi_furnished": "semi_furnished_rent_price",
+        }.get(furnishing_key)
+        return pricing.get(key) if key and pricing.get(key) is not None else pricing.get("price")
+    key = {
+        "furnished": "furnished_sale_price",
+        "unfurnished": "unfurnished_sale_price",
+    }.get(furnishing_key)
+    if key and pricing.get(key) is not None:
+        return pricing.get(key)
+    return next((pricing.get(field) for field in ("furnished_sale_price", "unfurnished_sale_price", "price") if pricing.get(field) is not None), None)
 
 
 def _currency_payload(code: str | None) -> dict[str, str]:
@@ -391,7 +418,8 @@ def serialize_property_listing(
     agency = _agency_for_submission(db, submission, submitter)
     property_id = submission.property_id or submission.id
     property_hash = stable_property_hash(property_id)
-    listing_type = "rent" if basic.get("listing_purpose") == "rent" else "sale"
+    listing_purpose = basic.get("listing_purpose") or "sale"
+    listing_type = listing_purpose if listing_purpose in {"rent", "sale", "sale_or_rent"} else "sale"
     address = localized_text(location.get("address") or (area.name if area else city.name if city else ""))
     media = _media_for_listing(payload, property_media_rows=_load_property_media(db, property_id))
     settings = get_settings()
@@ -424,6 +452,7 @@ def serialize_property_listing(
         "latitude": latitude,
         "longitude": longitude,
         "map_embed_url": map_embed_url,
+        "map_pin": {"latitude": latitude, "longitude": longitude} if latitude is not None and longitude is not None else None,
         "show_location": show_location,
     }
 
@@ -435,7 +464,7 @@ def serialize_property_listing(
         "agency_id": str(submission.agency_id) if submission.agency_id else None,
         "title": localized_text(basic.get("title") or settings.untitled_property_title),
         "description": localized_nullable_text(basic.get("description")),
-        "price": str(pricing.get("price") or "0"),
+        "price": str(_listing_price(pricing, "rent" if listing_type == "rent" else "sale", _furnishing_status(details)) or "0"),
         "currency": _currency_payload(pricing.get("currency")),
         "status": submission.status,
         "category": category.slug if category else str(basic.get("category_id") or ""),
@@ -466,6 +495,7 @@ def serialize_property_listing(
         "property_hash_id": property_hash,
         "user_id": str(user_id) if user_id else None,
         "listing_type": listing_type,
+        "listing_purpose": listing_purpose,
     }
     if include_owners:
         item["owners"] = _owners(payload)
@@ -542,9 +572,17 @@ def serialize_property_detail(
         "url": None,
         "property_type": listing["propertyType"],
         "listing_type": listing_type,
-        "selling_price_amount": _float(pricing.get("price")) if listing_type == "sale" else None,
+        "selling_price_amount": (
+            _float(_listing_price(pricing, "sale", _furnishing_status(details)))
+            if listing_type in {"sale", "sale_or_rent"}
+            else None
+        ),
         "selling_price_currency": pricing.get("currency") or settings.default_currency,
-        "rent_price_amount": _float(pricing.get("price")) if listing_type == "rent" else None,
+        "rent_price_amount": (
+            _float(_listing_price(pricing, "rent", _furnishing_status(details)))
+            if listing_type in {"rent", "sale_or_rent"}
+            else None
+        ),
         "rent_price_currency": pricing.get("currency") or settings.default_currency,
         "bedrooms": _int(details.get("bedrooms")),
         "bathrooms": _int(details.get("bathrooms")),
@@ -556,10 +594,17 @@ def serialize_property_detail(
         "location_name": ", ".join(part for part in [listing["areaName"], listing["city"]] if part) or None,
         "general": {
             "floor_type": None,
-            "floor_number": None,
+            "floor_number": _int(
+                details["floor_number"]
+                if details.get("floor_number") not in (None, "")
+                else details.get("floor_level")
+            ),
             "building_status": details.get("completion_status"),
-            "built_in_year": None,
-            "furniture_status": None,
+            "built_in_year": _int(details.get("year_built") or details.get("year_of_construction")),
+            "year_built": _int(details.get("year_built") or details.get("year_of_construction")),
+            "furniture_status": _furnishing_status(details),
+            "furnishing_status": _furnishing_status(details),
+            "direction": details.get("direction") or details.get("view"),
             "furniture_condition": None,
             "garage_type": None,
             "total_floors_in_building": _int(details.get("total_floors")) or None,
@@ -582,12 +627,23 @@ def serialize_property_detail(
             "maid_rooms": None,
             "driver_rooms": None,
             "store_rooms": None,
+            "apartment_number": details.get("apartment_number"),
+            "plot_number": details.get("plot_number"),
+            "basin_number": details.get("basin_number"),
+            "building_number": details.get("building_number"),
+            "parcel_number": details.get("parcel_number"),
         },
         "features": {"amenities": [str(item) for item in _feature_ids(payload)]},
         "features_list": _feature_list(db, payload),
         "pricing": {
             "listing_type": listing_type,
-            "selling_price": _float(pricing.get("price")),
+            "selling_price": _float(_listing_price(pricing, "sale", _furnishing_status(details))),
+            "rent_price": _float(_listing_price(pricing, "rent", _furnishing_status(details))),
+            "furnished_sale_price": _float(pricing.get("furnished_sale_price")),
+            "unfurnished_sale_price": _float(pricing.get("unfurnished_sale_price")),
+            "furnished_rent_price": _float(pricing.get("furnished_rent_price")),
+            "unfurnished_rent_price": _float(pricing.get("unfurnished_rent_price")),
+            "semi_furnished_rent_price": _float(pricing.get("semi_furnished_rent_price")),
             "currency": pricing.get("currency") or settings.default_currency,
             "service_charge": _float(pricing.get("service_charge")),
             "maintenance_fee": _float(pricing.get("maintenance_fee")),
@@ -789,6 +845,11 @@ def apply_public_filters(
 ) -> list[tuple[PropertyListingSubmission, User | None]]:
     categories, types, cities, areas = _taxonomy_maps(db)
     required_features = {_int(value) for value in (amenities or "").replace("|", ",").split(",") if _int(value)}
+    selected_locations = {
+        _slug(value)
+        for value in (locations or "").replace("|", ",").split(",")
+        if value.strip()
+    }
     similar_match = find_public_submission_by_hash(db, similar_to) if similar_to else None
     if similar_to and not similar_match:
         return []
@@ -812,14 +873,31 @@ def apply_public_filters(
         if type and type_obj and _slug(type_obj.slug) != _slug(type):
             continue
         if status:
-            purpose = "rent" if basic.get("listing_purpose") == "rent" else "buy"
-            if _slug(status) not in {_slug(purpose), _slug(basic.get("listing_purpose"))}:
+            listing_purpose = basic.get("listing_purpose") or "sale"
+            accepted_statuses = {
+                "sale": {"sale", "buy"},
+                "rent": {"rent"},
+                "sale_or_rent": {"sale", "buy", "rent", "sale-or-rent"},
+            }.get(listing_purpose, {listing_purpose})
+            if _slug(status) not in {_slug(value) for value in accepted_statuses}:
                 continue
         if city and city_obj and _slug(city_obj.name) != _slug(city):
             continue
-        if locations and area_obj and _slug(area_obj.name) != _slug(locations):
+        if selected_locations and (
+            not area_obj
+            or (
+                _slug(area_obj.name) not in selected_locations
+                and _slug(str(area_obj.id)) not in selected_locations
+            )
+        ):
             continue
-        price = _float(pricing.get("price")) or 0
+        price = _float(
+            _listing_price(
+                pricing,
+                "rent" if basic.get("listing_purpose") == "rent" else "sale",
+                _furnishing_status(details),
+            )
+        ) or 0
         if budgetMin is not None and price < budgetMin:
             continue
         if budgetMax is not None and price > budgetMax:
@@ -832,11 +910,13 @@ def apply_public_filters(
             continue
         if parking is not None and _int(details.get("parking_spaces")) < parking:
             continue
-        if propertyAge and _token(details.get("property_age")) != _token(propertyAge):
+        if propertyAge and _token(
+            details.get("year_built") or details.get("year_of_construction") or details.get("property_age")
+        ) != _token(propertyAge):
             continue
         if floorLevel and _token(details.get("floor_level") or details.get("floor_number")) != _token(floorLevel):
             continue
-        if furnitureStatus and _token(details.get("furniture_status")) != _token(furnitureStatus):
+        if furnitureStatus and _token(_furnishing_status(details)) != _token(furnitureStatus):
             continue
         area_value = _float(details.get("built_up_area")) or 0
         if minArea is not None and area_value < minArea:
