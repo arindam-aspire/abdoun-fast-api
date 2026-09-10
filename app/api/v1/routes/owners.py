@@ -6,9 +6,10 @@ from uuid import UUID
 from fastapi import APIRouter, Body, Depends
 
 from app.api.deps import DBSessionDep, RequestContext, require_any_role
-from app.schemas.owners import OwnerDeactivateRequest, OwnerStatusUpdateRequest, OwnerUpdateRequest
+from app.schemas.owners import OwnerCreateRequest, OwnerDeactivateRequest, OwnerStatusUpdateRequest, OwnerUpdateRequest
 from app.services.owners import (
     activate_owner,
+    create_owner,
     deactivate_owner,
     get_owner,
     list_owner_leads,
@@ -33,6 +34,19 @@ def _actor_user_id(context: RequestContext) -> UUID:
             message="Authentication is required",
         )
     return context.user_id
+
+
+@router.post("", status_code=201)
+def post_owner(payload: OwnerCreateRequest, context: OwnerAdminContext, db: DBSessionDep) -> dict:
+    owner = create_owner(
+        db,
+        full_name=payload.full_name,
+        email=str(payload.email),
+        phone_number=payload.phone_number,
+        actor_agency_id=context.agency_id,
+    )
+    db.commit()
+    return success_response(owner, "Owner created successfully")
 
 
 @router.get("")

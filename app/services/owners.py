@@ -284,6 +284,46 @@ def serialize_owner(
     return payload
 
 
+def create_owner(
+    db: Session,
+    *,
+    full_name: str,
+    email: str,
+    phone_number: str | None,
+    actor_agency_id: UUID | None,
+) -> dict[str, Any]:
+    """Create a selectable owner while enforcing the existing user identity rules."""
+    normalized_email = email.strip().lower()
+    if db.execute(select(User.id).where(func.lower(User.email) == normalized_email)).first():
+        raise_api_error(
+            status_code=STATUS_CONFLICT,
+            code="DUPLICATE_OWNER",
+            message="An owner account with this email already exists",
+            details=[{"field": "email", "code": "duplicate", "message": "Email is already in use"}],
+        )
+    if phone_number and db.execute(select(User.id).where(User.phone_number == phone_number)).first():
+        raise_api_error(
+            status_code=STATUS_CONFLICT,
+            code="DUPLICATE_OWNER",
+            message="An owner account with this phone number already exists",
+            details=[{"field": "phone_number", "code": "duplicate", "message": "Phone number is already in use"}],
+        )
+
+    # Local import avoids coupling authentication module initialization to owner routes.
+    from app.services.auth import create_user
+
+    user = create_user(
+        db,
+        full_name=full_name.strip(),
+        email=normalized_email,
+        phone_number=phone_number,
+        password=None,
+        role="owner",
+        agency_id=actor_agency_id,
+    )
+    return serialize_owner(db, user, agency_id=actor_agency_id, include_agencies=True)
+
+
 def list_agency_owners(
     db: Session,
     *,
@@ -481,11 +521,40 @@ def update_owner(
             select(User.id).where(User.email == cleaned_email, User.id != user.id, User.deleted_at.is_(None))
         ).scalar_one_or_none()
         if existing:
-            raise_api_error(status_code=STATUS_CONFLICT, code="CONFLICT", message="Email is already in use")
+            raise_api_error(
+                status_code=STATUS_CONFLICT,
+                code="DUPLICATE_OWNER",
+                message="Email is already in use",
+                details=[{"field": "email", "code": "duplicate", "message": "Email is already in use"}],
+            )
         user.email = cleaned_email
 
     if phone_number is not None:
         cleaned_phone = phone_number.strip()
+        existing = (
+            db.execute(
+                select(User.id).where(
+                    User.phone_number == cleaned_phone,
+                    User.id != user.id,
+                    User.deleted_at.is_(None),
+                )
+            ).scalar_one_or_none()
+            if cleaned_phone
+            else None
+        )
+        if existing:
+            raise_api_error(
+                status_code=STATUS_CONFLICT,
+                code="DUPLICATE_OWNER",
+                message="Phone number is already in use",
+                details=[
+                    {
+                        "field": "phone_number",
+                        "code": "duplicate",
+                        "message": "Phone number is already in use",
+                    }
+                ],
+            )
         user.phone_number = cleaned_phone or None
 
     user.updated_at = _utc_now()
