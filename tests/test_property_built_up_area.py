@@ -17,7 +17,7 @@ from app.services.property_submissions import (
 )
 
 
-def test_draft_preserves_entered_sqft_value_and_unit() -> None:
+def test_draft_converts_entered_sqft_value_to_sqm() -> None:
     payload = {
         "property_details": {
             "built_up_area": 1234.56,
@@ -34,8 +34,8 @@ def test_draft_preserves_entered_sqft_value_and_unit() -> None:
         last_completed_step=3,
     )
 
-    assert submission.payload["property_details"]["built_up_area"] == 1234.56
-    assert submission.payload["property_details"]["built_up_area_unit"] == "sqft"
+    assert submission.payload["property_details"]["built_up_area"] == pytest.approx(114.6968, rel=1e-4)
+    assert submission.payload["property_details"]["built_up_area_unit"] == "sqm"
 
 
 def test_submit_normalizes_sqft_to_sqm() -> None:
@@ -98,7 +98,8 @@ def test_legacy_area_without_unit_is_treated_as_sqm() -> None:
 
     normalized = normalize_built_up_area_to_sqm(payload)
 
-    assert normalized["property_details"] == {"built_up_area": 80}
+    assert normalized["property_details"]["built_up_area"] == 80
+    assert normalized["property_details"]["built_up_area_unit"] == "sqm"
 
 
 def test_null_area_unit_is_treated_as_sqm() -> None:

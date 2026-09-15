@@ -210,3 +210,105 @@ def test_retired_dld_number_is_not_returned() -> None:
         {"property_details": {"dldNumber": "DLD-1", "apartment_number": "12A"}}
     )
     assert payload["property_details"] == {"apartment_number": "12A"}
+
+
+def test_dls_parcel_fields_are_persisted_on_location_and_details() -> None:
+    payload = prepare_property_payload(
+        MagicMock(),
+        {
+            "location": {
+                "GOV_CODE": "1",
+                "GOV_NAME": "Capital",
+                "DEPT_CODE": "11",
+                "VILL_CODE": "101",
+                "HOD_CODE": "H-9",
+                "SECT_CODE": "3",
+                "parcel_number": "44",
+            },
+            "property_details": {"bedrooms": 2},
+        },
+    )
+    location = payload["location"]
+    details = payload["property_details"]
+    assert location["gov_code"] == "1"
+    assert location["vill_code"] == "101"
+    assert location["hod_code"] == "H-9"
+    assert location["parcel_number"] == "44"
+    assert location["plot_number"] == "44"
+    assert details["gov_code"] == "1"
+    assert details["vill_code"] == "101"
+    assert details["hod_code"] == "H-9"
+    assert details["parcel_number"] == "44"
+    assert details["basin_number"] == "H-9"
+
+
+def test_official_dls_parcel_identifiers_are_duplicates() -> None:
+    db = MagicMock()
+    db.execute.return_value.scalar_one_or_none.return_value = uuid4()
+    with pytest.raises(HTTPException) as exc_info:
+        validate_duplicate_property(
+            db,
+            {
+                "location": {
+                    "vill_code": "101",
+                    "hod_code": "H-9",
+                    "parcel_number": "44",
+                }
+            },
+        )
+    assert exc_info.value.status_code == 409
+    assert exc_info.value.detail["code"] == "DUPLICATE_PROPERTY"
+
+
+def test_sale_furnished_keeps_only_furnished_sale_price(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "app.services.property_submissions.resolve_property_option",
+        lambda _db, *, group, value, field: _option(group, value),
+    )
+    payload = prepare_property_payload(
+        MagicMock(),
+        {
+            "basic_information": {"listing_purpose": "sale"},
+            "property_details": {"furnishing": "furnished"},
+            "pricing": {
+                "furnished_sale_price": 150000,
+                "unfurnished_sale_price": 140000,
+                "furnished_rent_price": 800,
+                "currency": "JOD",
+            },
+        },
+    )
+    pricing = payload["pricing"]
+    assert pricing["furnished_sale_price"] == 150000
+    assert "unfurnished_sale_price" not in pricing
+    assert "furnished_rent_price" not in pricing
+
+
+def test_rent_semi_furnished_requires_matching_price() -> None:
+    with pytest.raises(HTTPException) as exc_info:
+        validate_pricing(
+            {
+                "basic_information": {"listing_purpose": "rent"},
+                "property_details": {"furnishing": "semi-furnished"},
+                "pricing": {"furnished_rent_price": 900, "currency": "JOD"},
+            },
+            for_submit=True,
+        )
+    assert exc_info.value.detail["details"][0]["field"] == "pricing.semi_furnished_rent_price"
+
+
+def test_owner_id_or_passport_aliases_are_normalized() -> None:
+    payload = prepare_property_payload(
+        MagicMock(),
+        {
+            "owner_information": {
+                "owners": [{"full_name": "Omar", "passport_number": "P-998877"}]
+            }
+        },
+    )
+    owner = payload["owner_information"]["owners"][0]
+    assert owner["ssi"] == "P-998877"
+    assert owner["owner_id_or_passport"] == "P-998877"
+    assert owner["identification_number"] == "P-998877"
+    assert owner["social_security_id"] == "P-998877"
+

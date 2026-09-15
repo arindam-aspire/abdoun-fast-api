@@ -301,7 +301,18 @@ def _owners(payload: dict[str, Any]) -> list[dict[str, Any]]:
                 "email": owner.get("email"),
                 "phone": owner.get("phone"),
                 "nationality": owner.get("nationality"),
-                "ssi": owner.get("ssi") or owner.get("social_security_id"),
+                "ssi": owner.get("ssi")
+                or owner.get("social_security_id")
+                or owner.get("owner_id_or_passport")
+                or owner.get("identification_number")
+                or owner.get("passport_number")
+                or owner.get("national_id"),
+                "owner_id_or_passport": owner.get("owner_id_or_passport")
+                or owner.get("ssi")
+                or owner.get("social_security_id")
+                or owner.get("identification_number")
+                or owner.get("passport_number")
+                or owner.get("national_id"),
                 "address": owner.get("address"),
                 "documents": owner.get("documents") or [],
                 "is_active": True,
@@ -461,6 +472,7 @@ def serialize_property_listing(
         "property_id": str(property_id),
         "reference_number": displayed_reference_number(submission, payload=payload, property_id=property_id),
         "route_through_agency": bool(getattr(submission, "route_through_agency", False)),
+        "verify_through_agency": bool(getattr(submission, "route_through_agency", False)),
         "agency_id": str(submission.agency_id) if submission.agency_id else None,
         "title": localized_text(basic.get("title") or settings.untitled_property_title),
         "description": localized_nullable_text(basic.get("description")),
@@ -536,6 +548,7 @@ def serialize_property_detail(
     payload = submission.payload or {}
     basic = payload.get("basic_information") or {}
     details = payload.get("property_details") or {}
+    location = payload.get("location") or {}
     pricing = payload.get("pricing") or {}
     settings = get_settings()
     agency = _agency_for_submission(db, submission, submitter)
@@ -627,11 +640,21 @@ def serialize_property_detail(
             "maid_rooms": None,
             "driver_rooms": None,
             "store_rooms": None,
-            "apartment_number": details.get("apartment_number"),
-            "plot_number": details.get("plot_number"),
-            "basin_number": details.get("basin_number"),
-            "building_number": details.get("building_number"),
-            "parcel_number": details.get("parcel_number"),
+            "apartment_number": details.get("apartment_number") or location.get("apartment_number"),
+            "plot_number": details.get("plot_number") or location.get("plot_number"),
+            "basin_number": details.get("basin_number") or location.get("basin_number") or location.get("hod_code"),
+            "building_number": details.get("building_number") or location.get("building_number"),
+            "parcel_number": details.get("parcel_number") or location.get("parcel_number") or details.get("plot_number"),
+            "gov_code": details.get("gov_code") or location.get("gov_code"),
+            "gov_name": details.get("gov_name") or location.get("gov_name") or location.get("governorate"),
+            "dept_code": details.get("dept_code") or location.get("dept_code"),
+            "dept_name": details.get("dept_name") or location.get("dept_name") or location.get("directorate"),
+            "vill_code": details.get("vill_code") or location.get("vill_code"),
+            "vill_name": details.get("vill_name") or location.get("vill_name") or location.get("village"),
+            "hod_code": details.get("hod_code") or location.get("hod_code"),
+            "hod_name": details.get("hod_name") or location.get("hod_name"),
+            "sect_code": details.get("sect_code") or location.get("sect_code"),
+            "sect_name": details.get("sect_name") or location.get("sect_name"),
         },
         "features": {"amenities": [str(item) for item in _feature_ids(payload)]},
         "features_list": _feature_list(db, payload),

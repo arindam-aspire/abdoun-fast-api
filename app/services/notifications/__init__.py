@@ -63,4 +63,4 @@ def send_sms_notification(*, to_phone: str, body: str) -> None:
     if settings.notification_sms_mode == "log":
         logger.info("sms_notification_log_mode to=%s body=%s", to_phone, body)
         return
-    raise NotImplementedError("SMS gateway mode is not configured")
+    logger.warning("sms_notification_skipped mode=%s to=%s", settings.notification_sms_mode, to_phone)

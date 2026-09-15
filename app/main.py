@@ -2,12 +2,19 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from app.core.config import get_settings
 from app.api.v1.router import api_router
 from app.services.notifications.email.exceptions import EmailConfigurationError, EmailDeliveryError
 from app.utils.api_response import error_payload
-from app.utils.status_codes import STATUS_INTERNAL_SERVER_ERROR, STATUS_OK, STATUS_SERVICE_UNAVAILABLE
+from app.utils.status_codes import (
+    STATUS_CONFLICT,
+    STATUS_INTERNAL_SERVER_ERROR,
+    STATUS_OK,
+    STATUS_SERVICE_UNAVAILABLE,
+    STATUS_UNAUTHORIZED,
+)
 
 
 def create_app() -> FastAPI:
@@ -54,14 +61,29 @@ def create_app() -> FastAPI:
             },
         )
 
+    def _classified_http_error(status_code: int, message: str) -> str:
+        lowered = message.casefold()
+        if status_code == STATUS_UNAUTHORIZED or "auth" in lowered:
+            return "AUTHENTICATION_ERROR"
+        if "upload" in lowered or "media" in lowered or "file" in lowered:
+            return "FILE_UPLOAD_ERROR"
+        if status_code == STATUS_CONFLICT:
+            return "CONFLICT"
+        if status_code in {400, 422}:
+            return "VALIDATION_ERROR"
+        if status_code >= 500:
+            return "INTERNAL_ERROR"
+        return f"HTTP_{status_code}"
+
     @app.exception_handler(HTTPException)
     async def http_error_handler(_request: Request, exc: HTTPException) -> JSONResponse:
         if isinstance(exc.detail, dict):
             error = dict(exc.detail)
-            error.setdefault("code", f"HTTP_{exc.status_code}")
+            error.setdefault("code", _classified_http_error(exc.status_code, str(error.get("message") or "")))
             error.setdefault("message", "Request failed")
         else:
-            error = error_payload(code=f"HTTP_{exc.status_code}", message=str(exc.detail))
+            message = str(exc.detail)
+            error = error_payload(code=_classified_http_error(exc.status_code, message), message=message)
         return JSONResponse(
             status_code=exc.status_code,
             headers=exc.headers,
@@ -70,6 +92,38 @@ def create_app() -> FastAPI:
                 "message": error["message"],
                 "data": None,
                 "error": error,
+                "meta": {},
+            },
+        )
+
+    @app.exception_handler(IntegrityError)
+    async def integrity_error_handler(_request: Request, _exc: IntegrityError) -> JSONResponse:
+        message = "A conflicting property record already exists"
+        return JSONResponse(
+            status_code=STATUS_CONFLICT,
+            content={
+                "success": False,
+                "message": message,
+                "data": None,
+                "error": error_payload(
+                    code="DATABASE_ERROR",
+                    message=message,
+                    details=[{"code": "duplicate_or_constraint", "message": message}],
+                ),
+                "meta": {},
+            },
+        )
+
+    @app.exception_handler(SQLAlchemyError)
+    async def database_error_handler(_request: Request, _exc: SQLAlchemyError) -> JSONResponse:
+        message = "A database error prevented the property request from completing"
+        return JSONResponse(
+            status_code=STATUS_INTERNAL_SERVER_ERROR,
+            content={
+                "success": False,
+                "message": message,
+                "data": None,
+                "error": error_payload(code="DATABASE_ERROR", message=message),
                 "meta": {},
             },
         )

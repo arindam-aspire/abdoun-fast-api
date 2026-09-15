@@ -1,0 +1,1290 @@
+[
+  {
+    "name": "Parking",
+    "slug": "parking-residential-common-amenity",
+    "category": "Residential",
+    "property_type": null,
+    "feature_group": "AMENITY",
+    "display_order": 1
+  },
+  {
+    "name": "Elevator",
+    "slug": "elevator-residential-common-amenity",
+    "category": "Residential",
+    "property_type": null,
+    "feature_group": "AMENITY",
+    "display_order": 2
+  },
+  {
+    "name": "Balcony",
+    "slug": "balcony-residential-common-amenity",
+    "category": "Residential",
+    "property_type": null,
+    "feature_group": "AMENITY",
+    "display_order": 3
+  },
+  {
+    "name": "Central AC",
+    "slug": "central-ac-residential-common-amenity",
+    "category": "Residential",
+    "property_type": null,
+    "feature_group": "AMENITY",
+    "display_order": 4
+  },
+  {
+    "name": "Split Unit AC",
+    "slug": "split-unit-ac-residential-common-amenity",
+    "category": "Residential",
+    "property_type": null,
+    "feature_group": "AMENITY",
+    "display_order": 5
+  },
+  {
+    "name": "Double Glaze",
+    "slug": "double-glaze-residential-common-amenity",
+    "category": "Residential",
+    "property_type": null,
+    "feature_group": "AMENITY",
+    "display_order": 6
+  },
+  {
+    "name": "Storage Room",
+    "slug": "storage-room-residential-common-amenity",
+    "category": "Residential",
+    "property_type": null,
+    "feature_group": "AMENITY",
+    "display_order": 7
+  },
+  {
+    "name": "Security System",
+    "slug": "security-system-residential-common-amenity",
+    "category": "Residential",
+    "property_type": null,
+    "feature_group": "AMENITY",
+    "display_order": 8
+  },
+  {
+    "name": "Solar System",
+    "slug": "solar-system-residential-common-amenity",
+    "category": "Residential",
+    "property_type": null,
+    "feature_group": "AMENITY",
+    "display_order": 9
+  },
+  {
+    "name": "Garden",
+    "slug": "garden-residential-common-amenity",
+    "category": "Residential",
+    "property_type": null,
+    "feature_group": "AMENITY",
+    "display_order": 10
+  },
+  {
+    "name": "Maid Room",
+    "slug": "maid-room-residential-common-amenity",
+    "category": "Residential",
+    "property_type": null,
+    "feature_group": "AMENITY",
+    "display_order": 11
+  },
+  {
+    "name": "Built-in Closet",
+    "slug": "built-in-closet-residential-common-amenity",
+    "category": "Residential",
+    "property_type": null,
+    "feature_group": "AMENITY",
+    "display_order": 12
+  },
+  {
+    "name": "Fire Place",
+    "slug": "fire-place-residential-common-amenity",
+    "category": "Residential",
+    "property_type": null,
+    "feature_group": "AMENITY",
+    "display_order": 13
+  },
+  {
+    "name": "Alarm System",
+    "slug": "alarm-system-residential-common-amenity",
+    "category": "Residential",
+    "property_type": null,
+    "feature_group": "AMENITY",
+    "display_order": 14
+  },
+  {
+    "name": "GYM",
+    "slug": "gym-residential-common-amenity",
+    "category": "Residential",
+    "property_type": null,
+    "feature_group": "AMENITY",
+    "display_order": 15
+  },
+  {
+    "name": "Home Automation",
+    "slug": "home-automation-residential-common-amenity",
+    "category": "Residential",
+    "property_type": null,
+    "feature_group": "AMENITY",
+    "display_order": 16
+  },
+  {
+    "name": "Jacuzzi",
+    "slug": "jacuzzi-residential-common-amenity",
+    "category": "Residential",
+    "property_type": null,
+    "feature_group": "AMENITY",
+    "display_order": 17
+  },
+  {
+    "name": "Swimming Pool",
+    "slug": "swimming-pool-residential-common-amenity",
+    "category": "Residential",
+    "property_type": null,
+    "feature_group": "AMENITY",
+    "display_order": 18
+  },
+  {
+    "name": "Appliances",
+    "slug": "appliances-residential-common-amenity",
+    "category": "Residential",
+    "property_type": null,
+    "feature_group": "AMENITY",
+    "display_order": 19
+  },
+  {
+    "name": "Office Room",
+    "slug": "office-room-residential-common-amenity",
+    "category": "Residential",
+    "property_type": null,
+    "feature_group": "AMENITY",
+    "display_order": 20
+  },
+  {
+    "name": "Under Floor Heating",
+    "slug": "under-floor-heating-residential-common-amenity",
+    "category": "Residential",
+    "property_type": null,
+    "feature_group": "AMENITY",
+    "display_order": 21
+  },
+  {
+    "name": "Parking",
+    "slug": "parking-commercial-common-amenity",
+    "category": "Commercial",
+    "property_type": null,
+    "feature_group": "AMENITY",
+    "display_order": 1
+  },
+  {
+    "name": "Elevator",
+    "slug": "elevator-commercial-common-amenity",
+    "category": "Commercial",
+    "property_type": null,
+    "feature_group": "AMENITY",
+    "display_order": 2
+  },
+  {
+    "name": "Central AC",
+    "slug": "central-ac-commercial-common-amenity",
+    "category": "Commercial",
+    "property_type": null,
+    "feature_group": "AMENITY",
+    "display_order": 3
+  },
+  {
+    "name": "Split Unit AC",
+    "slug": "split-unit-ac-commercial-common-amenity",
+    "category": "Commercial",
+    "property_type": null,
+    "feature_group": "AMENITY",
+    "display_order": 4
+  },
+  {
+    "name": "Security System",
+    "slug": "security-system-commercial-common-amenity",
+    "category": "Commercial",
+    "property_type": null,
+    "feature_group": "AMENITY",
+    "display_order": 5
+  },
+  {
+    "name": "CCTV",
+    "slug": "cctv-commercial-common-amenity",
+    "category": "Commercial",
+    "property_type": null,
+    "feature_group": "AMENITY",
+    "display_order": 6
+  },
+  {
+    "name": "Fire System",
+    "slug": "fire-system-commercial-common-amenity",
+    "category": "Commercial",
+    "property_type": null,
+    "feature_group": "AMENITY",
+    "display_order": 7
+  },
+  {
+    "name": "Backup Generator",
+    "slug": "backup-generator-commercial-common-amenity",
+    "category": "Commercial",
+    "property_type": null,
+    "feature_group": "AMENITY",
+    "display_order": 8
+  },
+  {
+    "name": "Reception Area",
+    "slug": "reception-area-commercial-common-amenity",
+    "category": "Commercial",
+    "property_type": null,
+    "feature_group": "AMENITY",
+    "display_order": 9
+  },
+  {
+    "name": "Waiting Area",
+    "slug": "waiting-area-commercial-common-amenity",
+    "category": "Commercial",
+    "property_type": null,
+    "feature_group": "AMENITY",
+    "display_order": 10
+  },
+  {
+    "name": "Meeting Room",
+    "slug": "meeting-room-commercial-common-amenity",
+    "category": "Commercial",
+    "property_type": null,
+    "feature_group": "AMENITY",
+    "display_order": 11
+  },
+  {
+    "name": "Kitchenette",
+    "slug": "kitchenette-commercial-common-amenity",
+    "category": "Commercial",
+    "property_type": null,
+    "feature_group": "AMENITY",
+    "display_order": 12
+  },
+  {
+    "name": "High Speed Internet",
+    "slug": "high-speed-internet-commercial-common-amenity",
+    "category": "Commercial",
+    "property_type": null,
+    "feature_group": "AMENITY",
+    "display_order": 13
+  },
+  {
+    "name": "Open Space",
+    "slug": "open-space-commercial-common-amenity",
+    "category": "Commercial",
+    "property_type": null,
+    "feature_group": "AMENITY",
+    "display_order": 14
+  },
+  {
+    "name": "Partitioned",
+    "slug": "partitioned-commercial-common-amenity",
+    "category": "Commercial",
+    "property_type": null,
+    "feature_group": "AMENITY",
+    "display_order": 15
+  },
+  {
+    "name": "Handicap Access",
+    "slug": "handicap-access-commercial-common-amenity",
+    "category": "Commercial",
+    "property_type": null,
+    "feature_group": "AMENITY",
+    "display_order": 16
+  },
+  {
+    "name": "Loading Area",
+    "slug": "loading-area-commercial-common-amenity",
+    "category": "Commercial",
+    "property_type": null,
+    "feature_group": "AMENITY",
+    "display_order": 17
+  },
+  {
+    "name": "Storage Area",
+    "slug": "storage-area-commercial-common-amenity",
+    "category": "Commercial",
+    "property_type": null,
+    "feature_group": "AMENITY",
+    "display_order": 18
+  },
+  {
+    "name": "Smart System",
+    "slug": "smart-system-commercial-common-amenity",
+    "category": "Commercial",
+    "property_type": null,
+    "feature_group": "AMENITY",
+    "display_order": 19
+  },
+  {
+    "name": "Prime Location",
+    "slug": "prime-location-commercial-common-amenity",
+    "category": "Commercial",
+    "property_type": null,
+    "feature_group": "AMENITY",
+    "display_order": 20
+  },
+  {
+    "name": "Main Street",
+    "slug": "main-street-commercial-common-amenity",
+    "category": "Commercial",
+    "property_type": null,
+    "feature_group": "AMENITY",
+    "display_order": 21
+  },
+  {
+    "name": "Corner",
+    "slug": "corner-commercial-common-amenity",
+    "category": "Commercial",
+    "property_type": null,
+    "feature_group": "AMENITY",
+    "display_order": 22
+  },
+  {
+    "name": "Corner Land",
+    "slug": "corner-land-land-common-amenity",
+    "category": "Land",
+    "property_type": null,
+    "feature_group": "AMENITY",
+    "display_order": 1
+  },
+  {
+    "name": "Main Street",
+    "slug": "main-street-land-common-amenity",
+    "category": "Land",
+    "property_type": null,
+    "feature_group": "AMENITY",
+    "display_order": 2
+  },
+  {
+    "name": "Two Streets",
+    "slug": "two-streets-land-common-amenity",
+    "category": "Land",
+    "property_type": null,
+    "feature_group": "AMENITY",
+    "display_order": 3
+  },
+  {
+    "name": "Three Streets",
+    "slug": "three-streets-land-common-amenity",
+    "category": "Land",
+    "property_type": null,
+    "feature_group": "AMENITY",
+    "display_order": 4
+  },
+  {
+    "name": "Flat Land",
+    "slug": "flat-land-land-common-amenity",
+    "category": "Land",
+    "property_type": null,
+    "feature_group": "AMENITY",
+    "display_order": 5
+  },
+  {
+    "name": "Sloped Land",
+    "slug": "sloped-land-land-common-amenity",
+    "category": "Land",
+    "property_type": null,
+    "feature_group": "AMENITY",
+    "display_order": 6
+  },
+  {
+    "name": "Mountain View",
+    "slug": "mountain-view-land-common-amenity",
+    "category": "Land",
+    "property_type": null,
+    "feature_group": "AMENITY",
+    "display_order": 7
+  },
+  {
+    "name": "City View",
+    "slug": "city-view-land-common-amenity",
+    "category": "Land",
+    "property_type": null,
+    "feature_group": "AMENITY",
+    "display_order": 8
+  },
+  {
+    "name": "Near Services",
+    "slug": "near-services-land-common-amenity",
+    "category": "Land",
+    "property_type": null,
+    "feature_group": "AMENITY",
+    "display_order": 9
+  },
+  {
+    "name": "Serviced Land",
+    "slug": "serviced-land-land-common-amenity",
+    "category": "Land",
+    "property_type": null,
+    "feature_group": "AMENITY",
+    "display_order": 10
+  },
+  {
+    "name": "Electricity Available",
+    "slug": "electricity-available-land-common-amenity",
+    "category": "Land",
+    "property_type": null,
+    "feature_group": "AMENITY",
+    "display_order": 11
+  },
+  {
+    "name": "Water Available",
+    "slug": "water-available-land-common-amenity",
+    "category": "Land",
+    "property_type": null,
+    "feature_group": "AMENITY",
+    "display_order": 12
+  },
+  {
+    "name": "Sewage Available",
+    "slug": "sewage-available-land-common-amenity",
+    "category": "Land",
+    "property_type": null,
+    "feature_group": "AMENITY",
+    "display_order": 13
+  },
+  {
+    "name": "Fenced",
+    "slug": "fenced-land-common-amenity",
+    "category": "Land",
+    "property_type": null,
+    "feature_group": "AMENITY",
+    "display_order": 14
+  },
+  {
+    "name": "Ready to Build",
+    "slug": "ready-to-build-land-common-amenity",
+    "category": "Land",
+    "property_type": null,
+    "feature_group": "AMENITY",
+    "display_order": 15
+  },
+  {
+    "name": "Investment Opportunity",
+    "slug": "investment-opportunity-land-common-amenity",
+    "category": "Land",
+    "property_type": null,
+    "feature_group": "AMENITY",
+    "display_order": 16
+  },
+  {
+    "name": "Prime Location",
+    "slug": "prime-location-land-common-amenity",
+    "category": "Land",
+    "property_type": null,
+    "feature_group": "AMENITY",
+    "display_order": 17
+  },
+  {
+    "name": "Duplex",
+    "slug": "duplex-residential-apartments-feature",
+    "category": "Residential",
+    "property_type": null,
+    "feature_group": "FEATURE",
+    "display_order": 1
+  },
+  {
+    "name": "Full Floor",
+    "slug": "full-floor-residential-apartments-feature",
+    "category": "Residential",
+    "property_type": null,
+    "feature_group": "FEATURE",
+    "display_order": 2
+  },
+  {
+    "name": "Open Kitchen",
+    "slug": "open-kitchen-residential-apartments-feature",
+    "category": "Residential",
+    "property_type": null,
+    "feature_group": "FEATURE",
+    "display_order": 3
+  },
+  {
+    "name": "Last with Roof",
+    "slug": "last-with-roof-residential-apartments-feature",
+    "category": "Residential",
+    "property_type": null,
+    "feature_group": "FEATURE",
+    "display_order": 4
+  },
+  {
+    "name": "Serviced Apartment",
+    "slug": "serviced-apartment-residential-apartments-feature",
+    "category": "Residential",
+    "property_type": null,
+    "feature_group": "FEATURE",
+    "display_order": 5
+  },
+  {
+    "name": "Independent Villa",
+    "slug": "independent-villa-residential-villas-feature",
+    "category": "Residential",
+    "property_type": null,
+    "feature_group": "FEATURE",
+    "display_order": 1
+  },
+  {
+    "name": "Semi-attached",
+    "slug": "semi-attached-residential-villas-feature",
+    "category": "Residential",
+    "property_type": null,
+    "feature_group": "FEATURE",
+    "display_order": 2
+  },
+  {
+    "name": "Basement",
+    "slug": "basement-residential-villas-feature",
+    "category": "Residential",
+    "property_type": null,
+    "feature_group": "FEATURE",
+    "display_order": 3
+  },
+  {
+    "name": "Driver Room",
+    "slug": "driver-room-residential-villas-feature",
+    "category": "Residential",
+    "property_type": null,
+    "feature_group": "FEATURE",
+    "display_order": 4
+  },
+  {
+    "name": "One Floor",
+    "slug": "one-floor-residential-villas-feature",
+    "category": "Residential",
+    "property_type": null,
+    "feature_group": "FEATURE",
+    "display_order": 5
+  },
+  {
+    "name": "Multiple Floors",
+    "slug": "multiple-floors-residential-villas-feature",
+    "category": "Residential",
+    "property_type": null,
+    "feature_group": "FEATURE",
+    "display_order": 6
+  },
+  {
+    "name": "Luxury Finishing",
+    "slug": "luxury-finishing-residential-villas-feature",
+    "category": "Residential",
+    "property_type": null,
+    "feature_group": "FEATURE",
+    "display_order": 7
+  },
+  {
+    "name": "Entire Building",
+    "slug": "entire-building-residential-residential-buildings-feature",
+    "category": "Residential",
+    "property_type": null,
+    "feature_group": "FEATURE",
+    "display_order": 1
+  },
+  {
+    "name": "Income Generating",
+    "slug": "income-generating-residential-residential-buildings-feature",
+    "category": "Residential",
+    "property_type": null,
+    "feature_group": "FEATURE",
+    "display_order": 2
+  },
+  {
+    "name": "Corner Building",
+    "slug": "corner-building-residential-residential-buildings-feature",
+    "category": "Residential",
+    "property_type": null,
+    "feature_group": "FEATURE",
+    "display_order": 3
+  },
+  {
+    "name": "New Construction",
+    "slug": "new-construction-residential-residential-buildings-feature",
+    "category": "Residential",
+    "property_type": null,
+    "feature_group": "FEATURE",
+    "display_order": 4
+  },
+  {
+    "name": "Fully Rented",
+    "slug": "fully-rented-residential-residential-buildings-feature",
+    "category": "Residential",
+    "property_type": null,
+    "feature_group": "FEATURE",
+    "display_order": 5
+  },
+  {
+    "name": "Commercial Ground Floor",
+    "slug": "commercial-ground-floor-residential-residential-buildings-feature",
+    "category": "Residential",
+    "property_type": null,
+    "feature_group": "FEATURE",
+    "display_order": 6
+  },
+  {
+    "name": "Open Space Office",
+    "slug": "open-space-office-commercial-offices-feature",
+    "category": "Commercial",
+    "property_type": null,
+    "feature_group": "FEATURE",
+    "display_order": 1
+  },
+  {
+    "name": "Partitioned Offices",
+    "slug": "partitioned-offices-commercial-offices-feature",
+    "category": "Commercial",
+    "property_type": null,
+    "feature_group": "FEATURE",
+    "display_order": 2
+  },
+  {
+    "name": "Executive Office",
+    "slug": "executive-office-commercial-offices-feature",
+    "category": "Commercial",
+    "property_type": null,
+    "feature_group": "FEATURE",
+    "display_order": 3
+  },
+  {
+    "name": "Co-working Space",
+    "slug": "co-working-space-commercial-offices-feature",
+    "category": "Commercial",
+    "property_type": null,
+    "feature_group": "FEATURE",
+    "display_order": 4
+  },
+  {
+    "name": "Serviced Office",
+    "slug": "serviced-office-commercial-offices-feature",
+    "category": "Commercial",
+    "property_type": null,
+    "feature_group": "FEATURE",
+    "display_order": 5
+  },
+  {
+    "name": "Ready to Move",
+    "slug": "ready-to-move-commercial-offices-feature",
+    "category": "Commercial",
+    "property_type": null,
+    "feature_group": "FEATURE",
+    "display_order": 6
+  },
+  {
+    "name": "Street Level",
+    "slug": "street-level-commercial-showrooms-feature",
+    "category": "Commercial",
+    "property_type": null,
+    "feature_group": "FEATURE",
+    "display_order": 1
+  },
+  {
+    "name": "Double Height",
+    "slug": "double-height-commercial-showrooms-feature",
+    "category": "Commercial",
+    "property_type": null,
+    "feature_group": "FEATURE",
+    "display_order": 2
+  },
+  {
+    "name": "Glass Facade",
+    "slug": "glass-facade-commercial-showrooms-feature",
+    "category": "Commercial",
+    "property_type": null,
+    "feature_group": "FEATURE",
+    "display_order": 3
+  },
+  {
+    "name": "Corner Location",
+    "slug": "corner-location-commercial-showrooms-feature",
+    "category": "Commercial",
+    "property_type": null,
+    "feature_group": "FEATURE",
+    "display_order": 4
+  },
+  {
+    "name": "High Visibility",
+    "slug": "high-visibility-commercial-showrooms-feature",
+    "category": "Commercial",
+    "property_type": null,
+    "feature_group": "FEATURE",
+    "display_order": 5
+  },
+  {
+    "name": "Display Area",
+    "slug": "display-area-commercial-showrooms-feature",
+    "category": "Commercial",
+    "property_type": null,
+    "feature_group": "FEATURE",
+    "display_order": 6
+  },
+  {
+    "name": "Storage Room",
+    "slug": "storage-room-commercial-showrooms-feature",
+    "category": "Commercial",
+    "property_type": null,
+    "feature_group": "FEATURE",
+    "display_order": 7
+  },
+  {
+    "name": "Mezzanine Floor",
+    "slug": "mezzanine-floor-commercial-showrooms-feature",
+    "category": "Commercial",
+    "property_type": null,
+    "feature_group": "FEATURE",
+    "display_order": 8
+  },
+  {
+    "name": "High Ceiling",
+    "slug": "high-ceiling-commercial-warehouse-feature",
+    "category": "Commercial",
+    "property_type": null,
+    "feature_group": "FEATURE",
+    "display_order": 1
+  },
+  {
+    "name": "Loading Dock",
+    "slug": "loading-dock-commercial-warehouse-feature",
+    "category": "Commercial",
+    "property_type": null,
+    "feature_group": "FEATURE",
+    "display_order": 2
+  },
+  {
+    "name": "Truck Access",
+    "slug": "truck-access-commercial-warehouse-feature",
+    "category": "Commercial",
+    "property_type": null,
+    "feature_group": "FEATURE",
+    "display_order": 3
+  },
+  {
+    "name": "Industrial Power",
+    "slug": "industrial-power-commercial-warehouse-feature",
+    "category": "Commercial",
+    "property_type": null,
+    "feature_group": "FEATURE",
+    "display_order": 4
+  },
+  {
+    "name": "Cold Storage",
+    "slug": "cold-storage-commercial-warehouse-feature",
+    "category": "Commercial",
+    "property_type": null,
+    "feature_group": "FEATURE",
+    "display_order": 5
+  },
+  {
+    "name": "Mezzanine Floor",
+    "slug": "mezzanine-floor-commercial-warehouse-feature",
+    "category": "Commercial",
+    "property_type": null,
+    "feature_group": "FEATURE",
+    "display_order": 6
+  },
+  {
+    "name": "Office Use",
+    "slug": "office-use-commercial-villas-feature",
+    "category": "Commercial",
+    "property_type": null,
+    "feature_group": "FEATURE",
+    "display_order": 1
+  },
+  {
+    "name": "Clinic Use",
+    "slug": "clinic-use-commercial-villas-feature",
+    "category": "Commercial",
+    "property_type": null,
+    "feature_group": "FEATURE",
+    "display_order": 2
+  },
+  {
+    "name": "School Use",
+    "slug": "school-use-commercial-villas-feature",
+    "category": "Commercial",
+    "property_type": null,
+    "feature_group": "FEATURE",
+    "display_order": 3
+  },
+  {
+    "name": "Embassy Use",
+    "slug": "embassy-use-commercial-villas-feature",
+    "category": "Commercial",
+    "property_type": null,
+    "feature_group": "FEATURE",
+    "display_order": 4
+  },
+  {
+    "name": "Multiple Rooms",
+    "slug": "multiple-rooms-commercial-villas-feature",
+    "category": "Commercial",
+    "property_type": null,
+    "feature_group": "FEATURE",
+    "display_order": 5
+  },
+  {
+    "name": "Fully Equipped",
+    "slug": "fully-equipped-commercial-businesses-feature",
+    "category": "Commercial",
+    "property_type": null,
+    "feature_group": "FEATURE",
+    "display_order": 1
+  },
+  {
+    "name": "Franchise",
+    "slug": "franchise-commercial-businesses-feature",
+    "category": "Commercial",
+    "property_type": null,
+    "feature_group": "FEATURE",
+    "display_order": 2
+  },
+  {
+    "name": "Established Business",
+    "slug": "established-business-commercial-businesses-feature",
+    "category": "Commercial",
+    "property_type": null,
+    "feature_group": "FEATURE",
+    "display_order": 3
+  },
+  {
+    "name": "With License",
+    "slug": "with-license-commercial-businesses-feature",
+    "category": "Commercial",
+    "property_type": null,
+    "feature_group": "FEATURE",
+    "display_order": 4
+  },
+  {
+    "name": "High Traffic Location",
+    "slug": "high-traffic-location-commercial-businesses-feature",
+    "category": "Commercial",
+    "property_type": null,
+    "feature_group": "FEATURE",
+    "display_order": 5
+  },
+  {
+    "name": "Entire Building",
+    "slug": "entire-building-commercial-commercial-buildings-feature",
+    "category": "Commercial",
+    "property_type": null,
+    "feature_group": "FEATURE",
+    "display_order": 1
+  },
+  {
+    "name": "Multiple Units",
+    "slug": "multiple-units-commercial-commercial-buildings-feature",
+    "category": "Commercial",
+    "property_type": null,
+    "feature_group": "FEATURE",
+    "display_order": 2
+  },
+  {
+    "name": "Elevator",
+    "slug": "elevator-commercial-commercial-buildings-feature",
+    "category": "Commercial",
+    "property_type": null,
+    "feature_group": "FEATURE",
+    "display_order": 3
+  },
+  {
+    "name": "Parking Available",
+    "slug": "parking-available-commercial-commercial-buildings-feature",
+    "category": "Commercial",
+    "property_type": null,
+    "feature_group": "FEATURE",
+    "display_order": 4
+  },
+  {
+    "name": "Income Generating",
+    "slug": "income-generating-commercial-commercial-buildings-feature",
+    "category": "Commercial",
+    "property_type": null,
+    "feature_group": "FEATURE",
+    "display_order": 5
+  },
+  {
+    "name": "Fully Rented",
+    "slug": "fully-rented-commercial-commercial-buildings-feature",
+    "category": "Commercial",
+    "property_type": null,
+    "feature_group": "FEATURE",
+    "display_order": 6
+  },
+  {
+    "name": "Corner Building",
+    "slug": "corner-building-commercial-commercial-buildings-feature",
+    "category": "Commercial",
+    "property_type": null,
+    "feature_group": "FEATURE",
+    "display_order": 7
+  },
+  {
+    "name": "Zone A",
+    "slug": "zone-a-land-residential-lands-feature",
+    "category": "Land",
+    "property_type": null,
+    "feature_group": "FEATURE",
+    "display_order": 1
+  },
+  {
+    "name": "Zone B",
+    "slug": "zone-b-land-residential-lands-feature",
+    "category": "Land",
+    "property_type": null,
+    "feature_group": "FEATURE",
+    "display_order": 2
+  },
+  {
+    "name": "Zone C",
+    "slug": "zone-c-land-residential-lands-feature",
+    "category": "Land",
+    "property_type": null,
+    "feature_group": "FEATURE",
+    "display_order": 3
+  },
+  {
+    "name": "Zone D",
+    "slug": "zone-d-land-residential-lands-feature",
+    "category": "Land",
+    "property_type": null,
+    "feature_group": "FEATURE",
+    "display_order": 4
+  },
+  {
+    "name": "Villa Land",
+    "slug": "villa-land-land-residential-lands-feature",
+    "category": "Land",
+    "property_type": null,
+    "feature_group": "FEATURE",
+    "display_order": 5
+  },
+  {
+    "name": "Building Land",
+    "slug": "building-land-land-residential-lands-feature",
+    "category": "Land",
+    "property_type": null,
+    "feature_group": "FEATURE",
+    "display_order": 6
+  },
+  {
+    "name": "Approved Plans",
+    "slug": "approved-plans-land-residential-lands-feature",
+    "category": "Land",
+    "property_type": null,
+    "feature_group": "FEATURE",
+    "display_order": 7
+  },
+  {
+    "name": "Multiple Units Allowed",
+    "slug": "multiple-units-allowed-land-residential-lands-feature",
+    "category": "Land",
+    "property_type": null,
+    "feature_group": "FEATURE",
+    "display_order": 8
+  },
+  {
+    "name": "High Density",
+    "slug": "high-density-land-residential-lands-feature",
+    "category": "Land",
+    "property_type": null,
+    "feature_group": "FEATURE",
+    "display_order": 9
+  },
+  {
+    "name": "Medium Density",
+    "slug": "medium-density-land-residential-lands-feature",
+    "category": "Land",
+    "property_type": null,
+    "feature_group": "FEATURE",
+    "display_order": 10
+  },
+  {
+    "name": "Low Density",
+    "slug": "low-density-land-residential-lands-feature",
+    "category": "Land",
+    "property_type": null,
+    "feature_group": "FEATURE",
+    "display_order": 11
+  },
+  {
+    "name": "Inside Organized Area",
+    "slug": "inside-organized-area-land-residential-lands-feature",
+    "category": "Land",
+    "property_type": null,
+    "feature_group": "FEATURE",
+    "display_order": 12
+  },
+  {
+    "name": "Commercial Zoning",
+    "slug": "commercial-zoning-land-commercial-lands-feature",
+    "category": "Land",
+    "property_type": null,
+    "feature_group": "FEATURE",
+    "display_order": 1
+  },
+  {
+    "name": "Offices Allowed",
+    "slug": "offices-allowed-land-commercial-lands-feature",
+    "category": "Land",
+    "property_type": null,
+    "feature_group": "FEATURE",
+    "display_order": 2
+  },
+  {
+    "name": "Retail Allowed",
+    "slug": "retail-allowed-land-commercial-lands-feature",
+    "category": "Land",
+    "property_type": null,
+    "feature_group": "FEATURE",
+    "display_order": 3
+  },
+  {
+    "name": "Hotel Use",
+    "slug": "hotel-use-land-commercial-lands-feature",
+    "category": "Land",
+    "property_type": null,
+    "feature_group": "FEATURE",
+    "display_order": 4
+  },
+  {
+    "name": "High Foot Traffic",
+    "slug": "high-foot-traffic-land-commercial-lands-feature",
+    "category": "Land",
+    "property_type": null,
+    "feature_group": "FEATURE",
+    "display_order": 5
+  },
+  {
+    "name": "Main Road Access",
+    "slug": "main-road-access-land-commercial-lands-feature",
+    "category": "Land",
+    "property_type": null,
+    "feature_group": "FEATURE",
+    "display_order": 6
+  },
+  {
+    "name": "Suitable for Mall",
+    "slug": "suitable-for-mall-land-commercial-lands-feature",
+    "category": "Land",
+    "property_type": null,
+    "feature_group": "FEATURE",
+    "display_order": 7
+  },
+  {
+    "name": "Investment Plot",
+    "slug": "investment-plot-land-commercial-lands-feature",
+    "category": "Land",
+    "property_type": null,
+    "feature_group": "FEATURE",
+    "display_order": 8
+  },
+  {
+    "name": "Industrial Zoning",
+    "slug": "industrial-zoning-land-industrial-lands-feature",
+    "category": "Land",
+    "property_type": null,
+    "feature_group": "FEATURE",
+    "display_order": 1
+  },
+  {
+    "name": "Factory Ready",
+    "slug": "factory-ready-land-industrial-lands-feature",
+    "category": "Land",
+    "property_type": null,
+    "feature_group": "FEATURE",
+    "display_order": 2
+  },
+  {
+    "name": "Warehouse Use",
+    "slug": "warehouse-use-land-industrial-lands-feature",
+    "category": "Land",
+    "property_type": null,
+    "feature_group": "FEATURE",
+    "display_order": 3
+  },
+  {
+    "name": "Heavy Industry Allowed",
+    "slug": "heavy-industry-allowed-land-industrial-lands-feature",
+    "category": "Land",
+    "property_type": null,
+    "feature_group": "FEATURE",
+    "display_order": 4
+  },
+  {
+    "name": "Light Industry Allowed",
+    "slug": "light-industry-allowed-land-industrial-lands-feature",
+    "category": "Land",
+    "property_type": null,
+    "feature_group": "FEATURE",
+    "display_order": 5
+  },
+  {
+    "name": "Truck Access",
+    "slug": "truck-access-land-industrial-lands-feature",
+    "category": "Land",
+    "property_type": null,
+    "feature_group": "FEATURE",
+    "display_order": 6
+  },
+  {
+    "name": "Near Highway",
+    "slug": "near-highway-land-industrial-lands-feature",
+    "category": "Land",
+    "property_type": null,
+    "feature_group": "FEATURE",
+    "display_order": 7
+  },
+  {
+    "name": "High Power Supply",
+    "slug": "high-power-supply-land-industrial-lands-feature",
+    "category": "Land",
+    "property_type": null,
+    "feature_group": "FEATURE",
+    "display_order": 8
+  },
+  {
+    "name": "Water Supply Available",
+    "slug": "water-supply-available-land-industrial-lands-feature",
+    "category": "Land",
+    "property_type": null,
+    "feature_group": "FEATURE",
+    "display_order": 9
+  },
+  {
+    "name": "Sewage System",
+    "slug": "sewage-system-land-industrial-lands-feature",
+    "category": "Land",
+    "property_type": null,
+    "feature_group": "FEATURE",
+    "display_order": 10
+  },
+  {
+    "name": "Large Plot Size",
+    "slug": "large-plot-size-land-industrial-lands-feature",
+    "category": "Land",
+    "property_type": null,
+    "feature_group": "FEATURE",
+    "display_order": 11
+  },
+  {
+    "name": "Farm Land",
+    "slug": "farm-land-land-agricultural-lands-feature",
+    "category": "Land",
+    "property_type": null,
+    "feature_group": "FEATURE",
+    "display_order": 1
+  },
+  {
+    "name": "Irrigated Land",
+    "slug": "irrigated-land-land-agricultural-lands-feature",
+    "category": "Land",
+    "property_type": null,
+    "feature_group": "FEATURE",
+    "display_order": 2
+  },
+  {
+    "name": "Well Available",
+    "slug": "well-available-land-agricultural-lands-feature",
+    "category": "Land",
+    "property_type": null,
+    "feature_group": "FEATURE",
+    "display_order": 3
+  },
+  {
+    "name": "Water Source",
+    "slug": "water-source-land-agricultural-lands-feature",
+    "category": "Land",
+    "property_type": null,
+    "feature_group": "FEATURE",
+    "display_order": 4
+  },
+  {
+    "name": "Fertile Soil",
+    "slug": "fertile-soil-land-agricultural-lands-feature",
+    "category": "Land",
+    "property_type": null,
+    "feature_group": "FEATURE",
+    "display_order": 5
+  },
+  {
+    "name": "Greenhouse Ready",
+    "slug": "greenhouse-ready-land-agricultural-lands-feature",
+    "category": "Land",
+    "property_type": null,
+    "feature_group": "FEATURE",
+    "display_order": 6
+  },
+  {
+    "name": "Trees Planted",
+    "slug": "trees-planted-land-agricultural-lands-feature",
+    "category": "Land",
+    "property_type": null,
+    "feature_group": "FEATURE",
+    "display_order": 7
+  },
+  {
+    "name": "Livestock Suitable",
+    "slug": "livestock-suitable-land-agricultural-lands-feature",
+    "category": "Land",
+    "property_type": null,
+    "feature_group": "FEATURE",
+    "display_order": 8
+  },
+  {
+    "name": "Mixed Zoning",
+    "slug": "mixed-zoning-land-mixed-use-lands-feature",
+    "category": "Land",
+    "property_type": null,
+    "feature_group": "FEATURE",
+    "display_order": 1
+  },
+  {
+    "name": "Residential & Commercial",
+    "slug": "residential-commercial-land-mixed-use-lands-feature",
+    "category": "Land",
+    "property_type": null,
+    "feature_group": "FEATURE",
+    "display_order": 2
+  },
+  {
+    "name": "Investment Plot",
+    "slug": "investment-plot-land-mixed-use-lands-feature",
+    "category": "Land",
+    "property_type": null,
+    "feature_group": "FEATURE",
+    "display_order": 3
+  },
+  {
+    "name": "Main Street Access",
+    "slug": "main-street-access-land-mixed-use-lands-feature",
+    "category": "Land",
+    "property_type": null,
+    "feature_group": "FEATURE",
+    "display_order": 4
+  },
+  {
+    "name": "High Traffic Area",
+    "slug": "high-traffic-area-land-mixed-use-lands-feature",
+    "category": "Land",
+    "property_type": null,
+    "feature_group": "FEATURE",
+    "display_order": 5
+  },
+  {
+    "name": "Multi-purpose Development",
+    "slug": "multi-purpose-development-land-mixed-use-lands-feature",
+    "category": "Land",
+    "property_type": null,
+    "feature_group": "FEATURE",
+    "display_order": 6
+  },
+  {
+    "name": "Suitable for Buildings",
+    "slug": "suitable-for-buildings-land-mixed-use-lands-feature",
+    "category": "Land",
+    "property_type": null,
+    "feature_group": "FEATURE",
+    "display_order": 7
+  }
+]

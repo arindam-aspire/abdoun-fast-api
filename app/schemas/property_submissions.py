@@ -69,8 +69,21 @@ def normalize_wizard_payload(payload: dict[str, Any]) -> dict[str, Any]:
     return normalized
 
 
+VERIFY_THROUGH_AGENCY_DESCRIPTION = (
+    "Owner-only. When false, agency_id may be null and the property is submitted directly to Super Admin "
+    "for approval, rejection, or edit request. When true, a valid agency_id is required and the existing "
+    "agency verification workflow is used. Agency/Admin/other roles ignore this flag."
+)
+
+
 class PropertySubmissionCreateRequest(BaseModel):
-    route_through_agency: bool = False
+    model_config = ConfigDict(populate_by_name=True)
+
+    route_through_agency: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("verify_through_agency", "route_through_agency"),
+        description=VERIFY_THROUGH_AGENCY_DESCRIPTION,
+    )
     agency_id: UUID | None = None
     payload: dict[str, Any] = Field(
         ...,
@@ -81,15 +94,15 @@ class PropertySubmissionCreateRequest(BaseModel):
             "Property details accept apartment_number, plot_number, basin_number, year_built, direction, "
             "floor/floor_id, floor_number, completion_status, and furnishingStatus/furnishing_status aliases. "
             "basic_information.listing_purpose accepts sale, rent, or sale_or_rent. "
-            "Property details accept built_up_area (> 0) with built_up_area_unit ('sqm' or 'sqft'). "
+            "Building area is stored and returned in sqm only. "
             "Property details also accept optional guard_name and guard_phone_number. "
             "Pricing accepts the legacy price plus furnishing-specific sale/rent price fields, "
             "service_charge, and maintenance_fee with currency codes "
             "(JOD, USD, GBP, INR; default JOD). Drafts preserve entered amounts/currencies; "
             "submit converts all pricing amounts to JOD using live exchange rates. "
-            "Owner entries may select an existing owner with owner_user_id. "
+            "Owner entries may select an existing owner with owner_user_id and may send Owner ID or Passport. "
             "DLD number is not accepted or persisted by this workflow. "
-            "payload.property_details.reference_number is server-generated and ignored if provided."
+            "payload.property_details.reference_number is a server-generated numeric sequence and is ignored if provided."
         ),
     )
     current_step: int = 1
@@ -102,8 +115,14 @@ class PropertySubmissionCreateRequest(BaseModel):
 
 
 class PropertySubmissionUpdateRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     action: Literal["save_draft"] = "save_draft"
-    route_through_agency: bool | None = None
+    route_through_agency: bool | None = Field(
+        default=None,
+        validation_alias=AliasChoices("verify_through_agency", "route_through_agency"),
+        description=VERIFY_THROUGH_AGENCY_DESCRIPTION,
+    )
     agency_id: UUID | None = None
     current_step: int
     last_completed_step: int
@@ -113,15 +132,15 @@ class PropertySubmissionUpdateRequest(BaseModel):
             "Eight-step wizard payload using DB-backed /property-options and /features values. "
             "Location accepts latitude/longitude (or map_pin) and show_location. "
             "Property area is a single property_details.built_up_area value. "
-            "Owner entries may select an existing owner with owner_user_id. DLD number is retired. "
-            "Property details accept built_up_area (> 0) with built_up_area_unit ('sqm' or 'sqft'). "
+            "Owner entries may select an existing owner with owner_user_id and may send Owner ID or Passport. DLD number is retired. "
+            "Building area is stored and returned in sqm only. "
             "Property details also accept optional guard_name and guard_phone_number. "
             "Property details persist furnishingStatus/furnishing_status and floor/floor_id from "
             "GET /api/v1/property-options. "
             "Pricing accepts price, service_charge, and maintenance_fee with currency codes "
             "(JOD, USD, GBP, INR; default JOD). Drafts preserve entered amounts/currencies; "
             "submit converts all pricing amounts to JOD using live exchange rates. "
-            "payload.property_details.reference_number is server-generated and ignored if provided."
+            "payload.property_details.reference_number is a server-generated numeric sequence and is ignored if provided."
         ),
     )
 
@@ -132,7 +151,13 @@ class PropertySubmissionUpdateRequest(BaseModel):
 
 
 class PropertySubmissionDirectSubmitRequest(BaseModel):
-    route_through_agency: bool = False
+    model_config = ConfigDict(populate_by_name=True)
+
+    route_through_agency: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("verify_through_agency", "route_through_agency"),
+        description=VERIFY_THROUGH_AGENCY_DESCRIPTION,
+    )
     agency_id: UUID | None = None
     payload: dict[str, Any] = Field(
         ...,
@@ -140,15 +165,15 @@ class PropertySubmissionDirectSubmitRequest(BaseModel):
             "Eight-step wizard payload using DB-backed /property-options and /features values. "
             "Location accepts latitude/longitude (or map_pin) and show_location. "
             "Property area is a single property_details.built_up_area value. "
-            "Owner entries may select an existing owner with owner_user_id. DLD number is retired. "
-            "Property details accept built_up_area (> 0) with built_up_area_unit ('sqm' or 'sqft'). "
+            "Owner entries may select an existing owner with owner_user_id and may send Owner ID or Passport. DLD number is retired. "
+            "Building area is stored and returned in sqm only. "
             "Property details also accept optional guard_name and guard_phone_number. "
             "Property details persist furnishingStatus/furnishing_status and floor/floor_id from "
             "GET /api/v1/property-options. "
             "Pricing accepts price, service_charge, and maintenance_fee with currency codes "
             "(JOD, USD, GBP, INR; default JOD). Drafts preserve entered amounts/currencies; "
             "submit converts all pricing amounts to JOD using live exchange rates. "
-            "payload.property_details.reference_number is server-generated and ignored if provided."
+            "payload.property_details.reference_number is a server-generated numeric sequence and is ignored if provided."
         ),
     )
     confirm_submit: bool

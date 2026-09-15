@@ -18,6 +18,7 @@ from app.services.property_submissions import (
     assert_can_view_submission,
     create_submission,
     get_submission_or_404,
+    owner_may_submit_without_agency,
     serialize_submission,
     soft_delete_submission,
     submit_submission,
@@ -37,7 +38,7 @@ def _resolved_agency_id(
     payload_agency_id: UUID | None,
     context: RequestContext,
 ) -> UUID | None:
-    if not route_through_agency:
+    if owner_may_submit_without_agency(context.roles, route_through_agency):
         return None
     return payload_agency_id or context.agency_id
 
@@ -119,13 +120,18 @@ def update_property_submission(
 ) -> dict:
     submission = get_submission_or_404(db, submission_id)
     assert_can_edit_working_submission(db, submission, user_id=context.user_id, roles=context.roles, agency_id=context.agency_id)
+    effective_route = (
+        payload.route_through_agency
+        if payload.route_through_agency is not None
+        else bool(getattr(submission, "route_through_agency", False))
+    )
     update_submission(
         db,
         submission,
         user_id=context.user_id,
         roles=context.roles,
         route_through_agency=payload.route_through_agency,
-        agency_id=payload.agency_id,
+        agency_id=_resolved_agency_id(effective_route, payload.agency_id, context),
         payload=payload.payload,
         current_step=payload.current_step,
         last_completed_step=payload.last_completed_step,
