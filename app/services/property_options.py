@@ -25,6 +25,11 @@ VALUE_ALIASES = {
         "sale_and_rent": "sale-or-rent",
         "sale_or_rent": "sale-or-rent",
     },
+    "completion_status": {
+        "offplan": "off-plan",
+        "off_plan": "off-plan",
+        "off plan": "off-plan",
+    },
     "direction": {
         "ne": "northeast",
         "nw": "northwest",
@@ -36,6 +41,10 @@ VALUE_ALIASES = {
         "south-west": "southwest",
     },
 }
+
+REJECTED_COMPLETION_STATUS_TOKENS = frozenset(
+    {"under-construction", "underconstruction", "under_construction"}
+)
 
 _ID_FIELD_NAMES = frozenset(
     {
@@ -130,6 +139,22 @@ def resolve_property_option(
     group_key = normalize_group_key(group) or group
     value = coerce_option_input(value)
     token = VALUE_ALIASES.get(group_key, {}).get(normalized_option_token(value), normalized_option_token(value))
+    if group_key == "completion_status" and (
+        token in REJECTED_COMPLETION_STATUS_TOKENS
+        or normalized_option_token(value) in REJECTED_COMPLETION_STATUS_TOKENS
+    ):
+        raise_api_error(
+            status_code=STATUS_BAD_REQUEST,
+            code="INVALID_VALUE",
+            message="Under Construction is not a valid completion status",
+            details=[
+                {
+                    "field": field,
+                    "code": "invalid_value",
+                    "message": "Under Construction is not accepted. Use Off Plan or another active completion status",
+                }
+            ],
+        )
     numeric = _numeric_option_value(value)
     field_token = _field_name(field)
     prefer_id = field_token in _ID_FIELD_NAMES

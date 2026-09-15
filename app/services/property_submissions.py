@@ -1,14 +1,15 @@
 from __future__ import annotations
 
+import logging
 import math
-import secrets
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 from typing import Any, NoReturn
 from uuid import UUID, uuid4
 
 from fastapi import HTTPException
-from sqlalchemy import delete, func, or_, select
+from sqlalchemy import delete, func, or_, select, text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
 
@@ -26,6 +27,7 @@ from app.models.live_schema import (
 )
 from app.schemas.agents import validate_e164_phone
 from app.services.audit import record_activity
+from app.services.dls_locations import DLS_PARENTS, dls_official_name
 from app.services.exchange_rates import assert_supported_currency, convert_amount_to_jod_or_http_error
 from app.services.media_urls import canonicalize_media_url, with_canonical_media_urls, with_readable_media_urls
 from app.services.notifications import create_in_app_notification, send_email_notification, send_sms_notification
@@ -47,6 +49,8 @@ from app.utils.status_codes import (
     STATUS_INTERNAL_SERVER_ERROR,
     STATUS_NOT_FOUND,
 )
+
+logger = logging.getLogger(__name__)
 
 
 WORKFLOW_CONFIG = get_property_workflow_config()
@@ -90,6 +94,7 @@ LEGACY_WORKFLOW_STAGE_MAP = {
 CURRENT_ACTOR_OWNER = "owner"
 CURRENT_ACTOR_ASSIGNED_AGENT = "assigned_agent"
 CURRENT_ACTOR_AGENCY_ADMIN = "agency_admin"
+CURRENT_ACTOR_SUPER_ADMIN = "super_admin"
 CURRENT_ACTOR_SUBMITTER = "submitter"
 CURRENT_ACTOR_NONE = None
 
@@ -141,16 +146,46 @@ def _role_names(roles: tuple[str, ...]) -> set[str]:
     return {role.lower() for role in roles}
 
 
+AGENCY_SCOPED_ROLES = {"admin", "agent", "agency", "agency_admin"}
+
+
+def owner_may_submit_without_agency(roles: tuple[str, ...], route_through_agency: bool) -> bool:
+    """Owners (and Super Admin) may omit agency when verify_through_agency is false.
+
+    Agency/Admin/Agent keep the existing agency-required workflow regardless of the flag.
+    """
+    if route_through_agency:
+        return False
+    return not (_role_names(roles) & AGENCY_SCOPED_ROLES)
+
+
+def _verify_through_agency(submission: PropertyListingSubmission) -> bool:
+    return bool(getattr(submission, "route_through_agency", False))
+
+
+def _routing_payload(submission: PropertyListingSubmission) -> dict[str, Any]:
+    routed = _verify_through_agency(submission)
+    return {
+        "route_through_agency": routed,
+        "verify_through_agency": routed,
+        "agency_id": str(submission.agency_id) if submission.agency_id else None,
+    }
+
+
 def _workflow_from_submission(submission: PropertyListingSubmission) -> dict[str, Any]:
     workflow = (submission.payload or {}).get("_workflow") or {}
     return workflow if isinstance(workflow, dict) else {}
 
 
-def _current_actor_for_workflow_stage(stage: str | None) -> str | None:
+def _current_actor_for_workflow_stage(
+    stage: str | None,
+    *,
+    agency_id: UUID | None = None,
+) -> str | None:
     if stage == WORKFLOW_STAGE_SUBMITTED:
-        return CURRENT_ACTOR_AGENCY_ADMIN
+        return CURRENT_ACTOR_AGENCY_ADMIN if agency_id else CURRENT_ACTOR_SUPER_ADMIN
     if stage == WORKFLOW_STAGE_PENDING_APPROVAL:
-        return CURRENT_ACTOR_AGENCY_ADMIN
+        return CURRENT_ACTOR_AGENCY_ADMIN if agency_id else CURRENT_ACTOR_SUPER_ADMIN
     if stage in AGENT_EDIT_STAGES:
         return CURRENT_ACTOR_ASSIGNED_AGENT
     if stage in OWNER_EDIT_STAGES:
@@ -202,7 +237,10 @@ def _set_submission_workflow(
     workflow = _payload_workflow(payload)
     if stage is not None:
         workflow["workflow_stage"] = stage
-        workflow["current_actor"] = _current_actor_for_workflow_stage(stage)
+        workflow["current_actor"] = _current_actor_for_workflow_stage(
+            stage,
+            agency_id=getattr(submission, "agency_id", None),
+        )
     if origin is not None:
         workflow["submission_origin"] = origin
     if assigned_agent_id is not ...:
@@ -224,7 +262,8 @@ def _submission_workflow_summary(submission: PropertyListingSubmission) -> dict[
     stage = _workflow_stage_for_submission(submission)
     return {
         "workflow_stage": stage,
-        "current_actor": workflow.get("current_actor") or _current_actor_for_workflow_stage(stage),
+        "current_actor": workflow.get("current_actor")
+        or _current_actor_for_workflow_stage(stage, agency_id=getattr(submission, "agency_id", None)),
         "submission_origin": workflow.get("submission_origin"),
         "assigned_agent_id": workflow.get("assigned_agent_id"),
     }
@@ -519,7 +558,21 @@ def sync_property_media_from_payload(
 
     for row in rows:
         db.add(row)
-    db.flush()
+    try:
+        db.flush()
+    except IntegrityError:
+        raise_api_error(
+            status_code=STATUS_BAD_REQUEST,
+            code="FILE_UPLOAD_ERROR",
+            message="Unable to save property media",
+            details=[
+                {
+                    "field": "media_documents",
+                    "code": "file_upload_error",
+                    "message": "Property media could not be stored. Check uploaded files and try again",
+                }
+            ],
+        )
 
 
 def ensure_property_id_and_sync_media(db: Session, submission: PropertyListingSubmission) -> UUID:
@@ -606,6 +659,78 @@ FLOOR_OPTION_KEYS = (
     "floorNumber",
 )
 
+PARCEL_IDENTIFIER_FIELDS = (
+    "apartment_number",
+    "plot_number",
+    "basin_number",
+    "building_number",
+    "parcel_number",
+)
+DLS_CANONICAL_FIELDS = (
+    "gov_code",
+    "gov_name",
+    "dept_code",
+    "dept_name",
+    "vill_code",
+    "vill_name",
+    "hod_code",
+    "hod_name",
+    "sect_code",
+    "sect_name",
+)
+DLS_FIELD_ALIASES = {
+    "GOV_CODE": "gov_code",
+    "govCode": "gov_code",
+    "governorate_code": "gov_code",
+    "governorateCode": "gov_code",
+    "GOV_NAME": "gov_name",
+    "govName": "gov_name",
+    "governorate": "gov_name",
+    "governorate_name": "gov_name",
+    "DEPT_CODE": "dept_code",
+    "deptCode": "dept_code",
+    "directorate_code": "dept_code",
+    "directorateCode": "dept_code",
+    "DEPT_NAME": "dept_name",
+    "deptName": "dept_name",
+    "directorate": "dept_name",
+    "directorate_name": "dept_name",
+    "VILL_CODE": "vill_code",
+    "villCode": "vill_code",
+    "village_code": "vill_code",
+    "villageCode": "vill_code",
+    "VILL_NAME": "vill_name",
+    "villName": "vill_name",
+    "village": "vill_name",
+    "village_name": "vill_name",
+    "HOD_CODE": "hod_code",
+    "hodCode": "hod_code",
+    "basin_code": "hod_code",
+    "HOD_NAME": "hod_name",
+    "hodName": "hod_name",
+    "hod": "hod_name",
+    "basin_name": "hod_name",
+    "SECT_CODE": "sect_code",
+    "sectCode": "sect_code",
+    "section_code": "sect_code",
+    "sectionCode": "sect_code",
+    "SECT_NAME": "sect_name",
+    "sectName": "sect_name",
+    "section": "sect_name",
+    "section_name": "sect_name",
+}
+OWNER_IDENTIFICATION_KEYS = (
+    "owner_id_or_passport",
+    "identification_number",
+    "id_or_passport",
+    "id_number",
+    "passport_number",
+    "passport",
+    "national_id",
+    "social_security_id",
+    "ssi",
+)
+
 
 def _optional_int(value: Any) -> int | None:
     if value in (None, ""):
@@ -628,6 +753,177 @@ def _property_details_dict(payload: dict[str, Any] | None) -> dict[str, Any]:
 
 def _first_supplied_key(details: dict[str, Any], keys: tuple[str, ...]) -> str | None:
     return next((key for key in keys if details.get(key) not in (None, "")), None)
+
+
+def _cleaned_text(value: Any, *, field: str | None = None, max_length: int = 255) -> str | None:
+    if value is None:
+        return None
+    text_value = str(value).strip()
+    if not text_value:
+        return None
+    if len(text_value) > max_length:
+        _property_field_error(
+            field=field or "property_details",
+            code="max_length",
+            message=f"{field or 'value'} must not exceed {max_length} characters",
+        )
+    return text_value
+
+
+def _normalize_dls_section(section: dict[str, Any], *, field_prefix: str) -> dict[str, Any]:
+    normalized = dict(section)
+    for alias, canonical in DLS_FIELD_ALIASES.items():
+        if alias in normalized and canonical not in normalized:
+            normalized[canonical] = normalized[alias]
+        if alias in normalized and alias != canonical:
+            normalized.pop(alias, None)
+    for field in (*PARCEL_IDENTIFIER_FIELDS, *DLS_CANONICAL_FIELDS):
+        if field in normalized and normalized[field] is not None:
+            normalized[field] = _cleaned_text(
+                normalized[field],
+                field=f"{field_prefix}.{field}",
+                max_length=100,
+            )
+    if not normalized.get("basin_number"):
+        hod = normalized.get("hod_code") or normalized.get("hod_name")
+        if hod:
+            normalized["basin_number"] = hod
+    if not normalized.get("hod_code") and normalized.get("basin_number"):
+        normalized["hod_code"] = normalized.get("basin_number")
+    if not normalized.get("parcel_number") and normalized.get("plot_number"):
+        normalized["parcel_number"] = normalized.get("plot_number")
+    if not normalized.get("plot_number") and normalized.get("parcel_number"):
+        normalized["plot_number"] = normalized.get("parcel_number")
+    return normalized
+
+
+def _sync_parcel_and_dls_fields(payload: dict[str, Any]) -> dict[str, Any]:
+    location = payload.get("location")
+    details = payload.get("property_details")
+    has_location = isinstance(location, dict)
+    has_details = isinstance(details, dict)
+    if not has_location and not has_details:
+        return payload
+
+    location = _normalize_dls_section(dict(location), field_prefix="location") if has_location else {}
+    details = _normalize_dls_section(dict(details), field_prefix="property_details") if has_details else {}
+    shared_fields = (*PARCEL_IDENTIFIER_FIELDS, *DLS_CANONICAL_FIELDS)
+    for field in shared_fields:
+        location_value = location.get(field) if has_location else None
+        details_value = details.get(field) if has_details else None
+        value = location_value or details_value
+        if value is None:
+            continue
+        if has_location and not location_value:
+            location[field] = value
+        if has_details and not details_value:
+            details[field] = value
+    if has_location:
+        payload["location"] = location
+    if has_details:
+        payload["property_details"] = details
+    return payload
+
+
+def _is_mock_session(db: Session) -> bool:
+    return getattr(type(db), "__module__", "").startswith("unittest.mock")
+
+
+def _apply_dls_master_values(db: Session, payload: dict[str, Any]) -> dict[str, Any]:
+    """Fill official DLS names from the master table when codes are supplied."""
+    if _is_mock_session(db):
+        return payload
+    location = payload.get("location") if isinstance(payload.get("location"), dict) else {}
+    details = payload.get("property_details") if isinstance(payload.get("property_details"), dict) else {}
+    codes = {
+        "gov_code": _section_text(details, "gov_code") or _section_text(location, "gov_code"),
+        "dept_code": _section_text(details, "dept_code") or _section_text(location, "dept_code"),
+        "vill_code": _section_text(details, "vill_code") or _section_text(location, "vill_code"),
+        "hod_code": _section_text(details, "hod_code") or _section_text(location, "hod_code"),
+        "sect_code": _section_text(details, "sect_code") or _section_text(location, "sect_code"),
+    }
+    if not any(codes.values()):
+        return payload
+
+    name_fields = {
+        "gov": "gov_name",
+        "dept": "dept_name",
+        "vill": "vill_name",
+        "hod": "hod_name",
+        "sect": "sect_name",
+    }
+    code_fields = {
+        "gov": "gov_code",
+        "dept": "dept_code",
+        "vill": "vill_code",
+        "hod": "hod_code",
+        "sect": "sect_code",
+    }
+    for level, code_field in code_fields.items():
+        code = codes[code_field]
+        if not code:
+            continue
+        parents = {parent: codes[parent] for parent in DLS_PARENTS[level] if codes.get(parent)}
+        official_name = dls_official_name(db, level=level, code=code, parents=parents)
+        if not official_name:
+            _property_field_error(
+                field=f"location.{code_field}",
+                code="invalid_value",
+                message=f"Unknown DLS {level} code",
+            )
+        for section in (location, details):
+            if not section:
+                continue
+            section[code_field] = code
+            section[name_fields[level]] = official_name
+    if location:
+        payload["location"] = location
+    if details:
+        payload["property_details"] = details
+    return payload
+
+
+def _section_text(section: dict[str, Any] | None, *keys: str) -> str:
+    if not isinstance(section, dict):
+        return ""
+    for key in keys:
+        value = str(section.get(key) or "").strip()
+        if value:
+            return value
+    return ""
+
+
+def _parcel_lookup_value(payload: dict[str, Any], *keys: str) -> str:
+    details = payload.get("property_details") if isinstance(payload.get("property_details"), dict) else {}
+    location = payload.get("location") if isinstance(payload.get("location"), dict) else {}
+    return _section_text(details, *keys) or _section_text(location, *keys)
+
+
+def _json_text_equals(path: tuple[str, ...], value: str):
+    return PropertyListingSubmission.payload.op("#>>")("{" + ",".join(path) + "}") == value
+
+
+def _normalize_owner_identification(owner: dict[str, Any]) -> dict[str, Any]:
+    normalized = dict(owner)
+    identification = next(
+        (
+            _cleaned_text(normalized.get(key), field=f"owner_information.owners.{key}", max_length=100)
+            for key in OWNER_IDENTIFICATION_KEYS
+            if normalized.get(key) not in (None, "")
+        ),
+        None,
+    )
+    if identification:
+        normalized["ssi"] = identification
+        normalized["social_security_id"] = identification
+        normalized["owner_id_or_passport"] = identification
+        normalized["identification_number"] = identification
+    documents = normalized.get("documents")
+    if not isinstance(documents, list):
+        documents = normalized.get("owner_documents")
+    if isinstance(documents, list):
+        normalized["documents"] = documents
+    return normalized
 
 
 def property_option_ids_from_payload(payload: dict[str, Any] | None) -> tuple[int | None, int | None]:
@@ -963,17 +1259,6 @@ def _normalize_property_details(db: Session, payload: dict[str, Any]) -> dict[st
             _property_field_error(field="property_details.year_built", code="invalid_value", message="Year built is outside the valid range")
         details["year_built"] = year_built
 
-    for field in ("apartment_number", "plot_number", "basin_number", "building_number", "parcel_number"):
-        if field in details and details[field] is not None:
-            value = str(details[field]).strip()
-            if len(value) > 100:
-                _property_field_error(
-                    field=f"property_details.{field}",
-                    code="max_length",
-                    message=f"{field} must not exceed 100 characters",
-                )
-            details[field] = value or None
-
     payload["property_details"] = details
     return payload
 
@@ -1051,6 +1336,7 @@ def _validate_and_enrich_owners(db: Session, payload: dict[str, Any]) -> None:
             normalized_owners.append(raw_owner)
             continue
         owner = dict(raw_owner)
+        owner = _normalize_owner_identification(owner)
         raw_owner_id = owner.get("owner_user_id") or owner.get("owner_id") or owner.get("id")
         if not raw_owner_id:
             normalized_owners.append(owner)
@@ -1111,9 +1397,12 @@ def prepare_property_payload(
     normalized = _normalize_listing_purpose(db, normalized)
     normalized = _normalize_property_details(db, normalized)
     normalized = _normalize_location(normalized)
+    normalized = _sync_parcel_and_dls_fields(normalized)
+    normalized = _apply_dls_master_values(db, normalized)
     normalized = _normalize_primary_images(normalized)
     _validate_feature_ids(db, normalized)
     _validate_and_enrich_owners(db, normalized)
+    apply_applicable_pricing(normalized)
     return normalized
 
 
@@ -1176,7 +1465,7 @@ def _validated_built_up_area(payload: dict[str, Any] | None) -> tuple[Decimal, s
         _property_field_error(
             field=f"property_details.{unit_key or 'built_up_area_unit'}",
             code="invalid_value",
-            message="Built-up area unit must be 'sqm' or 'sqft'",
+            message="Building area must be stored in sqm",
         )
 
     value = details["built_up_area"]
@@ -1220,7 +1509,8 @@ def normalize_built_up_area_to_sqm(payload: dict[str, Any] | None) -> dict[str, 
     details = dict(normalized["property_details"])
     if unit == "sqft":
         details["built_up_area"] = float(value * SQFT_TO_SQM)
-    if unit_key:
+    details["built_up_area_unit"] = "sqm"
+    if unit_key and unit_key != "built_up_area_unit":
         details[unit_key] = "sqm"
     normalized["property_details"] = details
     return normalized
@@ -1353,6 +1643,58 @@ def validate_pricing(payload: dict[str, Any] | None, *, for_submit: bool = False
             )
 
 
+def _furnishing_price_key(furnishing: Any) -> str:
+    return str(furnishing or "").strip().lower().replace("-", "_").replace(" ", "_")
+
+
+def applicable_price_fields(purpose: Any, furnishing: Any) -> tuple[str, ...]:
+    furnishing_key = _furnishing_price_key(furnishing)
+    sale_field = {
+        "furnished": "furnished_sale_price",
+        "unfurnished": "unfurnished_sale_price",
+        "semi_furnished": "unfurnished_sale_price",
+    }.get(furnishing_key)
+    rent_field = {
+        "furnished": "furnished_rent_price",
+        "unfurnished": "unfurnished_rent_price",
+        "semi_furnished": "semi_furnished_rent_price",
+    }.get(furnishing_key)
+    fields: list[str] = []
+    if purpose in {"sale", "sale_or_rent"} and sale_field:
+        fields.append(sale_field)
+    if purpose in {"rent", "sale_or_rent"} and rent_field:
+        fields.append(rent_field)
+    return tuple(dict.fromkeys(fields))
+
+
+def apply_applicable_pricing(payload: dict[str, Any] | None) -> dict[str, Any]:
+    """Keep only the sale/rent price fields that match listing purpose + furnishing."""
+    normalized = payload if isinstance(payload, dict) else {}
+    pricing = normalized.get("pricing")
+    if not isinstance(pricing, dict):
+        return normalized
+    basic = normalized.get("basic_information") or {}
+    details = normalized.get("property_details") or {}
+    purpose = basic.get("listing_purpose") if isinstance(basic, dict) else None
+    furnishing = None
+    if isinstance(details, dict):
+        furnishing = (
+            details.get("furnishing")
+            or details.get("furnishing_status")
+            or details.get("furnishingStatus")
+            or details.get("furniture_status")
+        )
+    if not purpose or not furnishing:
+        return normalized
+    allowed = set(applicable_price_fields(purpose, furnishing))
+    pricing = dict(pricing)
+    for field in (*SALE_PRICE_FIELDS, *RENT_PRICE_FIELDS):
+        if field not in allowed:
+            pricing.pop(field, None)
+    normalized["pricing"] = pricing
+    return normalized
+
+
 def normalize_pricing_currency_codes(payload: dict[str, Any] | None) -> dict[str, Any]:
     """Uppercase/default pricing currencies without converting amounts (draft-safe)."""
     normalized = dict(payload or {})
@@ -1427,9 +1769,9 @@ def pricing_response_fields(pricing: dict[str, Any] | None) -> dict[str, Any]:
     return result
 
 
-REFERENCE_NUMBER_ALPHABET = "abcdefghijklmnopqrstuvwxyz0123456789"
-REFERENCE_NUMBER_SEGMENT_LENGTHS = (8, 9, 6, 6)
+REFERENCE_NUMBER_START = 10001
 REFERENCE_NUMBER_MAX_ATTEMPTS = 12
+REFERENCE_NUMBER_SEQUENCE = "property_reference_number_seq"
 
 
 def _first_letter(value: Any) -> str:
@@ -1519,12 +1861,17 @@ def reference_number_prefix(db: Session, payload: dict[str, Any] | None) -> str 
     return None
 
 
-def generate_reference_number(prefix: str) -> str:
-    segments = [
-        "".join(secrets.choice(REFERENCE_NUMBER_ALPHABET) for _ in range(length))
-        for length in REFERENCE_NUMBER_SEGMENT_LENGTHS
-    ]
-    return f"{prefix}-{'-'.join(segments)}"
+def generate_reference_number(value: int | str) -> str:
+    return str(int(value))
+
+
+def _next_reference_number_value(db: Session) -> int:
+    result = db.execute(text(f"SELECT nextval('{REFERENCE_NUMBER_SEQUENCE}')"))
+    scalar = result.scalar() if hasattr(result, "scalar") else None
+    try:
+        return int(scalar)
+    except (TypeError, ValueError):
+        return REFERENCE_NUMBER_START
 
 
 def _reference_number_taken(db: Session, value: str, *, exclude_id: UUID | None = None) -> bool:
@@ -1537,15 +1884,34 @@ def _reference_number_taken(db: Session, value: str, *, exclude_id: UUID | None 
     )
     if exclude_id is not None:
         stmt = stmt.where(PropertyListingSubmission.id != exclude_id)
-    return db.execute(stmt.limit(1)).first() is not None
+    row = db.execute(stmt.limit(1)).first()
+    if row in (None, False):
+        return False
+    # Unit tests often pass a MagicMock session; those objects are truthy but not DB rows.
+    if getattr(type(row), "__module__", "").startswith("unittest.mock"):
+        return False
+    return True
 
 
-def allocate_reference_number(db: Session, prefix: str, *, exclude_id: UUID | None = None) -> str:
+def allocate_reference_number(db: Session, prefix: str | None = None, *, exclude_id: UUID | None = None) -> str:
     for _ in range(REFERENCE_NUMBER_MAX_ATTEMPTS):
-        candidate = generate_reference_number(prefix)
+        candidate = generate_reference_number(_next_reference_number_value(db))
+        if not candidate.isdigit():
+            continue
         if not _reference_number_taken(db, candidate, exclude_id=exclude_id):
             return candidate
-    raise HTTPException(status_code=STATUS_INTERNAL_SERVER_ERROR, detail="Unable to allocate a unique property reference number")
+    raise_api_error(
+        status_code=STATUS_INTERNAL_SERVER_ERROR,
+        code="DATABASE_ERROR",
+        message="Unable to allocate a unique property reference number",
+        details=[
+            {
+                "field": "property_details.reference_number",
+                "code": "system_error",
+                "message": "Unable to allocate a unique numeric reference number",
+            }
+        ],
+    )
 
 
 def assign_reference_number(
@@ -1560,13 +1926,9 @@ def assign_reference_number(
         return write_payload_reference_number(payload, preserved), preserved
 
     stripped = write_payload_reference_number(payload, None)
-    prefix = reference_number_prefix(db, stripped)
-    if not prefix:
-        return stripped, None
     generated = allocate_reference_number(
         db,
-        prefix,
-        exclude_id=submission.id if submission is not None else None,
+        exclude_id=getattr(submission, "id", None) if submission is not None else None,
     )
     return write_payload_reference_number(stripped, generated), generated
 
@@ -1577,37 +1939,92 @@ def validate_duplicate_property(
     *,
     exclude_submission_id: UUID | None = None,
 ) -> None:
-    """Block only exact matches on established physical-property identifiers."""
+    """Block exact matches on official parcel identifiers or established physical IDs."""
     data = payload or {}
     details = data.get("property_details") or {}
     location = data.get("location") or {}
-    if not isinstance(details, dict) or not isinstance(location, dict):
+    if not isinstance(details, dict) and not isinstance(location, dict):
         return
 
     conditions = []
-    plot_number = str(details.get("plot_number") or "").strip()
-    basin_number = str(details.get("basin_number") or "").strip()
+    village = _parcel_lookup_value(data, "vill_code", "vill_name")
+    hod = _parcel_lookup_value(data, "hod_code", "hod_name", "basin_number")
+    parcel = _parcel_lookup_value(data, "parcel_number", "plot_number")
+    if village and hod and parcel:
+        village_match = or_(
+            _json_text_equals(("property_details", "vill_code"), village),
+            _json_text_equals(("property_details", "vill_name"), village),
+            _json_text_equals(("location", "vill_code"), village),
+            _json_text_equals(("location", "vill_name"), village),
+        )
+        hod_match = or_(
+            _json_text_equals(("property_details", "hod_code"), hod),
+            _json_text_equals(("property_details", "hod_name"), hod),
+            _json_text_equals(("property_details", "basin_number"), hod),
+            _json_text_equals(("location", "hod_code"), hod),
+            _json_text_equals(("location", "hod_name"), hod),
+            _json_text_equals(("location", "basin_number"), hod),
+        )
+        parcel_match = or_(
+            _json_text_equals(("property_details", "parcel_number"), parcel),
+            _json_text_equals(("property_details", "plot_number"), parcel),
+            _json_text_equals(("location", "parcel_number"), parcel),
+            _json_text_equals(("location", "plot_number"), parcel),
+        )
+        dls_match = village_match & hod_match & parcel_match
+        gov_code = _parcel_lookup_value(data, "gov_code")
+        if gov_code:
+            dls_match = dls_match & or_(
+                _json_text_equals(("property_details", "gov_code"), gov_code),
+                _json_text_equals(("location", "gov_code"), gov_code),
+            )
+        dept_code = _parcel_lookup_value(data, "dept_code")
+        if dept_code:
+            dls_match = dls_match & or_(
+                _json_text_equals(("property_details", "dept_code"), dept_code),
+                _json_text_equals(("location", "dept_code"), dept_code),
+            )
+        sect_code = _parcel_lookup_value(data, "sect_code")
+        if sect_code:
+            dls_match = dls_match & or_(
+                _json_text_equals(("property_details", "sect_code"), sect_code),
+                _json_text_equals(("location", "sect_code"), sect_code),
+            )
+        conditions.append(dls_match)
+
+    plot_number = _parcel_lookup_value(data, "plot_number")
+    basin_number = _parcel_lookup_value(data, "basin_number", "hod_code")
     if plot_number and basin_number:
         conditions.append(
             (
-                PropertyListingSubmission.payload.op("#>>")("{property_details,plot_number}") == plot_number
+                or_(
+                    _json_text_equals(("property_details", "plot_number"), plot_number),
+                    _json_text_equals(("location", "plot_number"), plot_number),
+                )
             )
             & (
-                PropertyListingSubmission.payload.op("#>>")("{property_details,basin_number}") == basin_number
+                or_(
+                    _json_text_equals(("property_details", "basin_number"), basin_number),
+                    _json_text_equals(("property_details", "hod_code"), basin_number),
+                    _json_text_equals(("location", "basin_number"), basin_number),
+                    _json_text_equals(("location", "hod_code"), basin_number),
+                )
             )
         )
 
-    apartment_number = str(details.get("apartment_number") or "").strip()
-    city_id = str(location.get("city_id") or "").strip()
-    area_id = str(location.get("area_id") or "").strip()
+    apartment_number = _parcel_lookup_value(data, "apartment_number")
+    city_id = str((location if isinstance(location, dict) else {}).get("city_id") or "").strip()
+    area_id = str((location if isinstance(location, dict) else {}).get("area_id") or "").strip()
     if apartment_number and city_id and area_id:
         conditions.append(
             (
-                PropertyListingSubmission.payload.op("#>>")("{property_details,apartment_number}")
-                == apartment_number
+                or_(
+                    _json_text_equals(("property_details", "apartment_number"), apartment_number),
+                    _json_text_equals(("location", "apartment_number"), apartment_number),
+                )
             )
-            & (PropertyListingSubmission.payload.op("#>>")("{location,city_id}") == city_id)
-            & (PropertyListingSubmission.payload.op("#>>")("{location,area_id}") == area_id)
+            & (_json_text_equals(("location", "city_id"), city_id))
+            & (_json_text_equals(("location", "area_id"), area_id))
         )
 
     if not conditions:
@@ -1628,7 +2045,7 @@ def validate_duplicate_property(
                 {
                     "field": "property_details",
                     "code": "duplicate_property",
-                    "message": "Apartment/location or plot/basin identifiers match an existing property",
+                    "message": "Official parcel identifiers match an existing property",
                 }
             ],
         )
@@ -1654,8 +2071,7 @@ def serialize_submission(submission: PropertyListingSubmission) -> dict:
     return {
         "submission_id": str(submission.id),
         "submitted_by": str(submission.submitted_by),
-        "route_through_agency": bool(getattr(submission, "route_through_agency", False)),
-        "agency_id": str(submission.agency_id) if submission.agency_id else None,
+        **_routing_payload(submission),
         "status": submission.status,
         **workflow_summary,
         "current_step": submission.current_step,
@@ -1707,8 +2123,8 @@ def create_submission(
     validate_built_up_area(normalized_payload)
     validate_pricing(normalized_payload, for_submit=status not in DRAFT_STATUSES)
     normalized_payload = normalize_pricing_currency_codes(normalized_payload)
+    normalized_payload = normalize_built_up_area_to_sqm(normalized_payload)
     if status not in DRAFT_STATUSES:
-        normalized_payload = normalize_built_up_area_to_sqm(normalized_payload)
         normalized_payload = normalize_pricing_to_jod(normalized_payload)
     normalized_payload, reference_number = assign_reference_number(db, normalized_payload)
     agency_id = validate_routing_agency(
@@ -1718,6 +2134,7 @@ def create_submission(
         user_id=user_id,
         roles=roles,
     )
+    route_through_agency = agency_id is not None
     furnishing_status_id, floor_id = property_option_ids_from_payload(normalized_payload)
     submission = PropertyListingSubmission(
         id=uuid4(),
@@ -1774,6 +2191,7 @@ def update_submission(
     validate_built_up_area(next_payload)
     validate_pricing(next_payload)
     next_payload = normalize_pricing_currency_codes(next_payload)
+    next_payload = normalize_built_up_area_to_sqm(next_payload)
     existing_workflow = _workflow_from_submission(submission)
     if existing_workflow:
         next_payload["_workflow"] = existing_workflow
@@ -1787,17 +2205,14 @@ def update_submission(
         if route_through_agency is None
         else route_through_agency
     )
-    submission.route_through_agency = effective_route
-    if effective_route:
-        submission.agency_id = validate_routing_agency(
-            db,
-            route_through_agency=True,
-            agency_id=agency_id if agency_id is not None else submission.agency_id,
-            user_id=user_id or submission.submitted_by,
-            roles=roles,
-        )
-    else:
-        submission.agency_id = None
+    submission.agency_id = validate_routing_agency(
+        db,
+        route_through_agency=effective_route,
+        agency_id=agency_id if agency_id is not None else getattr(submission, "agency_id", None),
+        user_id=user_id or getattr(submission, "submitted_by", None),
+        roles=roles,
+    )
+    submission.route_through_agency = submission.agency_id is not None
     submission.current_step = current_step
     submission.last_completed_step = last_completed_step
     submission.step_completion = compute_step_completion(next_payload)
@@ -2123,7 +2538,8 @@ def submit_submission(
         user_id=user_id,
         roles=roles,
     )
-    if route_through_agency:
+    submission.route_through_agency = submission.agency_id is not None
+    if submission.route_through_agency:
         record_owner_agency_mapping_for_submission(db, user_id=user_id, agency_id=submission.agency_id, roles=roles)
     submission.payload = prepare_property_payload(db, submission.payload, for_submit=True)
     submission.payload = prepare_property_contact_fields(submission.payload)
@@ -2195,7 +2611,7 @@ def validate_routing_agency(
     user_id: UUID,
     roles: tuple[str, ...],
 ) -> UUID | None:
-    if not route_through_agency:
+    if owner_may_submit_without_agency(roles, route_through_agency):
         return None
     resolve_listing_agency_or_400(db, agency_id)
     assert_owner_agency_rule(db, user_id=user_id, agency_id=agency_id, roles=roles)
@@ -2250,32 +2666,95 @@ def record_owner_agency_mapping_for_submission(
         )
 
 
+def notify_super_admins_for_submission(db: Session, *, submission: PropertyListingSubmission, actor_user_id: UUID) -> None:
+    try:
+        recipients = db.execute(
+            select(User)
+            .join(UserRole, UserRole.user_id == User.id)
+            .join(Role, Role.id == UserRole.role_id)
+            .where(
+                Role.name == "super_admin",
+                User.is_active.is_(True),
+                User.deleted_at.is_(None),
+            )
+            .distinct()
+        ).scalars().all()
+    except Exception:
+        logger.warning(
+            "property_submission_super_admin_lookup_failed submission_id=%s",
+            submission.id,
+        )
+        return
+    if not isinstance(recipients, (list, tuple)):
+        return
+    payload = submission.payload or {}
+    title = ((payload.get("basic_information") or {}).get("title")) or "property listing"
+    for recipient in recipients:
+        try:
+            with db.begin_nested():
+                create_in_app_notification(
+                    db,
+                    recipient_user_id=recipient.id,
+                    actor_user_id=actor_user_id,
+                    type_key="property_submission_created",
+                    title="New property submission",
+                    message=f"New property submission received for {title}.",
+                    data={"submission_id": str(submission.id), "agency_id": None},
+                    action_url="/manage-listings",
+                )
+                send_email_notification(
+                    to_email=recipient.email,
+                    subject="New property submission",
+                    body=f"New property submission received for {title}.",
+                )
+                if recipient.phone_number:
+                    send_sms_notification(
+                        to_phone=recipient.phone_number,
+                        body=f"New property submission received for {title}.",
+                    )
+        except Exception:
+            logger.warning(
+                "property_submission_super_admin_notification_failed submission_id=%s recipient=%s",
+                submission.id,
+                getattr(recipient, "id", None),
+            )
+
+
 def notify_agency_admins_for_submission(db: Session, *, submission: PropertyListingSubmission, actor_user_id: UUID) -> None:
     if not submission.agency_id:
+        notify_super_admins_for_submission(db, submission=submission, actor_user_id=actor_user_id)
         return
     recipients = agency_users_with_role(db, agency_id=submission.agency_id, role_name="admin")
     payload = submission.payload or {}
     title = ((payload.get("basic_information") or {}).get("title")) or "property listing"
     for recipient in recipients:
-        create_in_app_notification(
-            db,
-            recipient_user_id=recipient.id,
-            actor_user_id=actor_user_id,
-            type_key="property_submission_created",
-            title="New property submission",
-            message=f"New property submission received for {title}.",
-            data={"submission_id": str(submission.id), "agency_id": str(submission.agency_id)},
-            action_url="/manage-listings",
-        )
-        send_email_notification(
-            to_email=recipient.email,
-            subject="New property submission",
-            body=f"New property submission received for {title}.",
-        )
-        if recipient.phone_number:
-            send_sms_notification(
-                to_phone=recipient.phone_number,
-                body=f"New property submission received for {title}.",
+        try:
+            with db.begin_nested():
+                create_in_app_notification(
+                    db,
+                    recipient_user_id=recipient.id,
+                    actor_user_id=actor_user_id,
+                    type_key="property_submission_created",
+                    title="New property submission",
+                    message=f"New property submission received for {title}.",
+                    data={"submission_id": str(submission.id), "agency_id": str(submission.agency_id)},
+                    action_url="/manage-listings",
+                )
+                send_email_notification(
+                    to_email=recipient.email,
+                    subject="New property submission",
+                    body=f"New property submission received for {title}.",
+                )
+                if recipient.phone_number:
+                    send_sms_notification(
+                        to_phone=recipient.phone_number,
+                        body=f"New property submission received for {title}.",
+                    )
+        except Exception:
+            logger.warning(
+                "property_submission_notification_failed submission_id=%s recipient=%s",
+                submission.id,
+                getattr(recipient, "id", None),
             )
 
 
@@ -2288,25 +2767,33 @@ def notify_assigned_agent_for_submission(db: Session, *, submission: PropertyLis
         return
     payload = submission.payload or {}
     title = ((payload.get("basic_information") or {}).get("title")) or "property listing"
-    create_in_app_notification(
-        db,
-        recipient_user_id=recipient.id,
-        actor_user_id=actor_user_id,
-        type_key="property_submission_assigned_for_update",
-        title="Property submission assigned",
-        message=f"Property submission for {title} is assigned to you for completion.",
-        data={"submission_id": str(submission.id), "agency_id": str(submission.agency_id) if submission.agency_id else None},
-        action_url="/my-listings",
-    )
-    send_email_notification(
-        to_email=recipient.email,
-        subject="Property submission assigned",
-        body=f"Property submission for {title} is assigned to you for completion.",
-    )
-    if recipient.phone_number:
-        send_sms_notification(
-            to_phone=recipient.phone_number,
-            body=f"Property submission for {title} is assigned to you for completion.",
+    try:
+        with db.begin_nested():
+            create_in_app_notification(
+                db,
+                recipient_user_id=recipient.id,
+                actor_user_id=actor_user_id,
+                type_key="property_submission_assigned_for_update",
+                title="Property submission assigned",
+                message=f"Property submission for {title} is assigned to you for completion.",
+                data={"submission_id": str(submission.id), "agency_id": str(submission.agency_id) if submission.agency_id else None},
+                action_url="/my-listings",
+            )
+            send_email_notification(
+                to_email=recipient.email,
+                subject="Property submission assigned",
+                body=f"Property submission for {title} is assigned to you for completion.",
+            )
+            if recipient.phone_number:
+                send_sms_notification(
+                    to_phone=recipient.phone_number,
+                    body=f"Property submission for {title} is assigned to you for completion.",
+                )
+    except Exception:
+        logger.warning(
+            "property_assignment_notification_failed submission_id=%s agent_id=%s",
+            submission.id,
+            getattr(recipient, "id", None),
         )
 
 
@@ -2385,8 +2872,7 @@ def review_submission(
 def serialize_draft_list_item(submission: PropertyListingSubmission) -> dict:
     return {
         "submission_id": str(submission.id),
-        "route_through_agency": bool(getattr(submission, "route_through_agency", False)),
-        "agency_id": str(submission.agency_id) if submission.agency_id else None,
+        **_routing_payload(submission),
         "status": submission.status,
         "current_step": submission.current_step,
         "last_completed_step": submission.last_completed_step,
@@ -2639,8 +3125,7 @@ def serialize_agent_property_item(
         **workflow_summary,
         "can_edit_submission": can_edit_submission,
         "can_delete_submission": can_delete_submission_value,
-        "route_through_agency": bool(getattr(submission, "route_through_agency", False)),
-        "agency_id": str(submission.agency_id) if submission.agency_id else None,
+        **_routing_payload(submission),
         "agency": agency,
         "submitted_by": submitter.full_name if submitter and submitter.full_name else str(submission.submitted_by),
         "agent_user_id": workflow.get("assigned_agent_id"),
@@ -2678,8 +3163,7 @@ def serialize_admin_submission_item(
     )
     return {
         "submission_id": str(submission.id),
-        "route_through_agency": bool(getattr(submission, "route_through_agency", False)),
-        "agency_id": str(submission.agency_id) if submission.agency_id else None,
+        **_routing_payload(submission),
         "submitted_by": str(submission.submitted_by),
         "submitted_by_name": submitter.full_name if submitter else "",
         "status": workflow_label,

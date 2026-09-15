@@ -74,3 +74,32 @@ def test_direct_submit_validation_error_does_not_commit_draft(monkeypatch) -> No
     assert submission.status == "draft"
     db.commit.assert_not_called()
     db.refresh.assert_not_called()
+
+
+def test_owner_direct_submit_without_agency_passes_null_agency_id(monkeypatch) -> None:
+    captured: dict = {}
+    submission = SimpleNamespace(status="submitted")
+    db = MagicMock()
+
+    def create(*args, **kwargs):
+        captured.update(kwargs)
+        return submission
+
+    monkeypatch.setattr(property_submissions, "create_submission", create)
+    monkeypatch.setattr(property_submissions, "submit_submission", lambda *args, **kwargs: submission)
+    monkeypatch.setattr(property_submissions, "serialize_submission", lambda value: {"agency_id": None, "status": value.status})
+
+    request = PropertySubmissionDirectSubmitRequest.model_validate(
+        {
+            "confirm_submit": True,
+            "verify_through_agency": False,
+            "agency_id": None,
+            "payload": {"media_documents": {"images": [{"url": "https://example.com/property.jpg"}]}},
+        }
+    )
+    response = property_submissions.submit_new_property_submission(request, _context(), db)
+
+    assert captured["agency_id"] is None
+    assert captured["route_through_agency"] is False
+    assert captured["roles"] == ("owner",)
+    assert response["data"]["agency_id"] is None

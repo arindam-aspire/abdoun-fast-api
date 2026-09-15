@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 from uuid import uuid4
@@ -17,10 +16,6 @@ from app.services.property_submissions import (
     stored_reference_number,
     update_submission,
     write_payload_reference_number,
-)
-
-REFERENCE_NUMBER_PATTERN = re.compile(
-    r"^[A-Z]{2}-[a-z0-9]{8}-[a-z0-9]{9}-[a-z0-9]{6}-[a-z0-9]{6}$"
 )
 
 
@@ -42,13 +37,13 @@ def _db_with_taxonomy(category: str = "Residential", property_type: str = "Apart
 
     db.get.side_effect = get
     db.execute.return_value.first.return_value = None
+    db.execute.return_value.scalar.return_value = 10001
     return db
 
 
-def test_generate_reference_number_matches_unique_segment_format() -> None:
-    value = generate_reference_number("RA")
-    assert REFERENCE_NUMBER_PATTERN.match(value)
-    assert value.startswith("RA-")
+def test_generate_reference_number_is_numeric_only() -> None:
+    assert generate_reference_number(10001) == "10001"
+    assert generate_reference_number("10002") == "10002"
 
 
 def test_reference_prefix_residential_apartment() -> None:
@@ -71,8 +66,8 @@ def test_client_provided_reference_number_is_ignored_on_create() -> None:
         last_completed_step=3,
     )
     assert submission.reference_number != "CLIENT-REF"
-    assert REFERENCE_NUMBER_PATTERN.match(submission.reference_number)
-    assert submission.payload["property_details"]["reference_number"] == submission.reference_number
+    assert submission.reference_number == "10001"
+    assert submission.payload["property_details"]["reference_number"] == "10001"
     assert submission.payload["property_details"]["bedrooms"] == 3
 
 
@@ -86,14 +81,14 @@ def test_create_does_not_invent_property_details_section() -> None:
         current_step=1,
         last_completed_step=1,
     )
-    assert REFERENCE_NUMBER_PATTERN.match(submission.reference_number)
+    assert submission.reference_number == "10001"
     assert "property_details" not in submission.payload
 
 
 def test_update_preserves_existing_reference_and_ignores_client(monkeypatch) -> None:
     monkeypatch.setattr("app.services.property_submissions.flag_modified", lambda *args, **kwargs: None)
     db = _db_with_taxonomy()
-    existing = "RA-q3i84ru8-q3i4i7ury-qi34yr-hhhhvg"
+    existing = "10001"
     submission = SimpleNamespace(
         id=uuid4(),
         status="draft",
@@ -149,29 +144,31 @@ def test_update_generates_reference_when_missing_and_taxonomy_present(monkeypatc
         last_completed_step=3,
     )
     assert updated.reference_number != "NOPE"
-    assert REFERENCE_NUMBER_PATTERN.match(updated.reference_number)
-    assert updated.payload["property_details"]["reference_number"] == updated.reference_number
+    assert updated.reference_number == "10001"
+    assert updated.payload["property_details"]["reference_number"] == "10001"
 
 
-def test_assign_strips_client_value_until_taxonomy_exists() -> None:
+def test_assign_strips_client_value_and_generates_numeric_sequence() -> None:
     db = MagicMock()
     db.get.return_value = None
+    db.execute.return_value.first.return_value = None
+    db.execute.return_value.scalar.return_value = 10003
     payload, value = assign_reference_number(
         db,
         {"property_details": {"reference_number": "CLIENT-REF", "bedrooms": 1}},
     )
-    assert value is None
-    assert "reference_number" not in payload["property_details"]
+    assert value == "10003"
+    assert payload["property_details"]["reference_number"] == "10003"
     assert payload["property_details"]["bedrooms"] == 1
 
 
 def test_write_payload_reference_number_does_not_create_details() -> None:
-    payload = write_payload_reference_number({"basic_information": {"title": "Villa"}}, "RA-abc")
+    payload = write_payload_reference_number({"basic_information": {"title": "Villa"}}, "10001")
     assert "property_details" not in payload
 
 
 def test_serialize_submission_returns_generated_reference() -> None:
-    reference = "RA-q3i84ru8-q3i4i7ury-qi34yr-hhhhvg"
+    reference = "10001"
     submission = SimpleNamespace(
         id=uuid4(),
         submitted_by=uuid4(),
@@ -194,7 +191,19 @@ def test_serialize_submission_returns_generated_reference() -> None:
 
 def test_stored_reference_number_prefers_column_over_payload() -> None:
     submission = SimpleNamespace(
-        reference_number="RA-from-column",
+        reference_number="10001",
         payload={"property_details": {"reference_number": "legacy"}},
     )
-    assert stored_reference_number(submission) == "RA-from-column"
+    assert stored_reference_number(submission) == "10001"
+
+
+def test_allocate_is_sequential_when_sequence_advances() -> None:
+    db = MagicMock()
+    db.execute.return_value.first.return_value = None
+    db.execute.return_value.scalar.side_effect = [10001, 10002]
+    first, first_value = assign_reference_number(db, {"property_details": {}})
+    second, second_value = assign_reference_number(db, {"property_details": {}})
+    assert first_value == "10001"
+    assert second_value == "10002"
+    assert first["property_details"]["reference_number"] == "10001"
+    assert second["property_details"]["reference_number"] == "10002"

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, Numeric, String, Text, text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, Numeric, String, Text, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -664,6 +664,44 @@ class Area(Base):
     updated_at: Mapped[Any] = mapped_column(DateTime, nullable=True, server_default=text("now()"))
 
 
+class DlsLocation(Base):
+    """Official DLS land-admin hierarchy imported from DLS_FINAL_FIXED_UTF8.xlsx."""
+
+    __tablename__ = "dls_locations"
+    __table_args__ = (
+        UniqueConstraint(
+            "gov_code",
+            "dept_code",
+            "vill_code",
+            "hod_code",
+            "sect_code",
+            name="uq_dls_locations_hierarchy",
+        ),
+        Index("ix_dls_locations_gov", "gov_code"),
+        Index("ix_dls_locations_gov_dept", "gov_code", "dept_code"),
+        Index("ix_dls_locations_gov_dept_vill", "gov_code", "dept_code", "vill_code"),
+        Index(
+            "ix_dls_locations_gov_dept_vill_hod",
+            "gov_code",
+            "dept_code",
+            "vill_code",
+            "hod_code",
+        ),
+    )
+
+    id: Mapped[Any] = mapped_column(Integer, primary_key=True, nullable=False, autoincrement=True)
+    gov_code: Mapped[Any] = mapped_column(String(50), nullable=False)
+    gov_name: Mapped[Any] = mapped_column(String(255), nullable=False)
+    dept_code: Mapped[Any] = mapped_column(String(50), nullable=False)
+    dept_name: Mapped[Any] = mapped_column(String(255), nullable=False)
+    vill_code: Mapped[Any] = mapped_column(String(50), nullable=False)
+    vill_name: Mapped[Any] = mapped_column(String(255), nullable=False)
+    hod_code: Mapped[Any] = mapped_column(String(50), nullable=False)
+    hod_name: Mapped[Any] = mapped_column(String(255), nullable=False)
+    sect_code: Mapped[Any] = mapped_column(String(50), nullable=False)
+    sect_name: Mapped[Any] = mapped_column(String(255), nullable=False)
+
+
 class PropertyOwner(Base):
     __tablename__ = "property_owner"
 
@@ -688,6 +726,7 @@ __all__ = [
     "CategorySearchField",
     "City",
     "DashboardSummary",
+    "DlsLocation",
     "Feature",
     "Lead",
     "LeadCloseRequest",

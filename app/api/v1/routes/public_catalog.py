@@ -5,6 +5,7 @@ from sqlalchemy import select
 
 from app.api.deps import DBSessionDep
 from app.models.live_schema import Area, City, Feature, PropertyCategory, PropertyType
+from app.services.dls_locations import list_dls_locations
 from app.services.property_taxonomy import (
     is_dco_category,
     is_dco_property_type,
@@ -173,3 +174,35 @@ def get_location_taxonomy(db: DBSessionDep) -> dict:
         for city in cities
     ]
     return success_response({"data": data, "total": len(data)})
+
+
+@router.get(
+    "/dls-locations",
+    summary="List official DLS hierarchy options",
+    description=(
+        "Returns DLS master-data rows from dls_locations. "
+        "Filter with level=gov|dept|vill|hod|sect. "
+        "Each child level requires the previous level code: "
+        "dept needs gov_code, vill needs gov_code+dept_code, "
+        "hod needs gov_code+dept_code+vill_code, "
+        "sect needs gov_code+dept_code+vill_code+hod_code."
+    ),
+)
+def get_dls_locations(
+    db: DBSessionDep,
+    level: str = "gov",
+    gov_code: str | None = None,
+    dept_code: str | None = None,
+    vill_code: str | None = None,
+    hod_code: str | None = None,
+) -> dict:
+    return success_response(
+        list_dls_locations(
+            db,
+            level=level,
+            gov_code=gov_code,
+            dept_code=dept_code,
+            vill_code=vill_code,
+            hod_code=hod_code,
+        )
+    )

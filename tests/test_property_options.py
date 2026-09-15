@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+from unittest.mock import MagicMock
 
-from app.services.property_options import normalize_group_key, serialize_option
+import pytest
+from fastapi import HTTPException
+
+from app.services.property_options import normalize_group_key, resolve_property_option, serialize_option
 
 
 def test_normalize_group_key_accepts_camel_case_master_api_filters() -> None:
@@ -31,3 +35,16 @@ def test_serialize_option_returns_master_table_fields() -> None:
         "display_order": 0,
         "is_active": True,
     }
+
+
+def test_under_construction_completion_status_is_rejected() -> None:
+    with pytest.raises(HTTPException) as exc_info:
+        resolve_property_option(
+            MagicMock(),
+            group="completion_status",
+            value="Under Construction",
+            field="property_details.completion_status",
+        )
+    assert exc_info.value.status_code == 400
+    assert exc_info.value.detail["code"] == "INVALID_VALUE"
+    assert "Under Construction" in exc_info.value.detail["message"]
