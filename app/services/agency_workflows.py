@@ -21,7 +21,7 @@ from app.schemas.agency import (
 )
 from app.services.audit import record_activity
 from app.services.auth import cognito_service, create_user, find_user_by_username, register_cognito_user, serialize_agency
-from app.services.notifications import send_email_notification
+from app.services.notifications import EmailPurpose, send_email_notification
 from app.utils.status_codes import STATUS_BAD_REQUEST, STATUS_CONFLICT, STATUS_NOT_FOUND
 
 
@@ -162,6 +162,7 @@ def create_agency_invitation(
         to_email=email,
         subject="Abdoun agency invitation",
         body=f"You have been invited to register your agency. Dev invitation link: {_agency_invitation_link(invitation.token)}",
+        purpose=EmailPurpose.AGENT_INVITATION,
     )
     return invitation
 
@@ -194,6 +195,7 @@ def revoke_agency_invitation(db: Session, *, invitation_id: UUID, actor_id: UUID
         to_email=invitation.email,
         subject="Abdoun agency invitation revoked",
         body="Your agency invitation has been revoked.",
+        purpose=EmailPurpose.ACCOUNT_NOTIFICATION,
     )
     return invitation
 
@@ -284,6 +286,7 @@ def create_password_setup_challenge(db: Session, *, user: User, agency: AgencyMa
         to_email=user.email,
         subject="Create your Abdoun agency password",
         body=f"Create your agency password. Dev password setup link: {_agency_activation_link(token)}",
+        purpose=EmailPurpose.PASSWORD_RESET,
     )
     return token
 
@@ -366,6 +369,7 @@ def accept_agency_invitation(db: Session, *, payload: AgencyInvitationAcceptRequ
         to_email=agency.email,
         subject="Agency registration submitted",
         body="Your agency registration has been submitted for Super Admin review.",
+        purpose=EmailPurpose.ACCOUNT_NOTIFICATION,
     )
     return agency
 
@@ -404,6 +408,7 @@ def approve_or_reject_agency(
             to_email=agency.email,
             subject="Agency registration rejected",
             body=reason or "Your agency registration has been rejected.",
+            purpose=EmailPurpose.ACCOUNT_NOTIFICATION,
         )
         return agency, None
     raise HTTPException(status_code=STATUS_BAD_REQUEST, detail="Invalid agency review action")
@@ -518,6 +523,7 @@ def complete_agency_password_setup(db: Session, *, token: str, password: str) ->
         to_email=agency.email,
         subject="Agency account activated",
         body="Your agency account is active.",
+        purpose=EmailPurpose.ACCOUNT_NOTIFICATION,
     )
     return agency
 

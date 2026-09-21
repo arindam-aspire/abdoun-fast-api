@@ -170,8 +170,14 @@ def test_sale_and_rent_accepts_both_relevant_prices() -> None:
     )
 
 
-def test_media_sync_persists_exactly_one_primary_image() -> None:
+def _media_db_mock(existing: list | None = None) -> MagicMock:
     db = MagicMock()
+    db.scalars.return_value.all.return_value = list(existing or [])
+    return db
+
+
+def test_media_sync_persists_exactly_one_primary_image() -> None:
+    db = _media_db_mock()
     sync_property_media_from_payload(
         db,
         property_id=uuid4(),
@@ -190,6 +196,52 @@ def test_media_sync_persists_exactly_one_primary_image() -> None:
         if call.args[0].media_type == "image"
     ]
     assert sum(bool(row.is_primary) for row in image_rows) == 1
+
+
+def test_media_sync_accepts_file_url_aliases() -> None:
+    db = _media_db_mock()
+    sync_property_media_from_payload(
+        db,
+        property_id=uuid4(),
+        payload={"media_documents": {"images": [{"fileUrl": "https://example.com/one.jpg"}]}},
+    )
+    added = db.add.call_args_list[0].args[0]
+    assert added.url == "https://example.com/one.jpg"
+    assert added.is_primary is True
+
+
+def test_media_sync_does_not_mark_non_images_primary() -> None:
+    db = _media_db_mock()
+    sync_property_media_from_payload(
+        db,
+        property_id=uuid4(),
+        payload={
+            "media_documents": {
+                "images": [{"url": "https://example.com/one.jpg", "isPrimary": True}],
+                "youtube_url": "https://youtube.com/watch?v=abc",
+                "floor_plan_images": [{"url": "https://example.com/plan.jpg"}],
+                "documents": [{"url": "https://example.com/doc.pdf"}],
+            }
+        },
+    )
+    rows = [call.args[0] for call in db.add.call_args_list]
+    assert sum(bool(row.is_primary) for row in rows) == 1
+    assert all(row.is_primary for row in rows if row.media_type == "image")
+    assert not any(row.is_primary for row in rows if row.media_type != "image")
+
+
+def test_media_sync_flushes_existing_primary_before_insert() -> None:
+    existing = SimpleNamespace(is_primary=True, media_type="image")
+    db = _media_db_mock([existing])
+    sync_property_media_from_payload(
+        db,
+        property_id=uuid4(),
+        payload={"media_documents": {"images": [{"url": "https://example.com/one.jpg"}]}},
+    )
+    method_names = [name for name, *_ in db.method_calls]
+    assert method_names.index("flush") < method_names.index("add")
+    assert db.delete.call_args_list[0].args[0] is existing
+    assert db.flush.call_count >= 2
 
 
 def test_exact_plot_and_basin_match_is_a_duplicate_property() -> None:

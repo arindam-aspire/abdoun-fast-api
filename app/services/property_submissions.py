@@ -8,7 +8,7 @@ from typing import Any, NoReturn
 from uuid import UUID, uuid4
 
 from fastapi import HTTPException
-from sqlalchemy import delete, func, or_, select, text
+from sqlalchemy import func, or_, select, text, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
@@ -30,7 +30,7 @@ from app.services.audit import record_activity
 from app.services.dls_locations import DLS_PARENTS, dls_official_name
 from app.services.exchange_rates import assert_supported_currency, convert_amount_to_jod_or_http_error
 from app.services.media_urls import canonicalize_media_url, with_canonical_media_urls, with_readable_media_urls
-from app.services.notifications import create_in_app_notification, send_email_notification, send_sms_notification
+from app.services.notifications import EmailPurpose, create_in_app_notification, send_email_notification, send_sms_notification
 from app.services.property_workflow_config import get_property_workflow_config
 from app.services.property_options import resolve_property_option
 from app.services.user_agencies import (
@@ -439,7 +439,7 @@ def _has_property_image(payload: dict[str, Any]) -> bool:
     images = media.get("images") or []
     if not isinstance(images, list):
         return False
-    return any(isinstance(image, dict) and bool(str(image.get("url") or "").strip()) for image in images)
+    return any(bool(_media_item_url(image)) for image in images)
 
 
 def _media_item_url(item: Any) -> str | None:
@@ -447,58 +447,62 @@ def _media_item_url(item: Any) -> str | None:
         value = item.strip()
         return canonicalize_media_url(value) if value else None
     if isinstance(item, dict):
-        value = str(item.get("url") or item.get("file_url") or "").strip()
+        raw = item.get("url") or item.get("file_url") or item.get("fileUrl") or ""
+        value = str(raw).strip()
         return canonicalize_media_url(value) if value else None
     return None
 
 
-def sync_property_media_from_payload(
-    db: Session,
-    *,
-    property_id: UUID,
-    payload: dict[str, Any] | None,
-) -> None:
-    """Materialize payload.media_documents into normalized property_media rows."""
+def _media_item_caption(item: Any) -> str | None:
+    if not isinstance(item, dict):
+        return None
+    value = item.get("caption") or item.get("file_name") or item.get("fileName")
+    if value in (None, ""):
+        return None
+    return str(value)
+
+
+def _media_item_is_primary(item: Any, *, default: bool = False) -> bool:
+    if not isinstance(item, dict):
+        return default
+    if "is_primary" in item:
+        return coerce_bool(item.get("is_primary"), default=False)
+    if "isPrimary" in item:
+        return coerce_bool(item.get("isPrimary"), default=False)
+    return default
+
+
+def _property_media_rows_from_payload(property_id: UUID, payload: dict[str, Any] | None) -> list[PropertyMedia]:
     media = (payload or {}).get("media_documents") or {}
     if not isinstance(media, dict):
         media = {}
 
-    db.execute(delete(PropertyMedia).where(PropertyMedia.property_id == property_id))
-
     rows: list[PropertyMedia] = []
-
     images = media.get("images") or []
     if isinstance(images, list):
         for index, image in enumerate(images):
             url = _media_item_url(image)
             if not url:
                 continue
-            is_primary = bool(image.get("is_primary")) if isinstance(image, dict) else index == 0
-            if not any(row.is_primary for row in rows if row.media_type == "image") and index == 0:
-                is_primary = True
             display_order = index
-            caption = None
-            if isinstance(image, dict):
-                raw_order = image.get("display_order")
-                if raw_order is not None:
-                    try:
-                        display_order = int(raw_order)
-                    except (TypeError, ValueError):
-                        display_order = index
-                caption = image.get("caption") or image.get("file_name")
+            if isinstance(image, dict) and image.get("display_order") is not None:
+                try:
+                    display_order = int(image.get("display_order"))
+                except (TypeError, ValueError):
+                    display_order = index
             rows.append(
                 PropertyMedia(
                     property_id=property_id,
                     media_type="image",
                     url=url,
                     thumb_url=url,
-                    is_primary=is_primary,
+                    is_primary=_media_item_is_primary(image, default=index == 0),
                     display_order=display_order,
-                    caption=caption,
+                    caption=_media_item_caption(image),
                 )
             )
 
-    youtube_url = str(media.get("youtube_url") or "").strip()
+    youtube_url = str(media.get("youtube_url") or media.get("youtubeUrl") or "").strip()
     if youtube_url:
         rows.append(
             PropertyMedia(
@@ -506,28 +510,27 @@ def sync_property_media_from_payload(
                 media_type="video",
                 url=youtube_url,
                 thumb_url=youtube_url,
-                is_primary=True,
+                is_primary=False,
                 display_order=0,
                 caption=None,
             )
         )
 
-    floor_plans = media.get("floor_plan_images") or media.get("floor_plans") or []
+    floor_plans = media.get("floor_plan_images") or media.get("floor_plans") or media.get("floorPlanImages") or []
     if isinstance(floor_plans, list):
         for index, item in enumerate(floor_plans):
             url = _media_item_url(item)
             if not url:
                 continue
-            caption = item.get("file_name") if isinstance(item, dict) else None
             rows.append(
                 PropertyMedia(
                     property_id=property_id,
                     media_type="floor_plan",
                     url=url,
                     thumb_url=url,
-                    is_primary=index == 0,
+                    is_primary=False,
                     display_order=index,
-                    caption=caption,
+                    caption=_media_item_caption(item),
                 )
             )
 
@@ -537,16 +540,15 @@ def sync_property_media_from_payload(
             url = _media_item_url(item)
             if not url:
                 continue
-            caption = item.get("file_name") if isinstance(item, dict) else None
             rows.append(
                 PropertyMedia(
                     property_id=property_id,
                     media_type="document",
                     url=url,
                     thumb_url=url,
-                    is_primary=index == 0,
+                    is_primary=False,
                     display_order=index,
-                    caption=caption,
+                    caption=_media_item_caption(item),
                 )
             )
 
@@ -555,12 +557,42 @@ def sync_property_media_from_payload(
         primary_image = next((row for row in image_rows if row.is_primary), image_rows[0])
         for row in image_rows:
             row.is_primary = row is primary_image
+    return rows
 
+
+def _replace_property_media_rows(db: Session, *, property_id: UUID, rows: list[PropertyMedia]) -> None:
+    """Replace media without tripping uq_property_media_primary_image.
+
+    Production enforces one primary image per property. Inserting the replacement
+    primary before the previous row is gone raises IntegrityError (FILE_UPLOAD_ERROR).
+    Local DBs often lack that unique index, so the same payload succeeds there.
+    """
+    db.execute(
+        update(PropertyMedia)
+        .where(PropertyMedia.property_id == property_id)
+        .values(is_primary=False)
+    )
+    existing = db.scalars(select(PropertyMedia).where(PropertyMedia.property_id == property_id)).all()
+    for row in existing:
+        db.delete(row)
+    db.flush()
     for row in rows:
         db.add(row)
+    db.flush()
+
+
+def sync_property_media_from_payload(
+    db: Session,
+    *,
+    property_id: UUID,
+    payload: dict[str, Any] | None,
+) -> None:
+    """Materialize payload.media_documents into normalized property_media rows."""
+    rows = _property_media_rows_from_payload(property_id, payload)
     try:
-        db.flush()
+        _replace_property_media_rows(db, property_id=property_id, rows=rows)
     except IntegrityError:
+        logger.exception("Unable to save property media for property_id=%s", property_id)
         raise_api_error(
             status_code=STATUS_BAD_REQUEST,
             code="FILE_UPLOAD_ERROR",
@@ -578,6 +610,7 @@ def sync_property_media_from_payload(
 def ensure_property_id_and_sync_media(db: Session, submission: PropertyListingSubmission) -> UUID:
     if not submission.property_id:
         submission.property_id = uuid4()
+    db.flush()
     sync_property_media_from_payload(
         db,
         property_id=submission.property_id,
@@ -2220,6 +2253,7 @@ def update_submission(
         submission.status = "draft"
     flag_modified(submission, "payload")
     if submission.property_id and next_payload.get("media_documents") is not None:
+        db.flush()
         sync_property_media_from_payload(
             db,
             property_id=submission.property_id,
@@ -2706,6 +2740,7 @@ def notify_super_admins_for_submission(db: Session, *, submission: PropertyListi
                     to_email=recipient.email,
                     subject="New property submission",
                     body=f"New property submission received for {title}.",
+                    purpose=EmailPurpose.GENERAL,
                 )
                 if recipient.phone_number:
                     send_sms_notification(
@@ -2744,6 +2779,7 @@ def notify_agency_admins_for_submission(db: Session, *, submission: PropertyList
                     to_email=recipient.email,
                     subject="New property submission",
                     body=f"New property submission received for {title}.",
+                    purpose=EmailPurpose.GENERAL,
                 )
                 if recipient.phone_number:
                     send_sms_notification(
@@ -2783,6 +2819,7 @@ def notify_assigned_agent_for_submission(db: Session, *, submission: PropertyLis
                 to_email=recipient.email,
                 subject="Property submission assigned",
                 body=f"Property submission for {title} is assigned to you for completion.",
+                purpose=EmailPurpose.GENERAL,
             )
             if recipient.phone_number:
                 send_sms_notification(

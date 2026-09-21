@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 from app.models.live_schema import ActivityLog, Lead, LeadCloseRequest, LeadMessage, LeadNote, LeadStatusHistory, PropertyListingSubmission, Role, User, UserRole
 from app.schemas.leads import LeadCreate
 from app.services.audit import record_activity
-from app.services.notifications import create_in_app_notification, send_email_notification, send_sms_notification
+from app.services.notifications import EmailPurpose, create_in_app_notification, send_email_notification, send_sms_notification
 from app.services.property_submissions import DEAL_CLOSED_STATUS
 from app.services.public_properties import get_public_submission_or_404, pagination_meta, serialize_property_listing
 from app.services.user_agencies import REL_AGENCY_ADMIN, REL_AGENT, active_agency_ids_for_user, agency_user_ids, agency_users_with_role, user_has_active_agency_mapping
@@ -364,6 +364,7 @@ def create_lead(db: Session, *, payload: LeadCreate, user_id: UUID | None = None
             to_email=recipient.email,
             subject="New property inquiry",
             body=f"New inquiry received for lead {lead.lead_number}.",
+            purpose=EmailPurpose.GENERAL,
         )
         if recipient.phone_number:
             send_sms_notification(
@@ -1101,7 +1102,12 @@ def add_lead_message(
         )
         recipient = db.get(User, recipient_user_id)
         if recipient and channel == "EMAIL":
-            send_email_notification(to_email=recipient.email, subject="Lead message", body=message)
+            send_email_notification(
+                to_email=recipient.email,
+                subject="Lead message",
+                body=message,
+                purpose=EmailPurpose.GENERAL,
+            )
         if recipient and channel == "SMS" and recipient.phone_number:
             send_sms_notification(to_phone=recipient.phone_number, body=message)
     return record

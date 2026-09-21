@@ -6,15 +6,18 @@ from functools import lru_cache
 import boto3
 from botocore.exceptions import BotoCoreError, ClientError
 
-from app.core.config import Settings, get_settings
+from app.core.config import get_settings
 from app.services.notifications.email.base import EmailProvider
 from app.services.notifications.email.exceptions import EmailConfigurationError, EmailDeliveryError
+from app.services.notifications.email.purpose import validate_ses_settings as _validate_ses_settings
 
 logger = logging.getLogger(__name__)
 
 # Required IAM permissions for the runtime role/user:
 # - ses:SendEmail
 # - ses:SendRawEmail
+
+validate_ses_settings = _validate_ses_settings
 
 
 def _format_source(from_name: str | None, from_email: str) -> str:
@@ -24,24 +27,16 @@ def _format_source(from_name: str | None, from_email: str) -> str:
     return from_email
 
 
-def validate_ses_settings(settings: Settings) -> None:
-    region = (settings.aws_region or "").strip()
-    from_email = (settings.ses_from_email or "").strip()
-    missing: list[str] = []
-    if not region:
-        missing.append("AWS_REGION")
-    if not from_email:
-        missing.append("SES_FROM_EMAIL")
-    if missing:
-        raise EmailConfigurationError(
-            f"Missing required SES configuration when NOTIFICATION_EMAIL_MODE=ses: {', '.join(missing)}"
-        )
-
-
 @lru_cache
 def _ses_client():
+    # Use the default AWS credential chain (IAM role, instance profile, or env).
+    # Never pass hardcoded access keys into this client.
     settings = get_settings()
     region = (settings.aws_region or "").strip()
+    if not region:
+        raise EmailConfigurationError(
+            "Missing required SES configuration when NOTIFICATION_EMAIL_MODE=ses: AWS_REGION"
+        )
     return boto3.client("ses", region_name=region)
 
 
@@ -53,26 +48,39 @@ class SesEmailProvider(EmailProvider):
         subject: str,
         text_body: str,
         html_body: str | None = None,
+        from_email: str | None = None,
+        from_name: str | None = None,
+        reply_to: str | None = None,
     ) -> str:
         settings = get_settings()
         validate_ses_settings(settings)
 
-        source = _format_source(settings.ses_from_name, settings.ses_from_email.strip())
+        sender = (from_email or "").strip()
+        if not sender:
+            raise EmailConfigurationError(
+                "Missing required SES sender address for this email purpose"
+            )
+
+        source = _format_source(from_name if from_name is not None else settings.ses_from_name, sender)
         body: dict[str, dict[str, str]] = {
             "Text": {"Data": text_body, "Charset": "UTF-8"},
         }
         if html_body:
             body["Html"] = {"Data": html_body, "Charset": "UTF-8"}
 
+        request: dict[str, object] = {
+            "Source": source,
+            "Destination": {"ToAddresses": [to_email]},
+            "Message": {
+                "Subject": {"Data": subject, "Charset": "UTF-8"},
+                "Body": body,
+            },
+        }
+        if reply_to:
+            request["ReplyToAddresses"] = [reply_to]
+
         try:
-            response = _ses_client().send_email(
-                Source=source,
-                Destination={"ToAddresses": [to_email]},
-                Message={
-                    "Subject": {"Data": subject, "Charset": "UTF-8"},
-                    "Body": body,
-                },
-            )
+            response = _ses_client().send_email(**request)
         except ClientError as exc:
             error_code = exc.response.get("Error", {}).get("Code", "ClientError")
             logger.warning(

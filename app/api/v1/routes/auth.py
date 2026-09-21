@@ -79,7 +79,13 @@ def login_with_otp_request(payload: SignInWithOtpRequest, db: DBSessionDep) -> d
         purpose="login_otp",
         new_value=normalize_username(payload.username),
     )
-    send_dev_otp(user=user, purpose="login", otp=otp, challenge=challenge)
+    send_dev_otp(
+        user=user,
+        purpose="login",
+        otp=otp,
+        challenge=challenge,
+        identifier=payload.username,
+    )
     db.commit()
     return success_response(
         build_otp_response_data(session=str(challenge.id), otp=otp),

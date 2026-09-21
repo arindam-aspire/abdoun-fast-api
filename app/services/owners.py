@@ -22,7 +22,7 @@ from app.models.live_schema import (
 )
 from app.services.audit import record_activity
 from app.services.leads import serialize_lead
-from app.services.notifications import create_in_app_notification, send_email_notification
+from app.services.notifications import EmailPurpose, create_in_app_notification, send_email_notification
 from app.services.property_submissions import serialize_submission
 from app.services.public_properties import pagination_meta
 from app.services.user_agencies import (
@@ -668,6 +668,7 @@ def deactivate_owner(
                 "Your property listings are hidden from the website but retained in our system."
                 + (f" Reason: {reason}" if reason else "")
             ),
+            purpose=EmailPurpose.ACCOUNT_NOTIFICATION,
         )
 
     agency_scope = None if _is_super_admin(actor_roles) else actor_agency_id
@@ -719,6 +720,7 @@ def activate_owner(
             to_email=user.email,
             subject="Your Abdoun owner account was reactivated",
             body="Your owner account has been reactivated and your linked property listings have been restored.",
+            purpose=EmailPurpose.ACCOUNT_NOTIFICATION,
         )
 
     agency_scope = None if _is_super_admin(actor_roles) else actor_agency_id

@@ -2,7 +2,8 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from sqlalchemy.exc import IntegrityError, SQLAlchemyError
+from sqlalchemy.exc import IntegrityError, OperationalError, SQLAlchemyError
+import logging
 
 from app.core.config import get_settings
 from app.api.v1.router import api_router
@@ -15,6 +16,25 @@ from app.utils.status_codes import (
     STATUS_SERVICE_UNAVAILABLE,
     STATUS_UNAUTHORIZED,
 )
+
+
+logger = logging.getLogger(__name__)
+
+
+def _is_database_unreachable(exc: BaseException) -> bool:
+    message = str(exc).casefold()
+    return any(
+        token in message
+        for token in (
+            "timed out",
+            "timeout",
+            "could not connect",
+            "connection refused",
+            "is the server running",
+            "name or service not known",
+            "could not translate host name",
+        )
+    )
 
 
 def create_app() -> FastAPI:
@@ -97,7 +117,8 @@ def create_app() -> FastAPI:
         )
 
     @app.exception_handler(IntegrityError)
-    async def integrity_error_handler(_request: Request, _exc: IntegrityError) -> JSONResponse:
+    async def integrity_error_handler(_request: Request, exc: IntegrityError) -> JSONResponse:
+        logger.exception("Database integrity error")
         message = "A conflicting property record already exists"
         return JSONResponse(
             status_code=STATUS_CONFLICT,
@@ -114,9 +135,37 @@ def create_app() -> FastAPI:
             },
         )
 
+    @app.exception_handler(OperationalError)
+    async def database_operational_error_handler(_request: Request, exc: OperationalError) -> JSONResponse:
+        logger.exception("Database operational error")
+        if _is_database_unreachable(exc):
+            message = "Database is unreachable"
+            return JSONResponse(
+                status_code=STATUS_SERVICE_UNAVAILABLE,
+                content={
+                    "success": False,
+                    "message": message,
+                    "data": None,
+                    "error": error_payload(code="DATABASE_UNAVAILABLE", message=message),
+                    "meta": {},
+                },
+            )
+        message = "A database error prevented the request from completing"
+        return JSONResponse(
+            status_code=STATUS_INTERNAL_SERVER_ERROR,
+            content={
+                "success": False,
+                "message": message,
+                "data": None,
+                "error": error_payload(code="DATABASE_ERROR", message=message),
+                "meta": {},
+            },
+        )
+
     @app.exception_handler(SQLAlchemyError)
-    async def database_error_handler(_request: Request, _exc: SQLAlchemyError) -> JSONResponse:
-        message = "A database error prevented the property request from completing"
+    async def database_error_handler(_request: Request, exc: SQLAlchemyError) -> JSONResponse:
+        logger.exception("Database error")
+        message = "A database error prevented the request from completing"
         return JSONResponse(
             status_code=STATUS_INTERNAL_SERVER_ERROR,
             content={
@@ -129,8 +178,9 @@ def create_app() -> FastAPI:
         )
 
     @app.exception_handler(Exception)
-    async def unexpected_error_handler(_request: Request, _exc: Exception) -> JSONResponse:
-        message = "An unexpected error prevented the property request from completing"
+    async def unexpected_error_handler(_request: Request, exc: Exception) -> JSONResponse:
+        logger.exception("Unexpected error")
+        message = "An unexpected error prevented the request from completing"
         return JSONResponse(
             status_code=STATUS_INTERNAL_SERVER_ERROR,
             content={

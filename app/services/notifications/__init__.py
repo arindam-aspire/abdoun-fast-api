@@ -7,7 +7,21 @@ from uuid import UUID, uuid4
 from sqlalchemy.orm import Session
 
 from app.models.live_schema import Notification
-from app.services.notifications.email.service import send_email
+from app.services.notifications.email.purpose import EmailPurpose
+from app.services.notifications.email.result import EmailSendResult
+from app.services.notifications.email.service import EmailService, get_email_service, send_email
+
+__all__ = [
+    "EmailPurpose",
+    "EmailSendResult",
+    "EmailService",
+    "create_in_app_notification",
+    "get_email_service",
+    "send_email",
+    "send_email_notification",
+    "send_sms_notification",
+]
+
 
 logger = logging.getLogger(__name__)
 
@@ -47,12 +61,14 @@ def send_email_notification(
     subject: str,
     body: str,
     html_body: str | None = None,
+    purpose: EmailPurpose | str = EmailPurpose.GENERAL,
 ) -> str | None:
     return send_email(
         to_email=to_email,
         subject=subject,
         text_body=body,
         html_body=html_body,
+        purpose=purpose,
     )
 
 

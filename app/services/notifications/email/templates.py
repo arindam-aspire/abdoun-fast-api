@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import html
+import re
 
 
 def _otp_expiry_phrase(expiry_minutes: int) -> str:
@@ -9,6 +10,20 @@ def _otp_expiry_phrase(expiry_minutes: int) -> str:
     if expiry_minutes == 1:
         return "This code will expire in 1 minute."
     return f"This code will expire in {expiry_minutes} minutes."
+
+
+def text_to_html(text_body: str) -> str:
+    """Convert a plain-text body into a simple HTML document."""
+    escaped = html.escape(text_body)
+    paragraphs = re.split(r"\n\s*\n", escaped.strip())
+    html_paragraphs = "".join(f"<p>{p.replace(chr(10), '<br>')}</p>" for p in paragraphs if p.strip())
+    return f"<html><body>{html_paragraphs}</body></html>"
+
+
+def ensure_html_body(text_body: str, html_body: str | None) -> str:
+    if html_body and html_body.strip():
+        return html_body
+    return text_to_html(text_body)
 
 
 def build_otp_verification_email(
