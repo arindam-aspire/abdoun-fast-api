@@ -1,6 +1,6 @@
 import os
 from functools import lru_cache
-from urllib.parse import quote_plus
+from urllib.parse import quote_plus, urlparse
 
 from dotenv import load_dotenv
 from pydantic import BaseModel
@@ -74,26 +74,55 @@ def _get_cors_allowed_origin_regex() -> str | None:
     return None
 
 
-def _get_database_url() -> str:
-    """Get database URL from environment variable."""
-    database_url = os.getenv("DATABASE_URL")
-    if database_url:
-        return database_url
+_LOCAL_DB_HOSTS = {"localhost", "127.0.0.1", "0.0.0.0", "host.docker.internal"}
 
-    db_host = os.getenv("DB_HOST")
-    db_port = os.getenv("DB_PORT")
-    db_name = os.getenv("DB_NAME")
-    db_user = os.getenv("DB_USER")
+
+def _normalize_database_url(url: str) -> str:
+    if url.startswith("postgresql://"):
+        return f"postgresql+psycopg2://{url[len('postgresql://'):]}"
+    if url.startswith("postgres://"):
+        return f"postgresql+psycopg2://{url[len('postgres://'):]}"
+    return url
+
+
+def _get_database_url() -> str:
+    """Build the SQLAlchemy URL from DB_* fields when present, else DATABASE_URL."""
+    db_host = _env_str("DB_HOST")
+    db_port = _env_str("DB_PORT")
+    db_name = _env_str("DB_NAME")
+    db_user = _env_str("DB_USER")
     db_password = os.getenv("DB_PASSWORD")
+    if db_password is not None:
+        db_password = db_password.strip().strip("\"'")
     if all([db_host, db_port, db_name, db_user, db_password]):
         encoded_user = quote_plus(db_user or "")
         encoded_password = quote_plus(db_password or "")
         return f"postgresql+psycopg2://{encoded_user}:{encoded_password}@{db_host}:{db_port}/{db_name}"
 
-    return _env_str(
-        "DATABASE_URL_FALLBACK",
-        "postgresql+psycopg2://postgres:postgres@localhost:5432/realestate",
-    ) or "postgresql+psycopg2://postgres:postgres@localhost:5432/realestate"
+    database_url = os.getenv("DATABASE_URL")
+    if database_url:
+        return _normalize_database_url(database_url.strip())
+
+    return _normalize_database_url(
+        _env_str(
+            "DATABASE_URL_FALLBACK",
+            "postgresql+psycopg2://postgres:postgres@localhost:5432/realestate",
+        )
+        or "postgresql+psycopg2://postgres:postgres@localhost:5432/realestate"
+    )
+
+
+def _get_db_sslmode() -> str:
+    explicit = _env_str("DB_SSLMODE")
+    if explicit:
+        return explicit
+    host = (_env_str("DB_HOST") or "").lower()
+    if not host:
+        database_url = os.getenv("DATABASE_URL") or ""
+        host = (urlparse(database_url).hostname or "").lower()
+    if host in _LOCAL_DB_HOSTS:
+        return "disable"
+    return "require"
 
 
 class Settings(BaseModel):
@@ -102,7 +131,8 @@ class Settings(BaseModel):
     debug: bool = _env_bool("DEBUG", False)
 
     database_url: str = _get_database_url()
-    db_sslmode: str = _env_str("DB_SSLMODE", "require") or "require"
+    db_sslmode: str = _get_db_sslmode()
+    db_connect_timeout: int = _env_int("DB_CONNECT_TIMEOUT", 8)
 
     api_v1_prefix: str = _env_str("API_V1_PREFIX", "/api/v1") or "/api/v1"
     cors_allowed_origins: str = _get_cors_allowed_origins()
@@ -113,6 +143,9 @@ class Settings(BaseModel):
     notification_poll_interval_seconds: int = _env_int("NOTIFICATION_POLL_INTERVAL_SECONDS", 30)
     ses_from_email: str | None = _env_str("SES_FROM_EMAIL")
     ses_from_name: str | None = _env_str("SES_FROM_NAME")
+    ses_support_email: str | None = _env_str("SES_SUPPORT_EMAIL")
+    ses_no_reply_email: str | None = _env_str("SES_NO_REPLY_EMAIL")
+    ses_info_email: str | None = _env_str("SES_INFO_EMAIL")
     email_otp_verification_subject: str = (
         _env_str("EMAIL_OTP_VERIFICATION_SUBJECT", "Verify your email address")
         or "Verify your email address"

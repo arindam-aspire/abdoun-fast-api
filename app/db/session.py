@@ -7,11 +7,16 @@ from app.core.config import get_settings
 
 settings = get_settings()
 
-connect_args = {}
+connect_args = {"connect_timeout": settings.db_connect_timeout}
 if settings.db_sslmode:
     connect_args["sslmode"] = settings.db_sslmode
 
-engine = create_engine(settings.database_url, future=True, connect_args=connect_args)
+engine = create_engine(
+    settings.database_url,
+    future=True,
+    pool_pre_ping=True,
+    connect_args=connect_args,
+)
 
 SessionLocal = sessionmaker(
     autocommit=False,

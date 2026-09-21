@@ -31,8 +31,8 @@ from app.models.live_schema import (
     UserRole,
 )
 from app.services.media_urls import with_readable_media_urls
-from app.services.notifications import send_email_notification, send_sms_notification
-from app.services.notifications.email.templates import build_otp_verification_email
+from app.services.notifications import send_sms_notification
+from app.services.notifications.email.service import get_email_service
 from app.services.user_agencies import (
     REL_AGENCY_ADMIN,
     REL_AGENT,
@@ -970,26 +970,39 @@ def send_dev_otp(
     purpose: str,
     otp: str,
     challenge: UserProfileChangeChallenge | None = None,
+    identifier: str | None = None,
 ) -> None:
     settings = get_settings()
     if challenge is not None:
         expiry_minutes = otp_remaining_minutes(challenge.expires_at)
     else:
         expiry_minutes = max(settings.auth_otp_ttl_seconds // 60, 1)
-    if user.email:
-        subject, text_body, html_body = build_otp_verification_email(
-            app_name=settings.app_name,
-            otp=otp,
-            expiry_minutes=expiry_minutes,
-            subject=settings.email_otp_verification_subject,
-        )
-        send_email_notification(
-            to_email=user.email,
-            subject=subject,
-            body=text_body,
-            html_body=html_body,
-        )
-    if user.phone_number:
+
+    requested = (identifier or "").strip()
+    requested_is_email = "@" in requested
+    deliver_email = bool(user.email) and (not requested or requested_is_email)
+    deliver_sms = bool(user.phone_number) and (not requested or not requested_is_email)
+
+    if deliver_email:
+        email_service = get_email_service()
+        if "password" in purpose.lower():
+            email_service.send_password_reset(
+                to_email=user.email,
+                subject=settings.email_otp_verification_subject,
+                text_body="",
+                otp=otp,
+                expiry_minutes=expiry_minutes,
+                app_name=settings.app_name,
+            )
+        else:
+            email_service.send_otp_verification(
+                to_email=user.email,
+                otp=otp,
+                expiry_minutes=expiry_minutes,
+                subject=settings.email_otp_verification_subject,
+                app_name=settings.app_name,
+            )
+    if deliver_sms:
         send_sms_notification(
             to_phone=user.phone_number,
             body=f"Your {settings.app_name} verification code is {otp}",
