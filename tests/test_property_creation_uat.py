@@ -76,8 +76,8 @@ def test_property_payload_normalizes_master_data_aliases_and_reuses_existing_key
     assert details["furnishingStatusId"] == 201
     assert details["floor"] == 1
     assert details["floor_id"] == 101
-    assert details["floorNumber"] == 1
-    assert details["floor_number"] == 1
+    assert details["floorNumber"] == "1"
+    assert details["floor_number"] == "1"
     assert details["floor_level"] == "First"
     assert details["year_built"] == 2020
     assert "dld_number" not in details
@@ -244,13 +244,13 @@ def test_media_sync_flushes_existing_primary_before_insert() -> None:
     assert db.flush.call_count >= 2
 
 
-def test_exact_plot_and_basin_match_is_a_duplicate_property() -> None:
+def test_exact_plot_and_hod_match_is_a_duplicate_property() -> None:
     db = MagicMock()
     db.execute.return_value.scalar_one_or_none.return_value = uuid4()
     with pytest.raises(HTTPException) as exc_info:
         validate_duplicate_property(
             db,
-            {"property_details": {"plot_number": "12", "basin_number": "B-3"}},
+            {"property_details": {"plot_number": "12", "hod_code": "B-3"}},
         )
 
     assert exc_info.value.status_code == 409
@@ -276,6 +276,7 @@ def test_dls_parcel_fields_are_persisted_on_location_and_details() -> None:
                 "HOD_CODE": "H-9",
                 "SECT_CODE": "3",
                 "parcel_number": "44",
+                "plot_number": "88",
             },
             "property_details": {"bedrooms": 2},
         },
@@ -283,15 +284,20 @@ def test_dls_parcel_fields_are_persisted_on_location_and_details() -> None:
     location = payload["location"]
     details = payload["property_details"]
     assert location["gov_code"] == "1"
+    assert location["gov_name"] == "Capital"
     assert location["vill_code"] == "101"
     assert location["hod_code"] == "H-9"
     assert location["parcel_number"] == "44"
-    assert location["plot_number"] == "44"
+    assert location["plot_number"] == "88"
+    assert "basin_number" not in location
+    assert "government_code" not in location
     assert details["gov_code"] == "1"
     assert details["vill_code"] == "101"
     assert details["hod_code"] == "H-9"
     assert details["parcel_number"] == "44"
-    assert details["basin_number"] == "H-9"
+    assert details["plot_number"] == "88"
+    assert "basin_number" not in details
+    assert "government_code" not in details
 
 
 def test_official_dls_parcel_identifiers_are_duplicates() -> None:
@@ -363,4 +369,298 @@ def test_owner_id_or_passport_aliases_are_normalized() -> None:
     assert owner["owner_id_or_passport"] == "P-998877"
     assert owner["identification_number"] == "P-998877"
     assert owner["social_security_id"] == "P-998877"
+
+
+def test_parking_spaces_accepts_manual_numeric_and_legacy_dropdown_values() -> None:
+    numeric = prepare_property_payload(
+        MagicMock(),
+        {"property_details": {"parkingSpace": "2", "built_up_area": 100}},
+    )
+    legacy = prepare_property_payload(
+        MagicMock(),
+        {"property_details": {"parking": {"name": "Available", "id": 44}, "built_up_area": 100}},
+    )
+    zero = prepare_property_payload(
+        MagicMock(),
+        {"property_details": {"parking_spaces": 0, "built_up_area": 100}},
+    )
+
+    assert numeric["property_details"]["parking_spaces"] == 2
+    assert numeric["property_details"]["parking"] == 2
+    assert legacy["property_details"]["parking_spaces"] == 1
+    assert zero["property_details"]["parking_spaces"] == 0
+
+
+def test_invalid_parking_spaces_are_rejected() -> None:
+    with pytest.raises(HTTPException) as exc_info:
+        prepare_property_payload(MagicMock(), {"property_details": {"parking_spaces": "underground"}})
+
+    assert exc_info.value.detail["code"] == "VALIDATION_ERROR"
+    assert exc_info.value.detail["details"][0]["field"] == "property_details.parking_spaces"
+
+
+def test_parking_option_id_alone_is_not_treated_as_space_count() -> None:
+    with pytest.raises(HTTPException) as exc_info:
+        prepare_property_payload(MagicMock(), {"property_details": {"parking": {"id": 44}}})
+
+    assert exc_info.value.detail["details"][0]["field"] == "property_details.parking_spaces"
+
+
+def test_step3_payload_with_parking_and_parcel_ids_can_continue_to_step4(monkeypatch) -> None:
+    monkeypatch.setattr("app.services.property_submissions._is_mock_session", lambda _db: False)
+    monkeypatch.setattr("app.services.property_submissions.dls_official_name", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        "app.services.property_submissions.resolve_property_option",
+        lambda _db, *, group, value, field: _option(group, value),
+    )
+
+    payload = prepare_property_payload(
+        MagicMock(),
+        {
+            "location": {"city_id": 1, "area_id": 2},
+            "property_details": {
+                "built_up_area": 140,
+                "bedrooms": 3,
+                "bathrooms": 2,
+                "parking_spaces": 2,
+                "plot_number": "12",
+                "basin_number": "B-3",
+                "year_built": "",
+                "furnishing_status": "Furnished",
+                "floor_level": "First",
+            },
+        },
+    )
+    details = payload["property_details"]
+    assert details["parking_spaces"] == 2
+    assert details["plot_number"] == "12"
+    assert "basin_number" not in details
+    assert not details.get("hod_code")
+    assert details.get("year_built") in (None, "")
+    assert details["furnishing_status"] == "furnished"
+
+
+def test_unknown_dls_hod_with_parent_path_is_still_rejected(monkeypatch) -> None:
+    monkeypatch.setattr("app.services.property_submissions._is_mock_session", lambda _db: False)
+
+    def _official_name(_db, *, level: str, code: str, parents: dict | None = None):
+        if level == "hod":
+            return None
+        return f"Official-{level}-{code}"
+
+    monkeypatch.setattr("app.services.property_submissions.dls_official_name", _official_name)
+
+    with pytest.raises(HTTPException) as exc_info:
+        prepare_property_payload(
+            MagicMock(),
+            {
+                "location": {
+                    "gov_code": "1",
+                    "dept_code": "11",
+                    "vill_code": "101",
+                    "hod_code": "NOT-A-CODE",
+                }
+            },
+        )
+
+    assert exc_info.value.detail["details"][0]["field"] == "location.hod_code"
+
+
+def test_residential_identification_fields_are_optional_and_persisted(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "app.services.property_submissions.resolve_property_option",
+        lambda _db, *, group, value, field: _option(group, value),
+    )
+    payload = prepare_property_payload(
+        MagicMock(),
+        {
+            "basic_information": {"category_slug": "residential"},
+            "location": {
+                "apartmentNumber": "12A",
+                "plot_number": "88",
+                "basin_number": "B-1",
+                "parcel_number": "P-9",
+                "building": "14",
+            },
+            "property_details": {"floor_level": "First", "bedrooms": 2},
+        },
+    )
+    location = payload["location"]
+    details = payload["property_details"]
+    assert location["apartment_number"] == "12A"
+    assert location["plot_number"] == "88"
+    assert "basin_number" not in location
+    assert location["parcel_number"] == "P-9"
+    assert location["building_number"] == "14"
+    assert location["building"] == "14"
+    assert details["apartment_number"] == "12A"
+    assert details["building_number"] == "14"
+    assert details["parcel_number"] == "P-9"
+    assert details["floor_number"] == "1"
+
+
+def test_land_identification_fields_are_ignored() -> None:
+    payload = prepare_property_payload(
+        MagicMock(),
+        {
+            "basic_information": {"category_slug": "land", "category": "land"},
+            "location": {
+                "gov_code": "1",
+                "gov_name": "Capital",
+                "dept_code": "11",
+                "vill_code": "101",
+                "hod_code": "H-1",
+                "sect_code": "0",
+                "plot_number": "220",
+                "parcel_number": "P-should-drop",
+                "building": "Tower-1",
+                "apartment_number": "A-4",
+                "basin_number": "B-9",
+            },
+            "property_details": {
+                "landType": "residential-lands",
+                "landTypeId": 99,
+                "floor_number": "2",
+            },
+        },
+    )
+    location = payload["location"]
+    details = payload["property_details"]
+    assert location["gov_code"] == "1"
+    assert location["dept_code"] == "11"
+    assert location["vill_code"] == "101"
+    assert location["hod_code"] == "H-1"
+    assert location["sect_code"] == "0"
+    assert location["plot_number"] == "220"
+    assert details["plot_number"] == "220"
+    assert "land_type" not in details
+    assert "land_type" not in location
+    assert "land_type_id" not in details
+    assert "landTypeId" not in details
+    assert "parcel_number" not in details
+    assert "parcel_number" not in location
+    assert "building_number" not in details
+    assert "building" not in details
+    assert "apartment_number" not in details
+    assert "floor_number" not in details
+    assert "floor" not in details
+    assert "basin_number" not in details
+    assert "basin_number" not in location
+
+
+def test_residential_land_type_is_normalized_from_master_data(monkeypatch) -> None:
+    option = MagicMock()
+    option.id = 401
+    option.slug = "building-offices"
+    option.name = "بناء/مكاتب"
+    option.numeric_value = None
+
+    def _resolve(_db, *, group, value, field):
+        assert group == "land_type"
+        assert value in {401, "بناء/مكاتب", "building-offices"}
+        return option
+
+    monkeypatch.setattr("app.services.property_submissions.resolve_property_option", _resolve)
+    payload = prepare_property_payload(
+        MagicMock(),
+        {
+            "basic_information": {"category_slug": "residential", "category": "residential"},
+            "property_details": {"landTypeId": 401},
+        },
+    )
+    details = payload["property_details"]
+    assert details["land_type"] == "building-offices"
+    assert details["landType"] == "building-offices"
+    assert details["land_type_id"] == 401
+    assert details["landTypeId"] == 401
+    assert details["land_type_name"] == "بناء/مكاتب"
+    assert details["landTypeName"] == "بناء/مكاتب"
+
+
+def test_residential_friendly_dls_aliases_normalize_to_canonical_keys() -> None:
+    payload = prepare_property_payload(
+        MagicMock(),
+        {
+            "basic_information": {"category_slug": "residential"},
+            "location": {
+                "governate": "Capital",
+                "governate_code": "1",
+                "directorate": "Dir-A",
+                "directorate_code": "11",
+                "village": "Vill-A",
+                "village_code": "101",
+                "parcel_name": "Hod-A",
+                "parcel_name_code": "H-1",
+                "section": "Sect-A",
+                "section_code": "3",
+                "apartment": "12A",
+                "building": "14",
+                "parcel_number": "P-9",
+                "plot_number": "88",
+            },
+            "property_details": {},
+        },
+    )
+    location = payload["location"]
+    details = payload["property_details"]
+    assert location["gov_code"] == "1"
+    assert location["gov_name"] == "Capital"
+    assert location["dept_code"] == "11"
+    assert location["dept_name"] == "Dir-A"
+    assert location["vill_code"] == "101"
+    assert location["vill_name"] == "Vill-A"
+    assert location["hod_code"] == "H-1"
+    assert location["hod_name"] == "Hod-A"
+    assert location["sect_code"] == "3"
+    assert location["sect_name"] == "Sect-A"
+    assert location["apartment_number"] == "12A"
+    assert location["building_number"] == "14"
+    assert location["building"] == "14"
+    assert location["parcel_number"] == "P-9"
+    assert location["plot_number"] == "88"
+    assert "governate" not in location
+    assert "parcel_name" not in location
+    assert "apartment" not in location
+    assert details["apartment_number"] == "12A"
+    assert details["hod_code"] == "H-1"
+    assert details["parcel_number"] == "P-9"
+
+
+def test_commercial_dls_fields_match_residential_rules(monkeypatch) -> None:
+    land_type = SimpleNamespace(id=401, slug="building-offices", name="بناء/مكاتب", numeric_value=None)
+
+    def _resolve(_db, *, group, value, field):
+        if group == "land_type":
+            return land_type
+        return _option(group, value)
+
+    monkeypatch.setattr("app.services.property_submissions.resolve_property_option", _resolve)
+    payload = prepare_property_payload(
+        MagicMock(),
+        {
+            "basic_information": {"category_slug": "commercial", "category": "commercial"},
+            "location": {
+                "gov_code": "1",
+                "dept_code": "11",
+                "vill_code": "101",
+                "hod_code": "H-2",
+                "sect_code": "0",
+                "parcel_number": "C-1",
+                "plot_number": "9",
+                "building": "B1",
+                "apartment": "A1",
+            },
+            "property_details": {"landTypeId": 401, "floor": "First"},
+        },
+    )
+    location = payload["location"]
+    details = payload["property_details"]
+    assert location["gov_code"] == "1"
+    assert location["hod_code"] == "H-2"
+    assert location["parcel_number"] == "C-1"
+    assert location["building_number"] == "B1"
+    assert location["apartment_number"] == "A1"
+    assert details["land_type_id"] == 401
+    assert details["floor_number"] == "1"
+    assert details["plot_number"] == "9"
 

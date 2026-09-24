@@ -10,6 +10,7 @@ from app.utils.api_response import raise_api_error
 from app.utils.status_codes import STATUS_BAD_REQUEST
 
 
+# Canonical API levels match the MLS Location step contract.
 DLS_LEVELS = ("gov", "dept", "vill", "hod", "sect")
 DLS_PARENTS = {
     "gov": (),
@@ -46,12 +47,14 @@ def normalize_dls_level(value: str | None) -> str | None:
         return None
     token = str(value).strip().casefold().replace("-", "_")
     aliases = {
-        "governorate": "gov",
         "government": "gov",
+        "governorate": "gov",
+        "governate": "gov",
         "department": "dept",
         "directorate": "dept",
         "village": "vill",
         "hods": "hod",
+        "parcel_name": "hod",
         "section": "sect",
         "sector": "sect",
     }
@@ -81,6 +84,8 @@ def list_dls_locations(
     dept_code: str | None = None,
     vill_code: str | None = None,
     hod_code: str | None = None,
+    # Backward-compatible aliases for callers still sending government_*.
+    government_code: str | None = None,
 ) -> dict[str, Any]:
     normalized_level = normalize_dls_level(level)
     if not normalized_level:
@@ -98,7 +103,7 @@ def list_dls_locations(
         )
 
     filters = {
-        "gov_code": (gov_code or "").strip(),
+        "gov_code": (gov_code or government_code or "").strip(),
         "dept_code": (dept_code or "").strip(),
         "vill_code": (vill_code or "").strip(),
         "hod_code": (hod_code or "").strip(),
@@ -139,12 +144,15 @@ def dls_official_name(
     code: str,
     parents: dict[str, str],
 ) -> str | None:
-    code_column = DLS_CODE_COLUMNS[level]
-    name_column = DLS_NAME_COLUMNS[level]
+    normalized_level = normalize_dls_level(level) or level
+    code_column = DLS_CODE_COLUMNS[normalized_level]
+    name_column = DLS_NAME_COLUMNS[normalized_level]
     stmt = select(name_column).where(code_column == code).distinct()
     for parent, value in parents.items():
         if value:
-            stmt = stmt.where(DLS_FILTER_COLUMNS[parent] == value)
+            # Accept legacy government_code parent keys from older callers.
+            filter_key = "gov_code" if parent in {"gov_code", "government_code"} else parent
+            stmt = stmt.where(DLS_FILTER_COLUMNS[filter_key] == value)
     value = db.execute(stmt.limit(1)).scalar()
     if isinstance(value, str) and value.strip():
         return value

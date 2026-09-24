@@ -175,11 +175,7 @@ async def register_agency(
     send_dev_otp(user=user, purpose="agency signup", otp=otp, challenge=challenge)
     db.commit()
     return success_response(
-        build_otp_response_data(
-            agency=serialize_agency(agency),
-            otp=otp,
-            dev_email_otp=otp,
-        ),
+        build_otp_response_data(agency=serialize_agency(agency)),
         otp_delivery_message(
             fallback_dev_message="Agency registration submitted. Verification code logged in dev mode.",
             sent_message="Agency registration submitted. Verification code sent.",

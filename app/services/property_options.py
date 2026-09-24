@@ -12,7 +12,14 @@ from app.utils.status_codes import STATUS_BAD_REQUEST
 
 
 OPTION_GROUPS = frozenset(
-    {"furnishing_status", "floor", "listing_purpose", "completion_status", "direction"}
+    {
+        "furnishing_status",
+        "floor",
+        "listing_purpose",
+        "completion_status",
+        "direction",
+        "land_type",
+    }
 )
 
 VALUE_ALIASES = {
@@ -54,6 +61,8 @@ _ID_FIELD_NAMES = frozenset(
         "furnishing_status",
         "furniture_status",
         "furnishing",
+        "land_type",
+        "land_type_id",
     }
 )
 _NUMERIC_FIELD_NAMES = frozenset({"floor_number"})

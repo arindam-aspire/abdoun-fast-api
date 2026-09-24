@@ -14,6 +14,8 @@ def test_normalize_group_key_accepts_camel_case_master_api_filters() -> None:
     assert normalize_group_key("furnishing-status") == "furnishing_status"
     assert normalize_group_key("FLOOR") == "floor"
     assert normalize_group_key("listingPurpose") == "listing_purpose"
+    assert normalize_group_key("landType") == "land_type"
+    assert normalize_group_key("land-type") == "land_type"
 
 
 def test_serialize_option_returns_master_table_fields() -> None:

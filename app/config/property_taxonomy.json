@@ -2,6 +2,8 @@
   {
     "slug": "residential",
     "name": "Residential",
+    "group_slug": "properties",
+    "group_name": "Properties",
     "types": [
       ["apartments", "Apartments"],
       ["villas", "Villas"],
@@ -12,6 +14,8 @@
   {
     "slug": "commercial",
     "name": "Commercial",
+    "group_slug": "properties",
+    "group_name": "Properties",
     "types": [
       ["offices", "Offices"],
       ["showrooms", "Showrooms"],
@@ -24,6 +28,8 @@
   {
     "slug": "land",
     "name": "Land",
+    "group_slug": "land",
+    "group_name": "Land",
     "types": [
       ["residential-lands", "Residential Lands"],
       ["commercial-lands", "Commercial Lands"],

@@ -18,7 +18,9 @@ from app.services.property_submissions import (
     assert_can_view_submission,
     create_submission,
     get_submission_or_404,
+    list_submissions,
     owner_may_submit_without_agency,
+    serialize_draft_list_item,
     serialize_submission,
     soft_delete_submission,
     submit_submission,
@@ -104,6 +106,36 @@ def submit_new_property_submission(
     return success_response(serialize_submission(submission), "Property submitted for approval")
 
 
+@router.get("/drafts")
+def list_property_submission_drafts(
+    context: AuthenticatedContext,
+    db: DBSessionDep,
+    page: int = 1,
+    pageSize: int = 10,
+) -> dict:
+    rows, pagination = list_submissions(
+        db,
+        page=page,
+        page_size=pageSize,
+        statuses={"draft"},
+        submitted_by=context.user_id,
+    )
+    data = {
+        "items": [
+            serialize_draft_list_item(
+                submission,
+                db=db,
+                actor_user_id=context.user_id,
+                actor_roles=context.roles,
+                actor_agency_id=context.agency_id,
+            )
+            for submission, _ in rows
+        ],
+        **pagination,
+    }
+    return success_response(data, meta={"pagination": pagination})
+
+
 @router.get("/{submission_id}")
 def get_property_submission(submission_id: UUID, context: AuthenticatedContext, db: DBSessionDep) -> dict:
     submission = get_submission_or_404(db, submission_id)
@@ -160,7 +192,10 @@ def delete_property_submission(submission_id: UUID, context: AuthenticatedContex
         property_id=submission.property_id,
     )
     db.commit()
-    return success_response(True, "Property deleted successfully.")
+    return success_response(
+        {"submission_id": str(submission.id), "deleted": True},
+        "Property deleted successfully.",
+    )
 
 
 @router.post("/{submission_id}/submit")

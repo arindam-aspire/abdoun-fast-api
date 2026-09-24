@@ -11,8 +11,11 @@ from app.services.property_submissions import validate_duplicate_property
 
 def test_normalize_dls_level_aliases() -> None:
     assert normalize_dls_level("GOV") == "gov"
+    assert normalize_dls_level("government") == "gov"
+    assert normalize_dls_level("governate") == "gov"
     assert normalize_dls_level("directorate") == "dept"
     assert normalize_dls_level("village") == "vill"
+    assert normalize_dls_level("parcel_name") == "hod"
     assert normalize_dls_level("section") == "sect"
     assert normalize_dls_level("unknown") is None
 
@@ -27,6 +30,13 @@ def test_gov_level_does_not_require_parent_codes() -> None:
     assert result["items"][0]["name"] == "Capital Governorate"
 
 
+def test_government_alias_level_normalizes_to_gov() -> None:
+    db = MagicMock()
+    db.execute.return_value.all.return_value = [("1", "Capital Governorate")]
+    result = list_dls_locations(db, level="government")
+    assert result["level"] == "gov"
+
+
 def test_dept_level_requires_gov_code() -> None:
     with pytest.raises(HTTPException) as exc_info:
         list_dls_locations(MagicMock(), level="dept")
@@ -36,13 +46,24 @@ def test_dept_level_requires_gov_code() -> None:
 
 def test_sect_level_requires_full_parent_path() -> None:
     with pytest.raises(HTTPException) as exc_info:
-        list_dls_locations(MagicMock(), level="sect", gov_code="1", dept_code="1", vill_code="1")
+        list_dls_locations(
+            MagicMock(),
+            level="sect",
+            gov_code="1",
+            dept_code="1",
+            vill_code="1",
+        )
     assert exc_info.value.detail["details"][0]["field"] == "hod_code"
 
 
 def test_serialize_dls_item_includes_parent_codes() -> None:
     item = serialize_dls_item("dept", ("11", "Amman Lands"), parents={"gov_code": "1"})
-    assert item == {"code": "11", "name": "Amman Lands", "level": "dept", "gov_code": "1"}
+    assert item == {
+        "code": "11",
+        "name": "Amman Lands",
+        "level": "dept",
+        "gov_code": "1",
+    }
 
 
 def test_duplicate_validation_uses_dls_codes_with_parcel() -> None:

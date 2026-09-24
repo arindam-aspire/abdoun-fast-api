@@ -70,5 +70,17 @@ def get_agent_property_drafts(
         statuses={"draft"},
         submitted_by=context.user_id,
     )
-    data = {"items": [serialize_draft_list_item(submission) for submission, _ in rows], **pagination}
+    data = {
+        "items": [
+            serialize_draft_list_item(
+                submission,
+                db=db,
+                actor_user_id=context.user_id,
+                actor_roles=context.roles,
+                actor_agency_id=context.agency_id,
+            )
+            for submission, _ in rows
+        ],
+        **pagination,
+    }
     return success_response(data, meta={"pagination": pagination})

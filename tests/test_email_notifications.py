@@ -290,16 +290,17 @@ def test_expose_otp_in_response_false_hides_otp(monkeypatch) -> None:
     assert "dev_email_otp" not in payload
 
 
-def test_expose_otp_in_response_true_includes_otp(monkeypatch) -> None:
+def test_expose_otp_in_response_true_still_hides_email_otp(monkeypatch) -> None:
     monkeypatch.setattr(
         "app.services.auth.get_settings",
         lambda: _settings(expose_otp_in_response=True),
     )
 
-    payload = build_otp_response_data(otp="123456", dev_email_otp="123456")
+    payload = build_otp_response_data(otp="123456", dev_email_otp="123456", session="abc")
 
-    assert payload["otp"] == "123456"
-    assert payload["dev_email_otp"] == "123456"
+    assert payload == {"session": "abc"}
+    assert "otp" not in payload
+    assert "dev_email_otp" not in payload
 
 
 def test_send_dev_otp_uses_html_and_text_templates(monkeypatch) -> None:

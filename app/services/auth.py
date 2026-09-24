@@ -931,6 +931,21 @@ def resend_signup_confirmation(db: Session, *, email: str) -> str | None:
     return otp
 
 
+_OTP_RESPONSE_KEYS = frozenset({"otp", "dev_email_otp", "dev_phone_otp"})
+
+
+def _without_otp_fields(value: object) -> object:
+    if isinstance(value, dict):
+        return {
+            key: _without_otp_fields(item)
+            for key, item in value.items()
+            if key not in _OTP_RESPONSE_KEYS
+        }
+    if isinstance(value, list):
+        return [_without_otp_fields(item) for item in value]
+    return value
+
+
 def build_otp_response_data(
     *,
     otp: str | None = None,
@@ -938,29 +953,19 @@ def build_otp_response_data(
     dev_phone_otp: str | None = None,
     **extra: object,
 ) -> dict[str, object]:
-    settings = get_settings()
-    data: dict[str, object] = dict(extra)
-    if settings.expose_otp_in_response:
-        if otp is not None:
-            data["otp"] = otp
-        if dev_email_otp is not None:
-            data["dev_email_otp"] = dev_email_otp
-        if dev_phone_otp is not None:
-            data["dev_phone_otp"] = dev_phone_otp
-    return data
+    # Email OTP values must never appear in API responses, including nested objects.
+    del otp, dev_email_otp, dev_phone_otp
+    data = _without_otp_fields(dict(extra))
+    return data if isinstance(data, dict) else {}
 
 
 def build_otp_response_meta(*, otp: str | None = None) -> dict[str, object]:
-    settings = get_settings()
-    if settings.expose_otp_in_response and otp is not None:
-        return {"otp": otp}
+    del otp
     return {}
 
 
 def otp_delivery_message(*, fallback_dev_message: str, sent_message: str) -> str:
-    settings = get_settings()
-    if settings.expose_otp_in_response:
-        return fallback_dev_message
+    del fallback_dev_message
     return sent_message
 
 

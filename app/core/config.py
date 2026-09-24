@@ -150,10 +150,7 @@ class Settings(BaseModel):
         _env_str("EMAIL_OTP_VERIFICATION_SUBJECT", "Verify your email address")
         or "Verify your email address"
     )
-    expose_otp_in_response: bool = _env_bool(
-        "EXPOSE_OTP_IN_RESPONSE",
-        (_env_str("ENVIRONMENT", "local") or "local").lower() in {"local", "development", "dev"},
-    )
+    expose_otp_in_response: bool = _env_bool("EXPOSE_OTP_IN_RESPONSE", False)
     supported_locales: str = _env_str("SUPPORTED_LOCALES", "en,ar,fr,es") or "en,ar,fr,es"
     default_locale: str = _env_str("DEFAULT_LOCALE", "en") or "en"
     rtl_locales: str = _env_str("RTL_LOCALES", "ar") or "ar"

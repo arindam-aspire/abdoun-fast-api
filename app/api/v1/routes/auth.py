@@ -88,7 +88,7 @@ def login_with_otp_request(payload: SignInWithOtpRequest, db: DBSessionDep) -> d
     )
     db.commit()
     return success_response(
-        build_otp_response_data(session=str(challenge.id), otp=otp),
+        build_otp_response_data(session=str(challenge.id)),
         otp_delivery_message(
             fallback_dev_message="OTP sent successfully",
             sent_message="OTP sent successfully",
@@ -141,7 +141,7 @@ def sign_up(payload: SignUpRequest, db: DBSessionDep) -> dict:
     send_dev_otp(user=user, purpose="signup", otp=otp, challenge=challenge)
     db.commit()
     return success_response(
-        build_otp_response_data(otp=otp, dev_email_otp=otp),
+        build_otp_response_data(),
         otp_delivery_message(
             fallback_dev_message="Account created. Verification code sent.",
             sent_message="Account created. Verification code sent.",
@@ -158,10 +158,10 @@ def confirm_sign_up(payload: ConfirmSignUpRequest, db: DBSessionDep) -> dict:
 
 @router.post("/resend-confirmation")
 def resend_confirmation(payload: ResendConfirmationRequest, db: DBSessionDep) -> dict:
-    otp = resend_signup_confirmation(db, email=payload.email)
+    resend_signup_confirmation(db, email=payload.email)
     db.commit()
     return success_response(
-        build_otp_response_data(otp=otp, dev_email_otp=otp),
+        build_otp_response_data(),
         otp_delivery_message(
             fallback_dev_message="Verification code sent.",
             sent_message="Verification code sent.",
@@ -232,9 +232,6 @@ def request_profile_update(payload: ProfileUpdateRequest, context: Authenticated
             ),
             requires_verification=bool(fields),
             verification_fields=fields,
-            dev_phone_otp=dev_phone_otp,
-            dev_email_otp=dev_email_otp,
-            otp=dev_email_otp or dev_phone_otp,
         ),
         "Verification required" if fields else "No verification required",
     )
@@ -319,7 +316,7 @@ def forgot_password(payload: ForgotPasswordRequest, db: DBSessionDep) -> dict:
                 fallback_dev_message="Verification code logged in dev mode",
                 sent_message="If the account exists, a verification code has been sent",
             ),
-            build_otp_response_meta(otp=otp),
+            build_otp_response_meta(),
         )
     return success_response(True, "If the account exists, a verification code has been sent")
 
