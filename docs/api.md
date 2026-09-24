@@ -142,9 +142,9 @@ All paths in this section start with `/api/v1/auth`.
 - Purpose: create a passwordless-login OTP challenge.
 - Auth: public.
 - Body: `username` (string, required).
-- Success data: `{ "session": "<challenge-uuid>", "otp": "<6-digit-dev-code>" }`.
+- Success data: `{ "session": "<challenge-uuid>" }`. The OTP is sent by email or SMS and is never included in the response.
 - Errors: `401 Invalid account`; `403` agent not active; `422`.
-- Integration: the OTP is returned because the current notification mode is development/log mode.
+- Integration: use `session` with `/auth/login/otp/verify`; the user enters the code from email or SMS.
 
 ### `POST /api/v1/auth/login/otp/verify`
 
@@ -159,7 +159,7 @@ All paths in this section start with `/api/v1/auth`.
 - Purpose: register a user and create signup OTP.
 - Auth: public.
 - Body: `full_name`, `email`, `password`, `role` (strings, required); `phone_number` (string/null, optional).
-- Success data: `{ "otp": "<code>", "dev_email_otp": "<code>" }`.
+- Success data: `{}`. A verification OTP is emailed and is never included in the response.
 - Errors: `409 User already exists`; `422`.
 - Validation/constants: email is normalized lowercase; `role` uses the aliases in section 1.
 
@@ -170,6 +170,14 @@ All paths in this section start with `/api/v1/auth`.
 - Body: `email`, `code` (strings, required).
 - Success data: `{ "verified": true }`.
 - Errors: `404 Account not found`; `400` OTP missing/expired/invalid; `422`.
+
+### `POST /api/v1/auth/resend-confirmation`
+
+- Purpose: resend signup email OTP.
+- Auth: public.
+- Body: `email` (string, required).
+- Success data: `{}`. A verification OTP is emailed and is never included in the response.
+- Errors: `404 Account not found`; `400 Account is already verified`; `422`.
 
 ### `GET /api/v1/auth/me`
 
@@ -195,14 +203,13 @@ All paths in this section start with `/api/v1/auth`.
 
 ```json
 {
-  "message": "Verification required or profile updated",
+  "message": "Verification code sent.",
   "requires_verification": true,
-  "verification_fields": ["email"],
-  "dev_phone_otp": null,
-  "dev_email_otp": "<code>",
-  "otp": "<code>"
+  "verification_fields": ["email"]
 }
 ```
+
+OTP values are sent by email/SMS and are never included in the response.
 
 - Errors: `401`, `404`, `422`.
 
@@ -235,7 +242,7 @@ All paths in this section start with `/api/v1/auth`.
 - Purpose: request password-reset OTP without disclosing whether an account exists.
 - Auth: public.
 - Body: optional `email`, `phoneCountryCode`, `phoneNationalNumber`.
-- Success: `data: true`; when account exists, `meta.otp` contains the development OTP.
+- Success: `data: true`; `meta` is empty. When the account exists, a verification OTP is sent by email and is never included in the response.
 - Errors: `422`.
 
 ### `POST /api/v1/auth/forgot-password/confirm`
@@ -354,7 +361,7 @@ Agency responses contain: `id`, `agency_id` (same UUID), `agency_name`, `agency_
 - Auth: public.
 - Headers: `Content-Type: multipart/form-data`.
 - Form: `agency_name`, `agency_trade_name`, `email`, `phone_number`, `legal_document` (all required); `password` optional and currently unused.
-- Success data: `{ "agency": <Agency>, "otp": "<code>", "dev_email_otp": "<code>" }`.
+- Success data: `{ "agency": <Agency> }`. A verification OTP is emailed and is never included in the response.
 - Errors: `409` duplicate admin email; `422` invalid/missing form fields.
 - Integration: creates a pending, inactive, unverified agency and an admin user. Upload bytes are accepted only here.
 

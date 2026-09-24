@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import math
+import re
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 from typing import Any, NoReturn
@@ -20,7 +21,6 @@ from app.models.live_schema import (
     PropertyCategory,
     PropertyListingSubmission,
     PropertyMedia,
-    PropertyType,
     Role,
     User,
     UserRole,
@@ -31,8 +31,17 @@ from app.services.dls_locations import DLS_PARENTS, dls_official_name
 from app.services.exchange_rates import assert_supported_currency, convert_amount_to_jod_or_http_error
 from app.services.media_urls import canonicalize_media_url, with_canonical_media_urls, with_readable_media_urls
 from app.services.notifications import EmailPurpose, create_in_app_notification, send_email_notification, send_sms_notification
+from app.services.property_reference_numbers import (
+    assign_reference_number,
+    displayed_reference_number,
+    generate_reference_number,
+    reference_number_prefix,
+    stored_reference_number,
+    write_payload_reference_number,
+)
+from app.services.property_taxonomy import LAND_IGNORED_IDENTIFICATION_KEYS, RETIRED_IDENTIFICATION_KEYS
 from app.services.property_workflow_config import get_property_workflow_config
-from app.services.property_options import resolve_property_option
+from app.services.property_options import coerce_option_input, resolve_property_option
 from app.services.user_agencies import (
     REL_AGENT,
     REL_PROPERTY_OWNER,
@@ -46,7 +55,6 @@ from app.utils.status_codes import (
     STATUS_BAD_REQUEST,
     STATUS_CONFLICT,
     STATUS_FORBIDDEN,
-    STATUS_INTERNAL_SERVER_ERROR,
     STATUS_NOT_FOUND,
 )
 
@@ -691,13 +699,68 @@ FLOOR_OPTION_KEYS = (
     "floor_number",
     "floorNumber",
 )
+LAND_TYPE_OPTION_KEYS = (
+    "land_type_id",
+    "landTypeId",
+    "land_type",
+    "landType",
+)
+PARKING_SPACE_KEYS = (
+    "parking_spaces",
+    "parkingSpaces",
+    "parking_space",
+    "parkingSpace",
+    "parking",
+)
+MAX_PARKING_SPACES = 9999
+LEGACY_PARKING_TOKENS = {
+    "none": 0,
+    "no": 0,
+    "zero": 0,
+    "unavailable": 0,
+    "not-available": 0,
+    "not-applicable": 0,
+    "na": 0,
+    "n-a": 0,
+    "available": 1,
+    "yes": 1,
+    "one": 1,
+    "two": 2,
+    "three": 3,
+    "four": 4,
+    "five": 5,
+    "six": 6,
+    "seven": 7,
+    "eight": 8,
+    "nine": 9,
+    "ten": 10,
+}
 
 PARCEL_IDENTIFIER_FIELDS = (
     "apartment_number",
     "plot_number",
-    "basin_number",
     "building_number",
     "parcel_number",
+)
+PARCEL_IDENTIFIER_ALIASES = {
+    "apartmentNumber": "apartment_number",
+    "apartment": "apartment_number",
+    "plotNumber": "plot_number",
+    "buildingNumber": "building_number",
+    "building": "building_number",
+    "parcelNumber": "parcel_number",
+}
+# Extra Location-step identification keys synced into property_details for resolve/hydrate.
+LOCATION_OPTION_SYNC_FIELDS = (
+    "floor_number",
+    "floorNumber",
+    "floor",
+    "floor_id",
+    "floorId",
+    "land_type",
+    "landType",
+    "land_type_id",
+    "landTypeId",
 )
 DLS_CANONICAL_FIELDS = (
     "gov_code",
@@ -714,12 +777,20 @@ DLS_CANONICAL_FIELDS = (
 DLS_FIELD_ALIASES = {
     "GOV_CODE": "gov_code",
     "govCode": "gov_code",
+    "government_code": "gov_code",
+    "governmentCode": "gov_code",
     "governorate_code": "gov_code",
     "governorateCode": "gov_code",
+    "governate_code": "gov_code",
+    "governateCode": "gov_code",
     "GOV_NAME": "gov_name",
     "govName": "gov_name",
+    "government_name": "gov_name",
+    "governmentName": "gov_name",
+    "government": "gov_name",
     "governorate": "gov_name",
     "governorate_name": "gov_name",
+    "governate": "gov_name",
     "DEPT_CODE": "dept_code",
     "deptCode": "dept_code",
     "directorate_code": "dept_code",
@@ -738,11 +809,13 @@ DLS_FIELD_ALIASES = {
     "village_name": "vill_name",
     "HOD_CODE": "hod_code",
     "hodCode": "hod_code",
-    "basin_code": "hod_code",
+    "parcel_name_code": "hod_code",
+    "parcelNameCode": "hod_code",
     "HOD_NAME": "hod_name",
     "hodName": "hod_name",
     "hod": "hod_name",
-    "basin_name": "hod_name",
+    "parcel_name": "hod_name",
+    "parcelName": "hod_name",
     "SECT_CODE": "sect_code",
     "sectCode": "sect_code",
     "section_code": "sect_code",
@@ -752,6 +825,7 @@ DLS_FIELD_ALIASES = {
     "section": "sect_name",
     "section_name": "sect_name",
 }
+BASIN_NUMBER_KEYS = ("basin_number", "basinNumber")
 OWNER_IDENTIFICATION_KEYS = (
     "owner_id_or_passport",
     "identification_number",
@@ -775,6 +849,90 @@ def _optional_int(value: Any) -> int | None:
     if isinstance(value, str) and value.strip().isdigit():
         return int(value.strip())
     return None
+
+
+def _same_user(left: Any, right: Any) -> bool:
+    if left is None or right is None:
+        return False
+    return str(left) == str(right)
+
+
+def _parking_token(value: Any) -> str:
+    return re.sub(r"[\s_]+", "-", str(value or "").strip().casefold()).strip("-")
+
+
+def _parse_parking_spaces(value: Any) -> int | None:
+    """Coerce dropdown leftovers or manual input into a parking-space count.
+
+    Option-value ``id`` values are never treated as a space count — only explicit
+    numeric fields, legacy labels/slugs, or digit strings are accepted.
+    """
+    if isinstance(value, dict):
+        for key in ("numeric_value", "numericValue", "value", "name", "slug", "label"):
+            if value.get(key) not in (None, ""):
+                parsed = _parse_parking_spaces(value[key])
+                if parsed is not None:
+                    return parsed
+        return None
+    if isinstance(value, (list, tuple, set)):
+        items = [item for item in value if item not in (None, "")]
+        if len(items) == 1:
+            return _parse_parking_spaces(items[0])
+        return None
+    if isinstance(value, bool) or value in (None, ""):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        if not value.is_integer():
+            return None
+        return int(value)
+    coerced = coerce_option_input(value)
+    if coerced is not value and not isinstance(coerced, int):
+        parsed = _parse_parking_spaces(coerced)
+        if parsed is not None:
+            return parsed
+    token = _parking_token(value)
+    if token in LEGACY_PARKING_TOKENS:
+        return LEGACY_PARKING_TOKENS[token]
+    if token.isdigit():
+        return int(token)
+    match = re.search(r"\d+", str(value))
+    if match:
+        return int(match.group(0))
+    return None
+
+
+def _apply_parking_spaces(details: dict[str, Any], *, strict: bool) -> dict[str, Any]:
+    supplied_key = _first_supplied_key(details, PARKING_SPACE_KEYS)
+    if not supplied_key:
+        for key in PARKING_SPACE_KEYS:
+            details.pop(key, None)
+        return details
+    raw_value = details.get(supplied_key)
+    parsed = _parse_parking_spaces(raw_value)
+    if parsed is None:
+        if strict:
+            _property_field_error(
+                field="property_details.parking_spaces",
+                code="invalid_value",
+                message="Parking space must be a whole number of 0 or more",
+            )
+        for key in PARKING_SPACE_KEYS:
+            details.pop(key, None)
+        return details
+    if parsed < 0 or parsed > MAX_PARKING_SPACES:
+        _property_field_error(
+            field="property_details.parking_spaces",
+            code="invalid_value",
+            message=f"Parking space must be between 0 and {MAX_PARKING_SPACES}",
+        )
+    details["parking_spaces"] = parsed
+    details["parkingSpaces"] = parsed
+    details["parking_space"] = parsed
+    details["parkingSpace"] = parsed
+    details["parking"] = parsed
+    return details
 
 
 def _property_details_dict(payload: dict[str, Any] | None) -> dict[str, Any]:
@@ -805,11 +963,13 @@ def _cleaned_text(value: Any, *, field: str | None = None, max_length: int = 255
 
 def _normalize_dls_section(section: dict[str, Any], *, field_prefix: str) -> dict[str, Any]:
     normalized = dict(section)
-    for alias, canonical in DLS_FIELD_ALIASES.items():
+    for alias, canonical in {**DLS_FIELD_ALIASES, **PARCEL_IDENTIFIER_ALIASES}.items():
         if alias in normalized and canonical not in normalized:
             normalized[canonical] = normalized[alias]
         if alias in normalized and alias != canonical:
             normalized.pop(alias, None)
+    for key in BASIN_NUMBER_KEYS:
+        normalized.pop(key, None)
     for field in (*PARCEL_IDENTIFIER_FIELDS, *DLS_CANONICAL_FIELDS):
         if field in normalized and normalized[field] is not None:
             normalized[field] = _cleaned_text(
@@ -817,16 +977,9 @@ def _normalize_dls_section(section: dict[str, Any], *, field_prefix: str) -> dic
                 field=f"{field_prefix}.{field}",
                 max_length=100,
             )
-    if not normalized.get("basin_number"):
-        hod = normalized.get("hod_code") or normalized.get("hod_name")
-        if hod:
-            normalized["basin_number"] = hod
-    if not normalized.get("hod_code") and normalized.get("basin_number"):
-        normalized["hod_code"] = normalized.get("basin_number")
-    if not normalized.get("parcel_number") and normalized.get("plot_number"):
-        normalized["parcel_number"] = normalized.get("plot_number")
-    if not normalized.get("plot_number") and normalized.get("parcel_number"):
-        normalized["plot_number"] = normalized.get("parcel_number")
+    # Keep building readable as both building and building_number for properties.
+    if normalized.get("building_number") and not normalized.get("building"):
+        normalized["building"] = normalized["building_number"]
     return normalized
 
 
@@ -840,26 +993,51 @@ def _sync_parcel_and_dls_fields(payload: dict[str, Any]) -> dict[str, Any]:
 
     location = _normalize_dls_section(dict(location), field_prefix="location") if has_location else {}
     details = _normalize_dls_section(dict(details), field_prefix="property_details") if has_details else {}
-    shared_fields = (*PARCEL_IDENTIFIER_FIELDS, *DLS_CANONICAL_FIELDS)
+    shared_fields = (*PARCEL_IDENTIFIER_FIELDS, *DLS_CANONICAL_FIELDS, *LOCATION_OPTION_SYNC_FIELDS)
     for field in shared_fields:
         location_value = location.get(field) if has_location else None
         details_value = details.get(field) if has_details else None
-        value = location_value or details_value
-        if value is None:
+        value = location_value if location_value not in (None, "") else details_value
+        if value in (None, ""):
             continue
-        if has_location and not location_value:
+        if has_location and location_value in (None, ""):
             location[field] = value
-        if has_details and not details_value:
+        if has_details and details_value in (None, ""):
             details[field] = value
+        # Location-only payloads still need a details dict so option resolve can run.
+        if has_location and not has_details and field in LOCATION_OPTION_SYNC_FIELDS:
+            details[field] = value
+            has_details = True
     if has_location:
+        if location.get("building_number") and not location.get("building"):
+            location["building"] = location["building_number"]
         payload["location"] = location
-    if has_details:
+    if has_details or details:
+        if details.get("building_number") and not details.get("building"):
+            details["building"] = details["building_number"]
         payload["property_details"] = details
     return payload
 
 
 def _is_mock_session(db: Session) -> bool:
     return getattr(type(db), "__module__", "").startswith("unittest.mock")
+
+
+def _demote_parcel_alias_from_dls(
+    location: dict[str, Any],
+    details: dict[str, Any],
+    *,
+    level: str,
+    code: str,
+) -> None:
+    """Drop non-official HOD codes that lack a parent path (Basin Number is retired)."""
+    if level != "hod":
+        return
+    for section in (location, details):
+        if not section:
+            continue
+        if section.get("hod_code") == code:
+            section.pop("hod_code", None)
 
 
 def _apply_dls_master_values(db: Session, payload: dict[str, Any]) -> dict[str, Any]:
@@ -899,6 +1077,11 @@ def _apply_dls_master_values(db: Session, payload: dict[str, Any]) -> dict[str, 
         parents = {parent: codes[parent] for parent in DLS_PARENTS[level] if codes.get(parent)}
         official_name = dls_official_name(db, level=level, code=code, parents=parents)
         if not official_name:
+            missing_parents = [parent for parent in DLS_PARENTS[level] if not codes.get(parent)]
+            if level == "hod" and missing_parents:
+                _demote_parcel_alias_from_dls(location, details, level=level, code=code)
+                codes["hod_code"] = ""
+                continue
             _property_field_error(
                 field=f"location.{code_field}",
                 code="invalid_value",
@@ -959,7 +1142,9 @@ def _normalize_owner_identification(owner: dict[str, Any]) -> dict[str, Any]:
     return normalized
 
 
-def property_option_ids_from_payload(payload: dict[str, Any] | None) -> tuple[int | None, int | None]:
+def property_option_ids_from_payload(
+    payload: dict[str, Any] | None,
+) -> tuple[int | None, int | None, int | None]:
     details = _property_details_dict(payload)
     furnishing_status_id = _optional_int(
         details.get("furnishing_status_id")
@@ -971,7 +1156,12 @@ def property_option_ids_from_payload(payload: dict[str, Any] | None) -> tuple[in
         if details.get("floor_id") not in (None, "")
         else details.get("floorId")
     )
-    return furnishing_status_id, floor_id
+    land_type_id = _optional_int(
+        details.get("land_type_id")
+        if details.get("land_type_id") not in (None, "")
+        else details.get("landTypeId")
+    )
+    return furnishing_status_id, floor_id, land_type_id
 
 
 def stored_furnishing_status_id(
@@ -981,7 +1171,7 @@ def stored_furnishing_status_id(
     column_value = _optional_int(getattr(submission, "furnishing_status_id", None))
     if column_value is not None:
         return column_value
-    furnishing_status_id, _ = property_option_ids_from_payload(
+    furnishing_status_id, _, _ = property_option_ids_from_payload(
         payload if payload is not None else getattr(submission, "payload", None)
     )
     return furnishing_status_id
@@ -994,10 +1184,23 @@ def stored_floor_id(
     column_value = _optional_int(getattr(submission, "floor_id", None))
     if column_value is not None:
         return column_value
-    _, floor_id = property_option_ids_from_payload(
+    _, floor_id, _ = property_option_ids_from_payload(
         payload if payload is not None else getattr(submission, "payload", None)
     )
     return floor_id
+
+
+def stored_land_type_id(
+    submission: PropertyListingSubmission,
+    payload: dict[str, Any] | None = None,
+) -> int | None:
+    column_value = _optional_int(getattr(submission, "land_type_id", None))
+    if column_value is not None:
+        return column_value
+    _, _, land_type_id = property_option_ids_from_payload(
+        payload if payload is not None else getattr(submission, "payload", None)
+    )
+    return land_type_id
 
 
 def apply_property_option_ids_to_payload(
@@ -1005,6 +1208,7 @@ def apply_property_option_ids_to_payload(
     *,
     furnishing_status_id: int | None = None,
     floor_id: int | None = None,
+    land_type_id: int | None = None,
 ) -> dict[str, Any]:
     normalized = dict(payload or {})
     details = _property_details_dict(normalized)
@@ -1026,6 +1230,10 @@ def apply_property_option_ids_to_payload(
             details["floor"] = (
                 details["floor_number"] if details.get("floor_number") not in (None, "") else floor_id
             )
+    if land_type_id is not None:
+        details["land_type_id"] = land_type_id
+        details["landTypeId"] = land_type_id
+        details.setdefault("landType", details.get("land_type"))
     if details:
         normalized["property_details"] = details
     return normalized
@@ -1035,9 +1243,10 @@ def persist_property_option_columns(
     submission: PropertyListingSubmission,
     payload: dict[str, Any] | None,
 ) -> None:
-    furnishing_status_id, floor_id = property_option_ids_from_payload(payload)
+    furnishing_status_id, floor_id, land_type_id = property_option_ids_from_payload(payload)
     submission.furnishing_status_id = furnishing_status_id
     submission.floor_id = floor_id
+    submission.land_type_id = land_type_id
 
 
 def remove_owner_address(payload: dict[str, Any] | None) -> dict[str, Any]:
@@ -1070,6 +1279,97 @@ def remove_dld_number(payload: dict[str, Any] | None) -> dict[str, Any]:
     for key in ("dld_number", "dldNumber", "DLD_number", "DLDNumber"):
         details.pop(key, None)
     normalized["property_details"] = details
+    return normalized
+
+
+def _strip_keys_from_section(section: dict[str, Any], keys: tuple[str, ...]) -> dict[str, Any]:
+    cleaned = dict(section)
+    for key in keys:
+        cleaned.pop(key, None)
+    return cleaned
+
+
+def _canonicalize_government_fields(section: dict[str, Any]) -> dict[str, Any]:
+    """Ensure gov_* is canonical; promote legacy government_* and drop aliases."""
+    cleaned = dict(section)
+    if "gov_code" not in cleaned or cleaned.get("gov_code") in (None, ""):
+        legacy_code = (
+            cleaned.get("government_code")
+            or cleaned.get("governmentCode")
+            or cleaned.get("govCode")
+            or cleaned.get("GOV_CODE")
+            or cleaned.get("governorate_code")
+            or cleaned.get("governate_code")
+            or cleaned.get("governateCode")
+        )
+        if legacy_code not in (None, ""):
+            cleaned["gov_code"] = legacy_code
+    if "gov_name" not in cleaned or cleaned.get("gov_name") in (None, ""):
+        legacy_name = (
+            cleaned.get("government_name")
+            or cleaned.get("governmentName")
+            or cleaned.get("govName")
+            or cleaned.get("GOV_NAME")
+            or cleaned.get("governorate")
+            or cleaned.get("governorate_name")
+            or cleaned.get("governate")
+        )
+        if legacy_name not in (None, ""):
+            cleaned["gov_name"] = legacy_name
+    for key in (
+        "government_code",
+        "governmentCode",
+        "govCode",
+        "GOV_CODE",
+        "government_name",
+        "governmentName",
+        "govName",
+        "GOV_NAME",
+        "governorate",
+        "governorate_code",
+        "governorateCode",
+        "governorate_name",
+        "governate",
+        "governate_code",
+        "governateCode",
+    ):
+        cleaned.pop(key, None)
+    return cleaned
+
+
+def strip_retired_and_category_identification_fields(
+    payload: dict[str, Any] | None,
+    *,
+    db: Session | None = None,
+    category_slug: str | None = None,
+) -> dict[str, Any]:
+    """Drop Basin Number always; for Land also drop ignored identification fields."""
+    normalized = dict(payload or {})
+    resolved_slug = category_slug
+    if resolved_slug is None and db is not None:
+        resolved_slug = _payload_category_slug(db, normalized)
+    elif resolved_slug is None:
+        basic = normalized.get("basic_information")
+        if isinstance(basic, dict):
+            raw_slug = basic.get("category_slug") or basic.get("category")
+            if isinstance(raw_slug, str) and raw_slug.strip():
+                resolved_slug = raw_slug.strip().casefold()
+
+    strip_keys = RETIRED_IDENTIFICATION_KEYS
+    if resolved_slug == "land":
+        strip_keys = (*strip_keys, *LAND_IGNORED_IDENTIFICATION_KEYS)
+
+    for section_key in ("location", "property_details", "propertyDetails"):
+        section = normalized.get(section_key)
+        if isinstance(section, dict):
+            cleaned = _canonicalize_government_fields(section)
+            normalized[section_key] = _strip_keys_from_section(cleaned, strip_keys)
+
+    # Prefer property_details when both camel/snake copies exist.
+    if "propertyDetails" in normalized and "property_details" not in normalized:
+        normalized["property_details"] = normalized.pop("propertyDetails")
+    else:
+        normalized.pop("propertyDetails", None)
     return normalized
 
 
@@ -1250,39 +1550,75 @@ def _normalize_property_details(db: Session, payload: dict[str, Any]) -> dict[st
 
     floor_key = _first_supplied_key(details, FLOOR_OPTION_KEYS)
     if floor_key:
-        supplied_floor = details.get("floor")
-        floor = resolve_property_option(
-            db,
-            group="floor",
-            value=details[floor_key],
-            field=f"property_details.{floor_key}",
-        )
-        for key in FLOOR_OPTION_KEYS:
-            details.pop(key, None)
-        details["floor_id"] = floor.id
-        details["floorId"] = floor.id
-        details["floor_number"] = floor.numeric_value
-        details["floorNumber"] = floor.numeric_value
-        details["floor_level"] = floor.name
-        details["floorLevel"] = floor.name
-        if isinstance(supplied_floor, dict):
-            details["floor"] = (
-                supplied_floor.get("id")
-                or supplied_floor.get("value")
-                or supplied_floor.get("numeric_value")
-                or supplied_floor.get("numericValue")
-                or floor.numeric_value
-            )
-        elif supplied_floor not in (None, ""):
-            details["floor"] = supplied_floor
-        elif floor.numeric_value is not None:
-            details["floor"] = floor.numeric_value
+        category_slug = _payload_category_slug(db, payload)
+        if category_slug == "land":
+            # Land no longer accepts floor / floor_number identification fields.
+            for key in FLOOR_OPTION_KEYS:
+                details.pop(key, None)
         else:
-            details["floor"] = floor.slug
+            supplied_floor = details.get("floor")
+            floor = resolve_property_option(
+                db,
+                group="floor",
+                value=details[floor_key],
+                field=f"property_details.{floor_key}",
+            )
+            for key in FLOOR_OPTION_KEYS:
+                details.pop(key, None)
+            details["floor_id"] = floor.id
+            details["floorId"] = floor.id
+            # MLS Location step stores floor_number as a numeric string when present.
+            floor_number = (
+                str(floor.numeric_value) if floor.numeric_value is not None else None
+            )
+            details["floor_number"] = floor_number
+            details["floorNumber"] = floor_number
+            details["floor_level"] = floor.name
+            details["floorLevel"] = floor.name
+            if isinstance(supplied_floor, dict):
+                details["floor"] = (
+                    supplied_floor.get("id")
+                    or supplied_floor.get("value")
+                    or supplied_floor.get("numeric_value")
+                    or supplied_floor.get("numericValue")
+                    or floor.numeric_value
+                    or floor.slug
+                )
+            elif supplied_floor not in (None, ""):
+                details["floor"] = supplied_floor
+            elif floor.numeric_value is not None:
+                details["floor"] = floor.numeric_value
+            else:
+                details["floor"] = floor.slug
+
+    land_type_key = _first_supplied_key(details, LAND_TYPE_OPTION_KEYS)
+    if land_type_key:
+        category_slug = _payload_category_slug(db, payload)
+        if category_slug == "land":
+            for key in LAND_TYPE_OPTION_KEYS:
+                details.pop(key, None)
+        else:
+            land_type = resolve_property_option(
+                db,
+                group="land_type",
+                value=details[land_type_key],
+                field=f"property_details.{land_type_key}",
+            )
+            for key in LAND_TYPE_OPTION_KEYS:
+                details.pop(key, None)
+            details["land_type"] = land_type.slug
+            details["landType"] = land_type.slug
+            details["land_type_id"] = land_type.id
+            details["landTypeId"] = land_type.id
+            details["land_type_name"] = land_type.name
+            details["landTypeName"] = land_type.name
 
     if "year_of_construction" in details and "year_built" not in details:
         details["year_built"] = details.pop("year_of_construction")
     year_built = details.get("year_built")
+    if isinstance(year_built, str) and not year_built.strip():
+        details["year_built"] = None
+        year_built = None
     if year_built is not None:
         try:
             year_built = int(year_built)
@@ -1291,6 +1627,8 @@ def _normalize_property_details(db: Session, payload: dict[str, Any]) -> dict[st
         if year_built < 1800 or year_built > utc_now().year + 1:
             _property_field_error(field="property_details.year_built", code="invalid_value", message="Year built is outside the valid range")
         details["year_built"] = year_built
+
+    _apply_parking_spaces(details, strict=True)
 
     payload["property_details"] = details
     return payload
@@ -1427,11 +1765,15 @@ def prepare_property_payload(
     for_submit: bool = False,
 ) -> dict[str, Any]:
     normalized = remove_dld_number(payload)
+    normalized = strip_retired_and_category_identification_fields(normalized, db=db)
     normalized = _normalize_listing_purpose(db, normalized)
+    # Sync Location-step DLS / identification fields into property_details before option resolve.
+    normalized = _sync_parcel_and_dls_fields(normalized)
     normalized = _normalize_property_details(db, normalized)
     normalized = _normalize_location(normalized)
     normalized = _sync_parcel_and_dls_fields(normalized)
     normalized = _apply_dls_master_values(db, normalized)
+    normalized = strip_retired_and_category_identification_fields(normalized, db=db)
     normalized = _normalize_primary_images(normalized)
     _validate_feature_ids(db, normalized)
     _validate_and_enrich_owners(db, normalized)
@@ -1802,20 +2144,6 @@ def pricing_response_fields(pricing: dict[str, Any] | None) -> dict[str, Any]:
     return result
 
 
-REFERENCE_NUMBER_START = 10001
-REFERENCE_NUMBER_MAX_ATTEMPTS = 12
-REFERENCE_NUMBER_SEQUENCE = "property_reference_number_seq"
-
-
-def _first_letter(value: Any) -> str:
-    if not isinstance(value, str):
-        return ""
-    for character in value.strip():
-        if character.isalpha():
-            return character.upper()
-    return ""
-
-
 def _payload_int_id(value: Any) -> int | None:
     try:
         if value is None or value == "":
@@ -1826,144 +2154,19 @@ def _payload_int_id(value: Any) -> int | None:
     return parsed if parsed else None
 
 
-def _payload_reference_number(payload: dict[str, Any] | None) -> str | None:
-    details = (payload or {}).get("property_details")
-    if not isinstance(details, dict):
-        return None
-    value = details.get("reference_number")
-    if isinstance(value, str) and value.strip():
-        return value.strip()
-    return None
-
-
-def stored_reference_number(
-    submission: PropertyListingSubmission | None,
-    payload: dict[str, Any] | None = None,
-) -> str | None:
-    if submission is not None:
-        column_value = getattr(submission, "reference_number", None)
-        if isinstance(column_value, str) and column_value.strip():
-            return column_value.strip()
-        if payload is None:
-            payload = submission.payload
-    return _payload_reference_number(payload)
-
-
-def displayed_reference_number(
-    submission: PropertyListingSubmission,
-    *,
-    payload: dict[str, Any] | None = None,
-    property_id: UUID | None = None,
-) -> str:
-    stored = stored_reference_number(submission, payload)
-    if stored:
-        return stored
-    resolved_id = property_id or submission.property_id or submission.id
-    return str(resolved_id)[:8]
-
-
-def write_payload_reference_number(payload: dict[str, Any] | None, reference_number: str | None) -> dict[str, Any]:
-    """Set or strip reference_number inside property_details without creating that section."""
-    normalized = dict(payload or {})
-    details = normalized.get("property_details")
-    if not isinstance(details, dict):
-        return normalized
-    details = dict(details)
-    if reference_number:
-        details["reference_number"] = reference_number
-    else:
-        details.pop("reference_number", None)
-    normalized["property_details"] = details
-    return normalized
-
-
-def reference_number_prefix(db: Session, payload: dict[str, Any] | None) -> str | None:
-    basic = (payload or {}).get("basic_information") or {}
+def _payload_category_slug(db: Session, payload: dict[str, Any] | None) -> str | None:
+    basic = (payload or {}).get("basic_information")
     if not isinstance(basic, dict):
         return None
+    raw_slug = basic.get("category_slug") or basic.get("category")
+    if isinstance(raw_slug, str) and raw_slug.strip():
+        return raw_slug.strip().casefold()
     category_id = _payload_int_id(basic.get("category_id"))
-    type_id = _payload_int_id(basic.get("type_id"))
-    if not category_id or not type_id:
+    if not category_id or _is_mock_session(db):
         return None
     category = db.get(PropertyCategory, category_id)
-    property_type = db.get(PropertyType, type_id)
-    category_letter = _first_letter(getattr(category, "name", None)) or _first_letter(getattr(category, "slug", None))
-    type_letter = _first_letter(getattr(property_type, "name", None)) or _first_letter(getattr(property_type, "slug", None))
-    if category_letter and type_letter:
-        return f"{category_letter}{type_letter}"
-    return None
-
-
-def generate_reference_number(value: int | str) -> str:
-    return str(int(value))
-
-
-def _next_reference_number_value(db: Session) -> int:
-    result = db.execute(text(f"SELECT nextval('{REFERENCE_NUMBER_SEQUENCE}')"))
-    scalar = result.scalar() if hasattr(result, "scalar") else None
-    try:
-        return int(scalar)
-    except (TypeError, ValueError):
-        return REFERENCE_NUMBER_START
-
-
-def _reference_number_taken(db: Session, value: str, *, exclude_id: UUID | None = None) -> bool:
-    payload_ref = PropertyListingSubmission.payload.op("#>>")("{property_details,reference_number}")
-    stmt = select(PropertyListingSubmission.id).where(
-        or_(
-            PropertyListingSubmission.reference_number == value,
-            payload_ref == value,
-        )
-    )
-    if exclude_id is not None:
-        stmt = stmt.where(PropertyListingSubmission.id != exclude_id)
-    row = db.execute(stmt.limit(1)).first()
-    if row in (None, False):
-        return False
-    # Unit tests often pass a MagicMock session; those objects are truthy but not DB rows.
-    if getattr(type(row), "__module__", "").startswith("unittest.mock"):
-        return False
-    return True
-
-
-def allocate_reference_number(db: Session, prefix: str | None = None, *, exclude_id: UUID | None = None) -> str:
-    for _ in range(REFERENCE_NUMBER_MAX_ATTEMPTS):
-        candidate = generate_reference_number(_next_reference_number_value(db))
-        if not candidate.isdigit():
-            continue
-        if not _reference_number_taken(db, candidate, exclude_id=exclude_id):
-            return candidate
-    raise_api_error(
-        status_code=STATUS_INTERNAL_SERVER_ERROR,
-        code="DATABASE_ERROR",
-        message="Unable to allocate a unique property reference number",
-        details=[
-            {
-                "field": "property_details.reference_number",
-                "code": "system_error",
-                "message": "Unable to allocate a unique numeric reference number",
-            }
-        ],
-    )
-
-
-def assign_reference_number(
-    db: Session,
-    payload: dict[str, Any] | None,
-    *,
-    submission: PropertyListingSubmission | None = None,
-) -> tuple[dict[str, Any], str | None]:
-    """Ignore client-provided reference numbers. Preserve existing or generate once."""
-    preserved = stored_reference_number(submission)
-    if preserved:
-        return write_payload_reference_number(payload, preserved), preserved
-
-    stripped = write_payload_reference_number(payload, None)
-    generated = allocate_reference_number(
-        db,
-        exclude_id=getattr(submission, "id", None) if submission is not None else None,
-    )
-    return write_payload_reference_number(stripped, generated), generated
+    slug = getattr(category, "slug", None) if category else None
+    return str(slug).strip().casefold() if slug else None
 
 
 def validate_duplicate_property(
@@ -2005,11 +2208,13 @@ def validate_duplicate_property(
             _json_text_equals(("location", "plot_number"), parcel),
         )
         dls_match = village_match & hod_match & parcel_match
-        gov_code = _parcel_lookup_value(data, "gov_code")
+        gov_code = _parcel_lookup_value(data, "gov_code", "government_code")
         if gov_code:
             dls_match = dls_match & or_(
                 _json_text_equals(("property_details", "gov_code"), gov_code),
+                _json_text_equals(("property_details", "government_code"), gov_code),
                 _json_text_equals(("location", "gov_code"), gov_code),
+                _json_text_equals(("location", "government_code"), gov_code),
             )
         dept_code = _parcel_lookup_value(data, "dept_code")
         if dept_code:
@@ -2026,8 +2231,8 @@ def validate_duplicate_property(
         conditions.append(dls_match)
 
     plot_number = _parcel_lookup_value(data, "plot_number")
-    basin_number = _parcel_lookup_value(data, "basin_number", "hod_code")
-    if plot_number and basin_number:
+    hod_or_basin = _parcel_lookup_value(data, "hod_code", "basin_number")
+    if plot_number and hod_or_basin:
         conditions.append(
             (
                 or_(
@@ -2037,10 +2242,10 @@ def validate_duplicate_property(
             )
             & (
                 or_(
-                    _json_text_equals(("property_details", "basin_number"), basin_number),
-                    _json_text_equals(("property_details", "hod_code"), basin_number),
-                    _json_text_equals(("location", "basin_number"), basin_number),
-                    _json_text_equals(("location", "hod_code"), basin_number),
+                    _json_text_equals(("property_details", "hod_code"), hod_or_basin),
+                    _json_text_equals(("property_details", "basin_number"), hod_or_basin),
+                    _json_text_equals(("location", "hod_code"), hod_or_basin),
+                    _json_text_equals(("location", "basin_number"), hod_or_basin),
                 )
             )
         )
@@ -2093,14 +2298,22 @@ def serialize_submission(submission: PropertyListingSubmission) -> dict:
     readable_payload = write_payload_reference_number(readable_payload, reference_number)
     furnishing_status_id = stored_furnishing_status_id(submission, payload)
     floor_id = stored_floor_id(submission, payload)
+    land_type_id = stored_land_type_id(submission, payload)
     readable_payload = apply_property_option_ids_to_payload(
         readable_payload,
         furnishing_status_id=furnishing_status_id,
         floor_id=floor_id,
+        land_type_id=land_type_id,
     )
     readable_payload = add_map_pin_to_response(
-        remove_dld_number(remove_owner_address(readable_payload))
+        strip_retired_and_category_identification_fields(
+            remove_dld_number(remove_owner_address(readable_payload))
+        )
     )
+    details = readable_payload.get("property_details")
+    if isinstance(details, dict):
+        readable_payload = dict(readable_payload)
+        readable_payload["property_details"] = _apply_parking_spaces(dict(details), strict=False)
     return {
         "submission_id": str(submission.id),
         "submitted_by": str(submission.submitted_by),
@@ -2114,6 +2327,7 @@ def serialize_submission(submission: PropertyListingSubmission) -> dict:
         "reference_number": reference_number,
         "furnishing_status_id": furnishing_status_id,
         "floor_id": floor_id,
+        "land_type_id": land_type_id,
         "payload": readable_payload,
         "reviewed_by": str(submission.reviewed_by) if submission.reviewed_by else None,
         "reviewed_at": _iso(submission.reviewed_at),
@@ -2168,7 +2382,7 @@ def create_submission(
         roles=roles,
     )
     route_through_agency = agency_id is not None
-    furnishing_status_id, floor_id = property_option_ids_from_payload(normalized_payload)
+    furnishing_status_id, floor_id, land_type_id = property_option_ids_from_payload(normalized_payload)
     submission = PropertyListingSubmission(
         id=uuid4(),
         submitted_by=user_id,
@@ -2187,6 +2401,7 @@ def create_submission(
         reference_number=reference_number,
         furnishing_status_id=furnishing_status_id,
         floor_id=floor_id,
+        land_type_id=land_type_id,
         submitted_at=submitted_at,
     )
     db.add(submission)
@@ -2196,7 +2411,11 @@ def create_submission(
 def get_submission_or_404(db: Session, submission_id: UUID) -> PropertyListingSubmission:
     submission = db.get(PropertyListingSubmission, submission_id)
     if not submission or submission.deleted_at is not None:
-        raise HTTPException(status_code=STATUS_NOT_FOUND, detail="Property submission not found")
+        raise_api_error(
+            status_code=STATUS_NOT_FOUND,
+            code="NOT_FOUND",
+            message="Property submission not found",
+        )
     return submission
 
 
@@ -2343,8 +2562,8 @@ def can_delete_submission(
     roles: tuple[str, ...],
     agency_id: UUID | None,
 ) -> bool:
-    if submission.status in DRAFT_STATUSES:
-        return submission.submitted_by == user_id
+    if submission.status in DRAFT_STATUSES or submission.status == "in_progress":
+        return _same_user(submission.submitted_by, user_id)
 
     workflow_stage = _workflow_stage_for_submission(submission)
     if submission.status != REJECTED_STATUS and workflow_stage != WORKFLOW_STAGE_REJECTED:
@@ -2355,7 +2574,7 @@ def can_delete_submission(
         return True
     if "admin" in role_names and agency_id and _submitter_agency_id(db, submission) == agency_id:
         return True
-    if submission.submitted_by == user_id:
+    if _same_user(submission.submitted_by, user_id):
         return True
     return _assigned_agent_id(submission) == str(user_id)
 
@@ -2369,7 +2588,11 @@ def assert_can_delete_submission(
     agency_id: UUID | None,
 ) -> None:
     if not can_delete_submission(db, submission, user_id=user_id, roles=roles, agency_id=agency_id):
-        raise HTTPException(status_code=STATUS_FORBIDDEN, detail="Insufficient permissions")
+        raise_api_error(
+            status_code=STATUS_FORBIDDEN,
+            code="FORBIDDEN",
+            message="You are not allowed to delete this property listing",
+        )
 
 
 def assert_can_view_submission(
@@ -2492,7 +2715,7 @@ def create_revision_from_active(
     workflow["revision_status"] = "pending_reapproval"
 
     route_through_agency = bool(getattr(source, "route_through_agency", False))
-    furnishing_status_id, floor_id = property_option_ids_from_payload(revision_payload)
+    furnishing_status_id, floor_id, land_type_id = property_option_ids_from_payload(revision_payload)
     revision = PropertyListingSubmission(
         id=uuid4(),
         submitted_by=user_id,
@@ -2512,6 +2735,7 @@ def create_revision_from_active(
         reference_number=reference_number,
         furnishing_status_id=furnishing_status_id,
         floor_id=floor_id,
+        land_type_id=land_type_id,
         submitted_at=utc_now(),
     )
     db.add(revision)
@@ -2906,7 +3130,28 @@ def review_submission(
     return submission
 
 
-def serialize_draft_list_item(submission: PropertyListingSubmission) -> dict:
+def serialize_draft_list_item(
+    submission: PropertyListingSubmission,
+    *,
+    db: Session | None = None,
+    actor_user_id: UUID | None = None,
+    actor_roles: tuple[str, ...] = (),
+    actor_agency_id: UUID | None = None,
+) -> dict:
+    can_delete = submission.status in WORKING_STATUSES and (
+        actor_user_id is None
+        or _same_user(submission.submitted_by, actor_user_id)
+        or (
+            db is not None
+            and can_delete_submission(
+                db,
+                submission,
+                user_id=actor_user_id,
+                roles=actor_roles,
+                agency_id=actor_agency_id,
+            )
+        )
+    )
     return {
         "submission_id": str(submission.id),
         **_routing_payload(submission),
@@ -2916,7 +3161,7 @@ def serialize_draft_list_item(submission: PropertyListingSubmission) -> dict:
         "title": _title(submission.payload or {}),
         "updated_at": _iso(submission.updated_at),
         "can_edit": submission.status in WORKING_STATUSES,
-        "can_delete": submission.status in WORKING_STATUSES,
+        "can_delete": can_delete,
     }
 
 

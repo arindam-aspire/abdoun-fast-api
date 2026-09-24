@@ -7,8 +7,11 @@ from app.api.deps import DBSessionDep
 from app.models.live_schema import Area, City, Feature, PropertyCategory, PropertyType
 from app.services.dls_locations import list_dls_locations
 from app.services.property_taxonomy import (
+    GROUP_ORDER,
+    category_group,
     is_dco_category,
     is_dco_property_type,
+    serialize_identification_fields,
     sort_categories,
     sort_property_types,
 )
@@ -27,7 +30,7 @@ router = APIRouter()
 @router.get(
     "/property-options",
     summary="List Add Property master-data options",
-    description="Returns DB-backed dropdown values from property_option_values. Filter with group=furnishing_status, floor, listing_purpose, completion_status, or direction.",
+    description="Returns DB-backed dropdown values from property_option_values. Filter with group=furnishing_status, floor, listing_purpose, completion_status, direction, or land_type.",
 )
 def get_property_options(
     db: DBSessionDep,
@@ -88,6 +91,7 @@ def list_features(db: DBSessionDep, is_active: bool | None = None) -> dict:
                     "id": categories_by_id[feature.category_id].id,
                     "name": categories_by_id[feature.category_id].name,
                     "slug": categories_by_id[feature.category_id].slug,
+                    **category_group(categories_by_id[feature.category_id]),
                 }
                 if feature.category_id and feature.category_id in categories_by_id
                 else None
@@ -127,6 +131,8 @@ def get_property_taxonomy(db: DBSessionDep) -> dict:
             "id": category.id,
             "name": category.name,
             "slug": category.slug,
+            **category_group(category),
+            "identification_fields": serialize_identification_fields(category),
             "property_types": [
                 {
                     "id": property_type.id,
@@ -146,7 +152,24 @@ def get_property_taxonomy(db: DBSessionDep) -> dict:
         }
         for category in sort_categories([category for category in categories if is_dco_category(category)])
     ]
-    return success_response({"data": data, "total": len(data)})
+    grouped: dict[str, dict] = {}
+    for group in GROUP_ORDER:
+        grouped[group["slug"]] = {
+            "slug": group["slug"],
+            "name": group["name"],
+            "categories": [],
+        }
+    for category in data:
+        group_slug = category.get("group_slug") or "properties"
+        if group_slug not in grouped:
+            grouped[group_slug] = {
+                "slug": group_slug,
+                "name": category.get("group_name") or group_slug.title(),
+                "categories": [],
+            }
+        grouped[group_slug]["categories"].append(category)
+    groups = [group for group in grouped.values() if group["categories"]]
+    return success_response({"data": data, "groups": groups, "total": len(data)})
 
 
 @router.get("/location-taxonomy")
@@ -180,18 +203,21 @@ def get_location_taxonomy(db: DBSessionDep) -> dict:
     "/dls-locations",
     summary="List official DLS hierarchy options",
     description=(
-        "Returns DLS master-data rows from dls_locations. "
-        "Filter with level=gov|dept|vill|hod|sect. "
+        "Returns DLS master-data rows from dls_records. "
+        "Filter with level=gov|dept|vill|hod|sect "
+        "(government is accepted as an alias for gov). "
         "Each child level requires the previous level code: "
         "dept needs gov_code, vill needs gov_code+dept_code, "
         "hod needs gov_code+dept_code+vill_code, "
-        "sect needs gov_code+dept_code+vill_code+hod_code."
+        "sect needs gov_code+dept_code+vill_code+hod_code. "
+        "government_code is accepted as an alias for gov_code."
     ),
 )
 def get_dls_locations(
     db: DBSessionDep,
     level: str = "gov",
     gov_code: str | None = None,
+    government_code: str | None = None,
     dept_code: str | None = None,
     vill_code: str | None = None,
     hod_code: str | None = None,
@@ -201,6 +227,7 @@ def get_dls_locations(
             db,
             level=level,
             gov_code=gov_code,
+            government_code=government_code,
             dept_code=dept_code,
             vill_code=vill_code,
             hod_code=hod_code,

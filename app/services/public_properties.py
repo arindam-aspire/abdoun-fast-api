@@ -26,6 +26,7 @@ from app.models.live_schema import (
     UserPropertyFavorite,
 )
 from app.services.media_urls import resolve_readable_media_url
+from app.services.property_taxonomy import category_group
 from app.services.property_submissions import (
     _assigned_agent_id,
     can_view_submission,
@@ -577,6 +578,69 @@ def serialize_property_detail(
         if assigned_agent_id
         else None
     )
+    is_land = str(listing.get("category") or "").casefold() == "land"
+
+    detail_fields = {
+            "built_up_area": _float(details.get("built_up_area")),
+            "land_area": None,
+            "garden_area": None,
+            "terrace_area": None,
+            "area_unit": settings.default_measurement_unit,
+            "bedrooms": _int(details.get("bedrooms")),
+            "master_bedrooms": None,
+            "bathrooms": _int(details.get("bathrooms")),
+            "living_rooms": None,
+            "salons": None,
+            "balconies": None,
+            "entrances": None,
+            "kitchens": None,
+            "kitchen_type": None,
+            "maid_rooms": None,
+            "driver_rooms": None,
+            "store_rooms": None,
+            "parking_spaces": (
+                _int(details["parking_spaces"] if details.get("parking_spaces") not in (None, "") else details.get("parking"))
+                if details.get("parking_spaces") not in (None, "") or details.get("parking") not in (None, "")
+                else None
+            ),
+            "apartment_number": details.get("apartment_number") or location.get("apartment_number"),
+            "plot_number": details.get("plot_number") or location.get("plot_number"),
+            "building_number": details.get("building_number") or location.get("building_number") or details.get("building") or location.get("building"),
+            "building": details.get("building") or location.get("building") or details.get("building_number") or location.get("building_number"),
+            "parcel_number": details.get("parcel_number") or location.get("parcel_number"),
+            "land_type": details.get("land_type") or details.get("landType"),
+            "land_type_id": details.get("land_type_id") or details.get("landTypeId"),
+            "land_type_name": details.get("land_type_name")
+            or details.get("landTypeName"),
+            "gov_code": details.get("gov_code")
+            or location.get("gov_code")
+            or details.get("government_code")
+            or location.get("government_code"),
+            "gov_name": details.get("gov_name")
+            or location.get("gov_name")
+            or details.get("government_name")
+            or location.get("government_name")
+            or location.get("governorate"),
+            "dept_code": details.get("dept_code") or location.get("dept_code"),
+            "dept_name": details.get("dept_name") or location.get("dept_name") or location.get("directorate"),
+            "vill_code": details.get("vill_code") or location.get("vill_code"),
+            "vill_name": details.get("vill_name") or location.get("vill_name") or location.get("village"),
+            "hod_code": details.get("hod_code") or location.get("hod_code"),
+            "hod_name": details.get("hod_name") or location.get("hod_name"),
+            "sect_code": details.get("sect_code") or location.get("sect_code"),
+            "sect_name": details.get("sect_name") or location.get("sect_name"),
+        }
+    if is_land:
+        for key in (
+            "apartment_number",
+            "building_number",
+            "building",
+            "parcel_number",
+            "land_type",
+            "land_type_id",
+            "land_type_name",
+        ):
+            detail_fields.pop(key, None)
 
     detail = {
         **listing,
@@ -607,7 +671,9 @@ def serialize_property_detail(
         "location_name": ", ".join(part for part in [listing["areaName"], listing["city"]] if part) or None,
         "general": {
             "floor_type": None,
-            "floor_number": _int(
+            "floor_number": None
+            if is_land
+            else _int(
                 details["floor_number"]
                 if details.get("floor_number") not in (None, "")
                 else details.get("floor_level")
@@ -622,40 +688,7 @@ def serialize_property_detail(
             "garage_type": None,
             "total_floors_in_building": _int(details.get("total_floors")) or None,
         },
-        "details": {
-            "built_up_area": _float(details.get("built_up_area")),
-            "land_area": None,
-            "garden_area": None,
-            "terrace_area": None,
-            "area_unit": settings.default_measurement_unit,
-            "bedrooms": _int(details.get("bedrooms")),
-            "master_bedrooms": None,
-            "bathrooms": _int(details.get("bathrooms")),
-            "living_rooms": None,
-            "salons": None,
-            "balconies": None,
-            "entrances": None,
-            "kitchens": None,
-            "kitchen_type": None,
-            "maid_rooms": None,
-            "driver_rooms": None,
-            "store_rooms": None,
-            "apartment_number": details.get("apartment_number") or location.get("apartment_number"),
-            "plot_number": details.get("plot_number") or location.get("plot_number"),
-            "basin_number": details.get("basin_number") or location.get("basin_number") or location.get("hod_code"),
-            "building_number": details.get("building_number") or location.get("building_number"),
-            "parcel_number": details.get("parcel_number") or location.get("parcel_number") or details.get("plot_number"),
-            "gov_code": details.get("gov_code") or location.get("gov_code"),
-            "gov_name": details.get("gov_name") or location.get("gov_name") or location.get("governorate"),
-            "dept_code": details.get("dept_code") or location.get("dept_code"),
-            "dept_name": details.get("dept_name") or location.get("dept_name") or location.get("directorate"),
-            "vill_code": details.get("vill_code") or location.get("vill_code"),
-            "vill_name": details.get("vill_name") or location.get("vill_name") or location.get("village"),
-            "hod_code": details.get("hod_code") or location.get("hod_code"),
-            "hod_name": details.get("hod_name") or location.get("hod_name"),
-            "sect_code": details.get("sect_code") or location.get("sect_code"),
-            "sect_name": details.get("sect_name") or location.get("sect_name"),
-        },
+        "details": detail_fields,
         "features": {"amenities": [str(item) for item in _feature_ids(payload)]},
         "features_list": _feature_list(db, payload),
         "pricing": {
@@ -997,7 +1030,11 @@ def serialize_feature_catalog_item(db: Session, feature: Feature) -> dict[str, A
         "is_active": bool(feature.is_active),
         "created_at": iso(feature.created_at),
         "updated_at": iso(feature.updated_at),
-        "category": {"id": category.id, "name": category.name, "slug": category.slug} if category else None,
+        "category": (
+            {"id": category.id, "name": category.name, "slug": category.slug, **category_group(category)}
+            if category
+            else None
+        ),
         "property_type": {
             "id": property_type.id,
             "category_id": property_type.category_id,

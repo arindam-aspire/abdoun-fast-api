@@ -334,6 +334,11 @@ class PropertyListingSubmission(Base):
         ForeignKey("property_option_values.id", ondelete="SET NULL"),
         nullable=True,
     )
+    land_type_id: Mapped[Any] = mapped_column(
+        Integer,
+        ForeignKey("property_option_values.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     submitted_at: Mapped[Any] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[Any] = mapped_column(DateTime, nullable=False, server_default=text("now()"))
     updated_at: Mapped[Any] = mapped_column(DateTime, nullable=False, server_default=text("now()"))
@@ -362,6 +367,9 @@ class PropertyCategory(Base):
     name: Mapped[Any] = mapped_column(String(100), nullable=False)
     slug: Mapped[Any] = mapped_column(String(100), nullable=False)
     is_active: Mapped[Any] = mapped_column(Boolean, nullable=True)
+    display_order: Mapped[Any] = mapped_column(Integer, nullable=True)
+    group_slug: Mapped[Any] = mapped_column(String(50), nullable=True)
+    group_name: Mapped[Any] = mapped_column(String(100), nullable=True)
     created_at: Mapped[Any] = mapped_column(DateTime, nullable=True, server_default=text("now()"))
     updated_at: Mapped[Any] = mapped_column(DateTime, nullable=True, server_default=text("now()"))
 
@@ -665,9 +673,9 @@ class Area(Base):
 
 
 class DlsLocation(Base):
-    """Official DLS land-admin hierarchy imported from DLS_FINAL_FIXED_UTF8.xlsx."""
+    """Official DLS land-admin hierarchy (table: dls_records)."""
 
-    __tablename__ = "dls_locations"
+    __tablename__ = "dls_records"
     __table_args__ = (
         UniqueConstraint(
             "gov_code",
@@ -675,17 +683,19 @@ class DlsLocation(Base):
             "vill_code",
             "hod_code",
             "sect_code",
-            name="uq_dls_locations_hierarchy",
+            name="uq_dls_records_hierarchy",
         ),
-        Index("ix_dls_locations_gov", "gov_code"),
-        Index("ix_dls_locations_gov_dept", "gov_code", "dept_code"),
-        Index("ix_dls_locations_gov_dept_vill", "gov_code", "dept_code", "vill_code"),
+        Index("idx_dls_gov", "gov_code"),
+        Index("idx_dls_dept", "gov_code", "dept_code"),
+        Index("idx_dls_vill", "gov_code", "dept_code", "vill_code"),
+        Index("idx_dls_hod", "gov_code", "dept_code", "vill_code", "hod_code"),
         Index(
-            "ix_dls_locations_gov_dept_vill_hod",
+            "idx_dls_hierarchy",
             "gov_code",
             "dept_code",
             "vill_code",
             "hod_code",
+            "sect_code",
         ),
     )
 
@@ -700,6 +710,8 @@ class DlsLocation(Base):
     hod_name: Mapped[Any] = mapped_column(String(255), nullable=False)
     sect_code: Mapped[Any] = mapped_column(String(50), nullable=False)
     sect_name: Mapped[Any] = mapped_column(String(255), nullable=False)
+    created_at: Mapped[Any] = mapped_column(DateTime, nullable=True, server_default=text("now()"))
+    updated_at: Mapped[Any] = mapped_column(DateTime, nullable=True, server_default=text("now()"))
 
 
 class PropertyOwner(Base):
