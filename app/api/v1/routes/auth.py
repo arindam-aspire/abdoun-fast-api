@@ -43,6 +43,7 @@ from app.services.auth import (
     verify_refresh_token,
 )
 from app.core.security import hash_secret, verify_secret
+from app.services.media_urls import local_media_url
 from app.utils.api_response import success_response
 from app.utils.status_codes import STATUS_BAD_REQUEST, STATUS_NOT_FOUND, STATUS_UNAUTHORIZED
 
@@ -270,7 +271,7 @@ def verify_profile_update(payload: ProfileUpdateVerifyRequest, context: Authenti
 @router.post("/me/profile-picture")
 def request_profile_picture_upload(payload: ProfilePictureUploadRequest, context: AuthenticatedContext, db: DBSessionDep) -> dict:
     user = get_user_or_404(db, context.user_id)
-    user.profile_picture_url = f"dev://profile-pictures/{user.id}/{payload.file_name}"
+    user.profile_picture_url = local_media_url(f"profile-pictures/{user.id}/{payload.file_name}")
     db.commit()
     return success_response({"upload_url": user.profile_picture_url}, "Profile picture upload URL generated")
 

@@ -12,6 +12,7 @@ from app.schemas.uploads import PresignedUploadRequest, ReadableUrlRequest
 from app.services.media_urls import (
     canonicalize_media_url,
     generate_presigned_put_url,
+    local_media_url,
     probe_s3_object_access,
     resolve_readable_media_url,
 )
@@ -113,7 +114,7 @@ def create_presigned_upload_url(payload: PresignedUploadRequest, context: Authen
             },
         )
 
-    dev_url = f"dev://uploads/{object_key}"
+    dev_url = local_media_url(f"uploads/{object_key}")
     return success_response(
         {
             "upload_url": dev_url,

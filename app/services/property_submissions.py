@@ -1503,7 +1503,14 @@ def _normalize_property_details(db: Session, payload: dict[str, Any]) -> dict[st
     details = dict(details)
 
     if "built_up_area" not in details:
-        for alias in ("property_area", "area"):
+        for alias in (
+            "property_area",
+            "area",
+            "builtUpArea",
+            "building_area",
+            "buildingArea",
+            "built_upArea",
+        ):
             if alias in details:
                 details["built_up_area"] = details.pop(alias)
                 break
@@ -1825,7 +1832,35 @@ def prepare_property_contact_fields(payload: dict[str, Any] | None) -> dict[str,
 
 
 SQFT_TO_SQM = Decimal("0.09290304")
-BUILT_UP_AREA_UNIT_KEYS = ("built_up_area_unit", "area_unit")
+BUILT_UP_AREA_UNIT_KEYS = (
+    "built_up_area_unit",
+    "area_unit",
+    "builtUpAreaUnit",
+    "building_area_unit",
+    "buildingAreaUnit",
+)
+_AREA_UNIT_COMPACT = {
+    "sqm": "sqm",
+    "m2": "sqm",
+    "squaremeter": "sqm",
+    "squaremeters": "sqm",
+    "squaremetre": "sqm",
+    "squaremetres": "sqm",
+    "sqft": "sqft",
+    "squarefoot": "sqft",
+    "squarefeet": "sqft",
+}
+
+
+def _canonical_area_unit(raw: str) -> str | None:
+    compact = raw.strip().lower().replace("²", "2").replace(".", "").replace(" ", "")
+    return _AREA_UNIT_COMPACT.get(compact)
+
+
+def _decimal_area_value(value: Any) -> Decimal:
+    if isinstance(value, str):
+        value = value.replace(",", "").strip()
+    return Decimal(str(value))
 
 
 def _validated_built_up_area(payload: dict[str, Any] | None) -> tuple[Decimal, str | None, str] | None:
@@ -1835,7 +1870,7 @@ def _validated_built_up_area(payload: dict[str, Any] | None) -> tuple[Decimal, s
 
     unit_key = next((key for key in BUILT_UP_AREA_UNIT_KEYS if key in details), None)
     unit_value = details.get(unit_key)
-    unit = "sqm" if unit_value is None else str(unit_value).strip().lower()
+    unit = "sqm" if unit_value is None else (_canonical_area_unit(str(unit_value)) or "")
     if unit not in {"sqm", "sqft"}:
         _property_field_error(
             field=f"property_details.{unit_key or 'built_up_area_unit'}",
@@ -1851,7 +1886,7 @@ def _validated_built_up_area(payload: dict[str, Any] | None) -> tuple[Decimal, s
             message="Built-up area must be a numeric value greater than 0",
         )
     try:
-        decimal_value = Decimal(str(value))
+        decimal_value = _decimal_area_value(value)
     except (InvalidOperation, TypeError, ValueError):
         _property_field_error(
             field="property_details.built_up_area",
@@ -1883,7 +1918,8 @@ def normalize_built_up_area_to_sqm(payload: dict[str, Any] | None) -> dict[str, 
     value, unit_key, unit = validated
     details = dict(normalized["property_details"])
     if unit == "sqft":
-        details["built_up_area"] = float(value * SQFT_TO_SQM)
+        value = value * SQFT_TO_SQM
+    details["built_up_area"] = float(value)
     details["built_up_area_unit"] = "sqm"
     if unit_key and unit_key != "built_up_area_unit":
         details[unit_key] = "sqm"

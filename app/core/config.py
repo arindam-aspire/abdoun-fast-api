@@ -168,8 +168,20 @@ class Settings(BaseModel):
     frontend_base_url: str = (
         _env_str("FRONTEND_BASE_URL")
         or _env_str("APP_BASE_URL")
-        or "http://localhost:3000"
+        or ""
     ).rstrip("/")
+    agency_invitation_path: str = _env_str("AGENCY_INVITATION_PATH", "/agency-invitation") or "/agency-invitation"
+    agency_password_setup_path: str = (
+        _env_str("AGENCY_PASSWORD_SETUP_PATH", "/agency-password-setup") or "/agency-password-setup"
+    )
+    agent_invitation_path: str = _env_str("AGENT_INVITATION_PATH", "/agent-invite") or "/agent-invite"
+    agent_password_setup_path: str = (
+        _env_str("AGENT_PASSWORD_SETUP_PATH", "/agent-password-setup") or "/agent-password-setup"
+    )
+    agent_placeholder_email_domain: str = (
+        _env_str("AGENT_PLACEHOLDER_EMAIL_DOMAIN", "agents.local") or "agents.local"
+    ).lstrip("@")
+    local_media_url_prefix: str = (_env_str("LOCAL_MEDIA_URL_PREFIX", "dev://") or "dev://").rstrip("/")
     allow_owner_multiple_agencies: bool = _env_bool("ALLOW_OWNER_MULTIPLE_AGENCIES", False)
 
     aws_s3_bucket: str | None = _env_str("AWS_S3_BUCKET", "")
@@ -251,3 +263,15 @@ class Settings(BaseModel):
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
+
+
+def branded_label(text: str) -> str:
+    """Prefix user-facing email text with the configured sender or app name."""
+    settings = get_settings()
+    brand = (settings.ses_from_name or settings.app_name or "").strip()
+    cleaned = (text or "").strip()
+    if not brand:
+        return cleaned
+    if not cleaned:
+        return brand
+    return f"{brand} {cleaned}"

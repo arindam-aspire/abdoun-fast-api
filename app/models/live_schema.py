@@ -293,6 +293,7 @@ class AgencyInvitation(Base):
     agency_name: Mapped[Any] = mapped_column(String(255), nullable=True)
     agency_trade_name: Mapped[Any] = mapped_column(String(255), nullable=True)
     phone: Mapped[Any] = mapped_column(String(20), nullable=True)
+    legal_document_s3_link: Mapped[Any] = mapped_column(Text, nullable=True)
     token: Mapped[Any] = mapped_column(String(128), nullable=False)
     status: Mapped[Any] = mapped_column(String(20), nullable=False, server_default=text("'INVITED'::character varying"))
     invited_by: Mapped[Any] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
