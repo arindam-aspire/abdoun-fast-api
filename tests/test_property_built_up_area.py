@@ -10,6 +10,7 @@ import pytest
 from fastapi import HTTPException
 
 from app.services.property_submissions import (
+    _normalize_property_details,
     create_submission,
     normalize_built_up_area_to_sqm,
     submit_submission,
@@ -135,6 +136,17 @@ def test_invalid_built_up_area_is_rejected(value: object, unit: str) -> None:
         )
 
     assert error.value.status_code == 400
+
+
+def test_square_metre_alias_and_thousands_separator_are_accepted() -> None:
+    payload = _normalize_property_details(
+        MagicMock(),
+        {"property_details": {"builtUpArea": "1,200", "builtUpAreaUnit": "m²"}},
+    )
+    normalized = normalize_built_up_area_to_sqm(payload)
+
+    assert normalized["property_details"]["built_up_area"] == 1200
+    assert normalized["property_details"]["built_up_area_unit"] == "sqm"
 
 
 def test_legacy_area_unit_key_is_supported() -> None:

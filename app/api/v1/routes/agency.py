@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from pathlib import PurePosixPath
 from typing import Annotated
 from uuid import UUID, uuid4
@@ -8,7 +9,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from sqlalchemy import false, or_
 
 from app.api.deps import DBSessionDep, RequestContext, require_any_role, require_authenticated_user
-from app.models.live_schema import AgencyMaster
+from app.models.live_schema import AgencyInvitation, AgencyMaster
 from app.schemas.agency import (
     AgencyActivationRequest,
     AgencyInvitationAcceptRequest,
@@ -34,8 +35,11 @@ from app.services.agency_workflows import (
     resend_agency_password_setup,
     revoke_agency_invitation,
     serialize_invitation,
+    serialize_invited_agency_list_item,
     set_agency_activation,
+    utc_now,
     PENDING_APPROVAL,
+    PENDING_INVITATION_STATUSES,
 )
 from app.services.auth import (
     build_otp_response_data,
@@ -58,8 +62,10 @@ from app.core.config import get_settings
 from app.services.media_urls import (
     canonicalize_media_url,
     generate_presigned_put_url,
+    local_media_url,
     probe_s3_object_access,
     resolve_readable_media_url,
+    upload_object_bytes,
 )
 from app.utils.api_response import raise_api_error, success_response
 from app.utils.status_codes import (
@@ -90,6 +96,32 @@ def _assert_can_access_agency(context: RequestContext, agency_id: UUID) -> None:
     raise HTTPException(status_code=STATUS_FORBIDDEN, detail="Insufficient permissions")
 
 
+def _include_invited_agencies(agency_status: str | None, verification_status: str | None) -> bool:
+    if agency_status and agency_status.strip():
+        if agency_status.strip().lower() not in {"pending", "pending_approval", "invited"}:
+            return False
+    if verification_status and verification_status.strip():
+        normalized = verification_status.strip().lower().replace("_", " ")
+        if normalized not in {"pending verification", "pending"}:
+            return False
+    return True
+
+
+def _list_sort_value(source: object, row: dict, sort_by: str):
+    if sort_by == "agency_name":
+        return (row.get("agency_name") or "").lower()
+    if sort_by == "email":
+        return (row.get("email") or "").lower()
+    if sort_by == "status":
+        return (row.get("status") or "").lower()
+    created = getattr(source, "created_at", None)
+    if not isinstance(created, datetime):
+        return datetime.min.replace(tzinfo=timezone.utc)
+    if created.tzinfo is None:
+        return created.replace(tzinfo=timezone.utc)
+    return created
+
+
 def _actor_user_id(context: RequestContext) -> UUID:
     if context.user_id is None:
         raise_api_error(
@@ -115,7 +147,7 @@ def _agency_s3_upload(prefix: str, owner_id: UUID, payload: UploadRequest) -> di
                 message="Could not generate upload URL",
             )
         return presigned
-    dev_url = f"dev://uploads/{object_key}"
+    dev_url = local_media_url(f"uploads/{object_key}")
     return {
         "upload_url": dev_url,
         "object_key": object_key,
@@ -140,7 +172,15 @@ async def register_agency(
     normalized_phone = validate_e164_phone(phone_number, field_name="phone_number")
     ensure_agency_contact_available(db, email=email, phone=normalized_phone)
     agency_id = uuid4()
-    legal_document_url = f"dev://agency-legal-documents/{agency_id}/{legal_document.filename}"
+    safe_name = PurePosixPath(legal_document.filename or "licence").name
+    object_key = f"agency_legal_document/{agency_id}/{uuid4()}-{safe_name}"
+    file_bytes = await legal_document.read()
+    bucket = (get_settings().aws_s3_bucket or "").strip().strip("\"'")
+    legal_document_url = upload_object_bytes(object_key, file_bytes, legal_document.content_type)
+    if bucket and not legal_document_url:
+        raise HTTPException(status_code=STATUS_INTERNAL_SERVER_ERROR, detail="Could not upload legal document")
+    if not legal_document_url:
+        legal_document_url = local_media_url(object_key)
     agency = AgencyMaster(
         id=agency_id,
         agency_name=agency_name,
@@ -342,7 +382,43 @@ def list_agencies(
         "status": AgencyMaster.status,
     }
     sort_column = sortable_columns.get(sortBy, AgencyMaster.created_at)
-    query = query.order_by(sort_column.asc() if sortOrder.strip().lower() == "asc" else sort_column.desc())
+    sort_desc = sortOrder.strip().lower() != "asc"
+    if "super_admin" in roles and _include_invited_agencies(agencyStatus, verificationStatus):
+        agencies = query.all()
+        invitation_query = db.query(AgencyInvitation).filter(
+            AgencyInvitation.status.in_(tuple(PENDING_INVITATION_STATUSES)),
+            AgencyInvitation.expires_at >= utc_now(),
+        )
+        if search:
+            term = f"%{search.strip()}%"
+            invitation_query = invitation_query.filter(
+                or_(
+                    AgencyInvitation.agency_name.ilike(term),
+                    AgencyInvitation.agency_trade_name.ilike(term),
+                    AgencyInvitation.email.ilike(term),
+                    AgencyInvitation.phone.ilike(term),
+                )
+            )
+        combined = [(agency, serialize_agency(agency)) for agency in agencies]
+        combined.extend(
+            (invitation, serialize_invited_agency_list_item(invitation))
+            for invitation in invitation_query.all()
+        )
+        combined.sort(key=lambda pair: _list_sort_value(pair[0], pair[1], sortBy), reverse=sort_desc)
+        total = len(combined)
+        page = [row for _, row in combined[normalized_skip : normalized_skip + normalized_limit]]
+        return success_response(
+            page,
+            meta={
+                "pagination": {
+                    "total": total,
+                    "skip": normalized_skip,
+                    "limit": normalized_limit,
+                }
+            },
+        )
+
+    query = query.order_by(sort_column.asc() if not sort_desc else sort_column.desc())
 
     total = query.count()
     agencies = query.offset(normalized_skip).limit(normalized_limit).all()

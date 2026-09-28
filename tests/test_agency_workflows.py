@@ -68,6 +68,17 @@ class TestAgencyPhoneNormalization:
         req = AgencyInvitationCreateRequest(email="a@b.com")
         assert req.phone is None
 
+    def test_invitation_create_accepts_phone_number_alias(self):
+        req = AgencyInvitationCreateRequest(email="a@b.com", phone_number="+962712345678")
+        assert req.phone == "+962712345678"
+
+    def test_invitation_create_stores_document_url_alias(self):
+        req = AgencyInvitationCreateRequest(
+            email="a@b.com",
+            document_url="https://cdn.example.com/licence.pdf",
+        )
+        assert req.legal_document_s3_link == "https://cdn.example.com/licence.pdf"
+
 
 # ---------------------------------------------------------------------------
 # Password link suppression for ACTIVE agencies
@@ -144,6 +155,7 @@ class TestInvitationLinkFormat:
     @patch("app.services.agency_workflows.get_settings")
     def test_agency_invitation_link_includes_base_url(self, mock_settings):
         mock_settings.return_value.frontend_base_url = "https://app.example.com"
+        mock_settings.return_value.agency_invitation_path = "/agency-invitation"
         from app.services.agency_workflows import _agency_invitation_link
 
         link = _agency_invitation_link("tok123")
@@ -152,6 +164,7 @@ class TestInvitationLinkFormat:
     @patch("app.services.agency_workflows.get_settings")
     def test_agency_activation_link_includes_base_url(self, mock_settings):
         mock_settings.return_value.frontend_base_url = "https://app.example.com"
+        mock_settings.return_value.agency_password_setup_path = "/agency-password-setup"
         from app.services.agency_workflows import _agency_activation_link
 
         link = _agency_activation_link("tok456")
@@ -160,6 +173,7 @@ class TestInvitationLinkFormat:
     @patch("app.services.agents.get_settings")
     def test_agent_invite_link_includes_base_url(self, mock_settings):
         mock_settings.return_value.frontend_base_url = "https://app.example.com"
+        mock_settings.return_value.agent_invitation_path = "/agent-invite"
         from app.services.agents import _invite_link
 
         link = _invite_link("tok789")
@@ -168,6 +182,7 @@ class TestInvitationLinkFormat:
     @patch("app.services.agents.get_settings")
     def test_agent_password_setup_link_includes_base_url(self, mock_settings):
         mock_settings.return_value.frontend_base_url = "https://app.example.com"
+        mock_settings.return_value.agent_password_setup_path = "/agent-password-setup"
         from app.services.agents import _password_setup_link
 
         link = _password_setup_link("tokABC")

@@ -10,7 +10,8 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
 
-from app.core.config import get_settings
+from app.core.config import branded_label, get_settings
+from app.services.media_urls import local_media_url
 from app.core.security import hash_secret, verify_secret
 from app.models.live_schema import AgencyInvitation, AgencyMaster, PropertyListingSubmission, User, UserProfileChangeChallenge
 from app.schemas.agents import normalize_phone
@@ -22,7 +23,7 @@ from app.schemas.agency import (
 from app.services.audit import record_activity
 from app.services.auth import cognito_service, create_user, find_user_by_username, register_cognito_user, serialize_agency
 from app.services.notifications import EmailPurpose, send_email_notification
-from app.utils.status_codes import STATUS_BAD_REQUEST, STATUS_CONFLICT, STATUS_NOT_FOUND
+from app.utils.status_codes import STATUS_BAD_REQUEST, STATUS_CONFLICT, STATUS_INTERNAL_SERVER_ERROR, STATUS_NOT_FOUND
 
 
 PENDING_INVITATION = "PENDING"
@@ -75,16 +76,33 @@ def _token() -> str:
     return secrets.token_urlsafe(32)
 
 
-def _frontend_base_url() -> str:
-    return get_settings().frontend_base_url
+def _frontend_link(path: str | None, token: str, *, setting_name: str) -> str:
+    settings = get_settings()
+    base = (settings.frontend_base_url or "").rstrip("/")
+    if not base:
+        raise HTTPException(
+            status_code=STATUS_INTERNAL_SERVER_ERROR,
+            detail="FRONTEND_BASE_URL is not configured",
+        )
+    cleaned = (path or "").strip()
+    if not cleaned:
+        raise HTTPException(
+            status_code=STATUS_INTERNAL_SERVER_ERROR,
+            detail=f"{setting_name} is not configured",
+        )
+    if not cleaned.startswith("/"):
+        cleaned = f"/{cleaned}"
+    return f"{base}{cleaned}?token={token}"
 
 
 def _agency_activation_link(token: str) -> str:
-    return f"{_frontend_base_url()}/agency-password-setup?token={token}"
+    settings = get_settings()
+    return _frontend_link(settings.agency_password_setup_path, token, setting_name="AGENCY_PASSWORD_SETUP_PATH")
 
 
 def _agency_invitation_link(token: str) -> str:
-    return f"{_frontend_base_url()}/agency-invitation?token={token}"
+    settings = get_settings()
+    return _frontend_link(settings.agency_invitation_path, token, setting_name="AGENCY_INVITATION_PATH")
 
 
 def _expire_invitation_if_needed(db: Session, invitation: AgencyInvitation) -> AgencyInvitation:
@@ -107,6 +125,8 @@ def serialize_invitation(db: Session, invitation: AgencyInvitation) -> dict:
         "agency_name": invitation.agency_name,
         "agency_trade_name": invitation.agency_trade_name,
         "phone": invitation.phone,
+        "phone_number": invitation.phone,
+        "legal_document_s3_link": invitation.legal_document_s3_link,
         "status": PENDING_INVITATION if invitation.status in PENDING_INVITATION_STATUSES else invitation.status,
         "invitation_link": _agency_invitation_link(invitation.token) if invitation.status in PENDING_INVITATION_STATUSES else None,
         "expires_at": _iso(invitation.expires_at),
@@ -146,6 +166,7 @@ def create_agency_invitation(
         agency_name=payload.agency_name,
         agency_trade_name=payload.agency_trade_name,
         phone=payload.phone,
+        legal_document_s3_link=payload.legal_document_s3_link,
         token=_token(),
         status=PENDING_INVITATION,
         invited_by=invited_by,
@@ -160,8 +181,11 @@ def create_agency_invitation(
     )
     send_email_notification(
         to_email=email,
-        subject="Abdoun agency invitation",
-        body=f"You have been invited to register your agency. Dev invitation link: {_agency_invitation_link(invitation.token)}",
+        subject=branded_label("agency invitation"),
+        body=(
+            "You have been invited to register your agency. "
+            f"Invitation link: {_agency_invitation_link(invitation.token)}"
+        ),
         purpose=EmailPurpose.AGENT_INVITATION,
     )
     return invitation
@@ -193,7 +217,7 @@ def revoke_agency_invitation(db: Session, *, invitation_id: UUID, actor_id: UUID
     )
     send_email_notification(
         to_email=invitation.email,
-        subject="Abdoun agency invitation revoked",
+        subject=branded_label("agency invitation revoked"),
         body="Your agency invitation has been revoked.",
         purpose=EmailPurpose.ACCOUNT_NOTIFICATION,
     )
@@ -224,7 +248,7 @@ def create_agency_record(
         id=uuid4(),
         agency_name=agency_name,
         agency_trade_name=agency_trade_name,
-        legal_document_s3_link=legal_document_s3_link or f"dev://agency-legal-documents/{uuid4()}/pending",
+        legal_document_s3_link=legal_document_s3_link or local_media_url(f"agency-legal-documents/{uuid4()}/pending"),
         email=_normalize_email(email),
         phone=normalized_phone or phone.strip(),
         website=website,
@@ -284,8 +308,8 @@ def create_password_setup_challenge(db: Session, *, user: User, agency: AgencyMa
     )
     send_email_notification(
         to_email=user.email,
-        subject="Create your Abdoun agency password",
-        body=f"Create your agency password. Dev password setup link: {_agency_activation_link(token)}",
+        subject=branded_label("create your agency password"),
+        body=f"Create your agency password: {_agency_activation_link(token)}",
         purpose=EmailPurpose.PASSWORD_RESET,
     )
     return token
@@ -343,8 +367,8 @@ def accept_agency_invitation(db: Session, *, payload: AgencyInvitationAcceptRequ
         agency_name=payload.agency_name,
         agency_trade_name=payload.agency_trade_name,
         email=invitation.email,
-        phone=payload.phone,
-        legal_document_s3_link=payload.legal_document_s3_link,
+        phone=payload.phone or invitation.phone,
+        legal_document_s3_link=payload.legal_document_s3_link or invitation.legal_document_s3_link,
         status=PENDING_APPROVAL,
         website=payload.website,
         address=payload.address,
@@ -367,7 +391,7 @@ def accept_agency_invitation(db: Session, *, payload: AgencyInvitationAcceptRequ
     )
     send_email_notification(
         to_email=agency.email,
-        subject="Agency registration submitted",
+        subject=branded_label("agency registration submitted"),
         body="Your agency registration has been submitted for Super Admin review.",
         purpose=EmailPurpose.ACCOUNT_NOTIFICATION,
     )
@@ -406,7 +430,7 @@ def approve_or_reject_agency(
         )
         send_email_notification(
             to_email=agency.email,
-            subject="Agency registration rejected",
+            subject=branded_label("agency registration rejected"),
             body=reason or "Your agency registration has been rejected.",
             purpose=EmailPurpose.ACCOUNT_NOTIFICATION,
         )
@@ -521,11 +545,41 @@ def complete_agency_password_setup(db: Session, *, token: str, password: str) ->
     )
     send_email_notification(
         to_email=agency.email,
-        subject="Agency account activated",
+        subject=branded_label("agency account activated"),
         body="Your agency account is active.",
         purpose=EmailPurpose.ACCOUNT_NOTIFICATION,
     )
     return agency
+
+
+def serialize_invited_agency_list_item(invitation: AgencyInvitation) -> dict:
+    """List shape for an invited agency that does not yet have an agency_master row."""
+    return {
+        "id": str(invitation.id),
+        "agency_id": None,
+        "agency_name": invitation.agency_name,
+        "agency_trade_name": invitation.agency_trade_name,
+        "legal_document_s3_link": invitation.legal_document_s3_link,
+        "email": invitation.email,
+        "phone": invitation.phone,
+        "phone_number": invitation.phone,
+        "logo_url": None,
+        "profile_picture_url": None,
+        "website": None,
+        "address": None,
+        "city": None,
+        "state": None,
+        "country": None,
+        "zip_code": None,
+        "is_active": False,
+        "is_verified": False,
+        "status": PENDING_INVITATION,
+        "agency_status": "Invited",
+        "verification_status": "Pending Verification",
+        "invitation_id": str(invitation.id),
+        "created_at": _iso(invitation.created_at),
+        "updated_at": _iso(invitation.updated_at),
+    }
 
 
 def agency_response(agency: AgencyMaster, *, password_setup_token: str | None = None) -> dict:

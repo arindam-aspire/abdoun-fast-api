@@ -10,7 +10,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
 
-from app.core.config import get_settings
+from app.core.config import branded_label, get_settings
 from app.models.live_schema import (
     AgencyMaster,
     Lead,
@@ -662,7 +662,7 @@ def deactivate_owner(
     if user.email:
         send_email_notification(
             to_email=user.email,
-            subject="Your Abdoun owner account was deactivated",
+            subject=branded_label("your owner account was deactivated"),
             body=(
                 "Your owner account has been deactivated. "
                 "Your property listings are hidden from the website but retained in our system."
@@ -718,7 +718,7 @@ def activate_owner(
     if user.email:
         send_email_notification(
             to_email=user.email,
-            subject="Your Abdoun owner account was reactivated",
+            subject=branded_label("your owner account was reactivated"),
             body="Your owner account has been reactivated and your linked property listings have been restored.",
             purpose=EmailPurpose.ACCOUNT_NOTIFICATION,
         )

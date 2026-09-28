@@ -14,6 +14,15 @@ from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
+
+def local_media_url(path: str) -> str:
+    """Build a non-S3 media URL from LOCAL_MEDIA_URL_PREFIX when no bucket is configured."""
+    prefix = (get_settings().local_media_url_prefix or "").rstrip("/")
+    cleaned = (path or "").lstrip("/")
+    if not prefix:
+        return cleaned
+    return f"{prefix}/{cleaned}" if cleaned else prefix
+
 _URL_KEYS = {
     "url",
     "file_url",
@@ -82,6 +91,26 @@ def generate_presigned_put_url(object_key: str, *, content_type: str | None = No
         "expires_in": settings.media_upload_presign_expires_seconds,
         "readable_expires_in": settings.media_url_presign_expires_seconds,
     }
+
+
+def upload_object_bytes(object_key: str, body: bytes, content_type: str | None = None) -> str | None:
+    """Upload bytes when a bucket is configured. Returns the canonical object URL."""
+    settings = get_settings()
+    bucket = (settings.aws_s3_bucket or "").strip().strip("\"'")
+    region = (settings.aws_region or "").strip().strip("\"'")
+    if not bucket:
+        return None
+    try:
+        _s3_client().put_object(
+            Bucket=bucket,
+            Key=object_key,
+            Body=body,
+            ContentType=(content_type or "application/octet-stream"),
+        )
+    except (BotoCoreError, ClientError) as exc:
+        log_s3_error("put_object", exc, object_key=object_key)
+        return None
+    return s3_object_url(bucket, region, object_key)
 
 
 def _is_s3_hostname(hostname: str) -> bool:

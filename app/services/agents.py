@@ -9,7 +9,7 @@ from uuid import UUID, uuid4
 from sqlalchemy import delete, func, or_, select
 from sqlalchemy.orm import Session
 
-from app.core.config import get_settings
+from app.core.config import branded_label, get_settings
 from app.core.security import hash_secret, verify_secret
 from app.models.live_schema import (
     AgentInvite,
@@ -22,7 +22,7 @@ from app.models.live_schema import (
 )
 from app.schemas.agents import IDENTITY_DOCUMENT_MAX_BYTES, normalize_phone
 from app.services.auth import assign_role, mark_password_set, normalize_username, utc_now
-from app.services.media_urls import canonicalize_media_url, generate_presigned_put_url, resolve_readable_media_url
+from app.services.media_urls import canonicalize_media_url, generate_presigned_put_url, local_media_url, resolve_readable_media_url
 from app.services.notifications import EmailPurpose, send_email_notification, send_sms_notification
 from app.services.user_agencies import REL_AGENT, agency_user_ids, ensure_user_agency_mapping, user_has_active_agency_mapping
 from app.utils.api_response import raise_api_error
@@ -77,16 +77,35 @@ def _iso(value) -> str | None:
     return value.isoformat() if value else None
 
 
-def _frontend_base_url() -> str:
-    return get_settings().frontend_base_url
+def _frontend_link(path: str | None, token: str, *, setting_name: str) -> str:
+    settings = get_settings()
+    base = (settings.frontend_base_url or "").rstrip("/")
+    if not base:
+        raise_api_error(
+            status_code=STATUS_INTERNAL_SERVER_ERROR,
+            code="CONFIGURATION_ERROR",
+            message="FRONTEND_BASE_URL is not configured",
+        )
+    cleaned = (path or "").strip()
+    if not cleaned:
+        raise_api_error(
+            status_code=STATUS_INTERNAL_SERVER_ERROR,
+            code="CONFIGURATION_ERROR",
+            message=f"{setting_name} is not configured",
+        )
+    if not cleaned.startswith("/"):
+        cleaned = f"/{cleaned}"
+    return f"{base}{cleaned}?token={token}"
 
 
 def _invite_link(token: str) -> str:
-    return f"{_frontend_base_url()}/agent-invite?token={token}"
+    settings = get_settings()
+    return _frontend_link(settings.agent_invitation_path, token, setting_name="AGENT_INVITATION_PATH")
 
 
 def _password_setup_link(token: str) -> str:
-    return f"{_frontend_base_url()}/agent-password-setup?token={token}"
+    settings = get_settings()
+    return _frontend_link(settings.agent_password_setup_path, token, setting_name="AGENT_PASSWORD_SETUP_PATH")
 
 
 def _invite_expiry() -> timedelta:
@@ -104,9 +123,27 @@ def _is_expired(expires_at) -> bool:
     return expires_at < current_time
 
 
+def _placeholder_email_domain() -> str:
+    return (get_settings().agent_placeholder_email_domain or "").strip().lstrip("@").lower()
+
+
+def _is_placeholder_email(email: str | None) -> bool:
+    domain = _placeholder_email_domain()
+    if not email or not domain:
+        return False
+    return str(email).strip().lower().endswith(f"@{domain}")
+
+
 def _pending_email_for_phone(phone: str) -> str:
     digits = normalize_phone(phone).lstrip("+")
-    return f"pending+{digits}@agents.local"
+    domain = _placeholder_email_domain()
+    if not domain:
+        raise_api_error(
+            status_code=STATUS_INTERNAL_SERVER_ERROR,
+            code="CONFIGURATION_ERROR",
+            message="AGENT_PLACEHOLDER_EMAIL_DOMAIN is not configured",
+        )
+    return f"pending+{digits}@{domain}"
 
 
 def _load_service_areas(db: Session, agent_user_id: UUID) -> list[dict]:
@@ -348,17 +385,17 @@ def _create_password_setup_challenge(db: Session, *, user: User, actor_id: UUID 
     )
     db.add(challenge)
     link = _password_setup_link(token)
-    if user.email and not str(user.email).endswith("@agents.local"):
+    if user.email and not _is_placeholder_email(user.email):
         send_email_notification(
             to_email=user.email,
-            subject="Create your Abdoun agent password",
-            body=f"Create your agent password. Dev password setup link: {link}",
+            subject=branded_label("create your agent password"),
+            body=f"Create your agent password: {link}",
             purpose=EmailPurpose.PASSWORD_RESET,
         )
     if user.phone_number:
         send_sms_notification(
             to_phone=user.phone_number,
-            body=f"Create your Abdoun agent password. Dev link: {link}",
+            body=f"Create your agent password: {link}",
         )
     return token
 
@@ -624,24 +661,24 @@ def invite_agent(
         db,
         invited_by=invited_by,
         purpose=INVITE_PURPOSE_ONBOARDING,
-        email=user.email if not str(user.email).endswith("@agents.local") else normalized_email,
+        email=user.email if not _is_placeholder_email(user.email) else normalized_email,
         phone_number=normalized_phone or user.phone_number,
     )
     if not invite.email:
         invite.email = user.email
 
     link = _invite_link(invite.token)
-    if invite.email and not str(invite.email).endswith("@agents.local"):
+    if invite.email and not _is_placeholder_email(invite.email):
         send_email_notification(
             to_email=invite.email,
-            subject="Abdoun agent invitation",
-            body=f"You have been invited as an agent. Complete onboarding using this dev link: {link}",
+            subject=branded_label("agent invitation"),
+            body=f"You have been invited as an agent. Complete onboarding: {link}",
             purpose=EmailPurpose.AGENT_INVITATION,
         )
     if invite.phone_number:
         send_sms_notification(
             to_phone=invite.phone_number,
-            body=f"You have been invited as an Abdoun agent. Dev onboarding link: {link}",
+            body=f"You have been invited as an agent. Complete onboarding: {link}",
         )
     db.flush()
     return serialize_agent_invite(user, invite)
@@ -918,7 +955,7 @@ def create_agent_document_upload(
             "readable_expires_in": presigned["readable_expires_in"],
         }
 
-    dev_url = f"dev://uploads/{object_key}"
+    dev_url = local_media_url(f"uploads/{object_key}")
     return {
         "upload_url": dev_url,
         "object_key": object_key,
@@ -1086,24 +1123,24 @@ def resend_agent_invitation(
         db,
         invited_by=actor_id,
         purpose=INVITE_PURPOSE_ONBOARDING,
-        email=None if str(user.email).endswith("@agents.local") else user.email,
+        email=None if _is_placeholder_email(user.email) else user.email,
         phone_number=user.phone_number,
     )
     if not invite.email:
         invite.email = user.email
     profile.status = "INVITED"
     link = _invite_link(invite.token)
-    if invite.email and not str(invite.email).endswith("@agents.local"):
+    if invite.email and not _is_placeholder_email(invite.email):
         send_email_notification(
             to_email=invite.email,
-            subject="Abdoun agent invitation",
-            body=f"You have been invited as an agent. Dev onboarding link: {link}",
+            subject=branded_label("agent invitation"),
+            body=f"You have been invited as an agent. Complete onboarding: {link}",
             purpose=EmailPurpose.AGENT_INVITATION,
         )
     if user.phone_number:
         send_sms_notification(
             to_phone=user.phone_number,
-            body=f"Abdoun agent invitation. Dev onboarding link: {link}",
+            body=f"You have been invited as an agent. Complete onboarding: {link}",
         )
     db.flush()
     return serialize_agent_invite(user, invite)
