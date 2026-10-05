@@ -54,3 +54,12 @@ def build_otp_verification_email(
         f"</body></html>"
     )
     return subject, text_body, html_body
+
+
+def build_otp_verification_sms(*, app_name: str, otp: str, expiry_minutes: int) -> str:
+    """SMS equivalent of the OTP verification email body."""
+    expiry_phrase = _otp_expiry_phrase(expiry_minutes)
+    return (
+        f"{app_name}: Your verification code is {otp}. "
+        f"{expiry_phrase} Do not share this code with anyone."
+    )

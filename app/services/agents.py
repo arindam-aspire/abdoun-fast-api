@@ -23,7 +23,7 @@ from app.models.live_schema import (
 from app.schemas.agents import IDENTITY_DOCUMENT_MAX_BYTES, normalize_phone
 from app.services.auth import assign_role, mark_password_set, normalize_username, utc_now
 from app.services.media_urls import canonicalize_media_url, generate_presigned_put_url, local_media_url, resolve_readable_media_url
-from app.services.notifications import EmailPurpose, send_email_notification, send_sms_notification
+from app.services.notifications import EmailPurpose, notify_registered_sms, send_email_notification
 from app.services.user_agencies import REL_AGENT, agency_user_ids, ensure_user_agency_mapping, user_has_active_agency_mapping
 from app.utils.api_response import raise_api_error
 from app.utils.status_codes import (
@@ -392,11 +392,7 @@ def _create_password_setup_challenge(db: Session, *, user: User, actor_id: UUID 
             body=f"Create your agent password: {link}",
             purpose=EmailPurpose.PASSWORD_RESET,
         )
-    if user.phone_number:
-        send_sms_notification(
-            to_phone=user.phone_number,
-            body=f"Create your agent password: {link}",
-        )
+    notify_registered_sms(user=user, body=f"Create your agent password: {link}")
     return token
 
 
@@ -675,11 +671,10 @@ def invite_agent(
             body=f"You have been invited as an agent. Complete onboarding: {link}",
             purpose=EmailPurpose.AGENT_INVITATION,
         )
-    if invite.phone_number:
-        send_sms_notification(
-            to_phone=invite.phone_number,
-            body=f"You have been invited as an agent. Complete onboarding: {link}",
-        )
+    notify_registered_sms(
+        user=user,
+        body=f"You have been invited as an agent. Complete onboarding: {link}",
+    )
     db.flush()
     return serialize_agent_invite(user, invite)
 
@@ -1137,11 +1132,10 @@ def resend_agent_invitation(
             body=f"You have been invited as an agent. Complete onboarding: {link}",
             purpose=EmailPurpose.AGENT_INVITATION,
         )
-    if user.phone_number:
-        send_sms_notification(
-            to_phone=user.phone_number,
-            body=f"You have been invited as an agent. Complete onboarding: {link}",
-        )
+    notify_registered_sms(
+        user=user,
+        body=f"You have been invited as an agent. Complete onboarding: {link}",
+    )
     db.flush()
     return serialize_agent_invite(user, invite)
 

@@ -21,7 +21,7 @@ def normalize_phone(value: str) -> str:
 def validate_e164_phone(value: str, *, field_name: str = "phone") -> str:
     normalized = normalize_phone(value)
     if not PHONE_E164_REGEX.match(normalized):
-        raise ValueError(f"{field_name} must include country code in E.164 format (e.g. +9627xxxxxxx)")
+        raise ValueError(f"{field_name} must be in E.164 format, including the country code")
     return normalized
 
 

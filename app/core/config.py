@@ -140,6 +140,11 @@ class Settings(BaseModel):
 
     notification_email_mode: str = _env_str("NOTIFICATION_EMAIL_MODE", "log") or "log"
     notification_sms_mode: str = _env_str("NOTIFICATION_SMS_MODE", "log") or "log"
+    default_phone_country_calling_code: str = (
+        _env_str("DEFAULT_PHONE_COUNTRY_CALLING_CODE", "962") or "962"
+    )
+    sns_sms_type: str = _env_str("SNS_SMS_TYPE", "Transactional") or "Transactional"
+    sns_sender_id: str | None = _env_str("SNS_SENDER_ID")
     notification_poll_interval_seconds: int = _env_int("NOTIFICATION_POLL_INTERVAL_SECONDS", 30)
     ses_from_email: str | None = _env_str("SES_FROM_EMAIL")
     ses_from_name: str | None = _env_str("SES_FROM_NAME")
@@ -162,6 +167,10 @@ class Settings(BaseModel):
     auth_access_token_seconds: int = _env_int("AUTH_ACCESS_TOKEN_SECONDS", 3600)
     auth_refresh_token_seconds: int = _env_int("AUTH_REFRESH_TOKEN_SECONDS", 604800)
     auth_otp_ttl_seconds: int = _env_int("AUTH_OTP_TTL_SECONDS", 600)
+    auth_otp_resend_cooldown_seconds: int = _env_int("AUTH_OTP_RESEND_COOLDOWN_SECONDS", 60)
+    auth_otp_max_attempts: int = _env_int("AUTH_OTP_MAX_ATTEMPTS", 5)
+    auth_otp_max_sends_per_window: int = _env_int("AUTH_OTP_MAX_SENDS_PER_WINDOW", 5)
+    auth_otp_send_window_seconds: int = _env_int("AUTH_OTP_SEND_WINDOW_SECONDS", 3600)
     agency_invitation_ttl_seconds: int = _env_int("AGENCY_INVITATION_TTL_SECONDS", 900)
     agency_password_setup_ttl_seconds: int = _env_int("AGENCY_PASSWORD_SETUP_TTL_SECONDS", 900)
     agent_invitation_ttl_seconds: int = _env_int("AGENT_INVITATION_TTL_SECONDS", 900)

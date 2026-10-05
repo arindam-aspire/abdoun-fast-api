@@ -14,6 +14,10 @@ from app.services.notifications.email.log_provider import LogEmailProvider
 from app.services.notifications.email.purpose import resolve_sender_email, validate_ses_settings
 from app.services.notifications.email.service import get_email_provider
 from app.services.notifications.email.ses_provider import SesEmailProvider
+from app.services.notifications.email.templates import (
+    build_otp_verification_email,
+    build_otp_verification_sms,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -361,7 +365,7 @@ def test_send_dev_otp_password_reset_uses_password_sender(monkeypatch) -> None:
     service.send_otp_verification.assert_not_called()
 
 
-def test_send_dev_otp_login_email_skips_sms(monkeypatch) -> None:
+def test_send_dev_otp_login_email_also_sends_same_otp_by_sms(monkeypatch) -> None:
     monkeypatch.setattr(
         "app.services.auth.get_settings",
         lambda: _settings(
@@ -390,7 +394,20 @@ def test_send_dev_otp_login_email_skips_sms(monkeypatch) -> None:
         )
 
     service.send_otp_verification.assert_called_once()
-    send_sms.assert_not_called()
+    assert service.send_otp_verification.call_args.kwargs["otp"] == "123456"
+    sms_body = build_otp_verification_sms(app_name="Example App", otp="123456", expiry_minutes=10)
+    _, email_text, _ = build_otp_verification_email(
+        app_name="Example App",
+        otp="123456",
+        expiry_minutes=10,
+        subject="Verify your email address",
+    )
+    assert "123456" in sms_body
+    assert "This code will expire in 10 minutes." in sms_body
+    assert "Do not share this code with anyone." in sms_body
+    assert "This code will expire in 10 minutes." in email_text
+    assert "Do not share this code with anyone." in email_text
+    send_sms.assert_called_once_with(to_phone="+962791199991", body=sms_body)
 
 
 def test_send_dev_otp_login_phone_skips_email(monkeypatch) -> None:
@@ -423,7 +440,138 @@ def test_send_dev_otp_login_phone_skips_email(monkeypatch) -> None:
 
     service.send_otp_verification.assert_not_called()
     service.send_password_reset.assert_not_called()
-    send_sms.assert_called_once()
+    send_sms.assert_called_once_with(
+        to_phone="+962791199991",
+        body=build_otp_verification_sms(app_name="Example App", otp="123456", expiry_minutes=10),
+    )
+
+
+@pytest.mark.parametrize(
+    ("purpose", "email_method"),
+    [
+        ("signup", "send_otp_verification"),
+        ("agency signup", "send_otp_verification"),
+        ("profile", "send_otp_verification"),
+        ("login", "send_otp_verification"),
+        ("password reset", "send_password_reset"),
+    ],
+)
+def test_email_otp_flows_send_the_same_code_by_sms(monkeypatch, purpose: str, email_method: str) -> None:
+    monkeypatch.setattr(
+        "app.services.auth.get_settings",
+        lambda: _settings(
+            app_name="Example App",
+            auth_otp_ttl_seconds=600,
+            email_otp_verification_subject="Verify your email address",
+        ),
+    )
+    user = MagicMock()
+    user.email = "user@example.com"
+    user.phone_number = "+962791199991"
+    otp = "123456" if purpose != "password reset" else "654321"
+
+    with (
+        patch("app.services.auth.get_email_service") as get_service,
+        patch("app.services.auth.send_sms_notification") as send_sms,
+    ):
+        service = MagicMock()
+        get_service.return_value = service
+        send_dev_otp(user=user, purpose=purpose, otp=otp)
+
+    email_call = getattr(service, email_method)
+    email_call.assert_called_once()
+    assert email_call.call_args.kwargs["otp"] == otp
+    other_method = "send_password_reset" if email_method == "send_otp_verification" else "send_otp_verification"
+    getattr(service, other_method).assert_not_called()
+    send_sms.assert_called_once_with(
+        to_phone="+962791199991",
+        body=build_otp_verification_sms(app_name="Example App", otp=otp, expiry_minutes=10),
+    )
+
+
+def test_send_dev_otp_signup_and_password_reset_share_one_code(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "app.services.auth.get_settings",
+        lambda: _settings(
+            app_name="Example App",
+            auth_otp_ttl_seconds=600,
+            email_otp_verification_subject="Verify your email address",
+        ),
+    )
+    user = MagicMock()
+    user.email = "user@example.com"
+    user.phone_number = "+962791199991"
+
+    with (
+        patch("app.services.auth.get_email_service") as get_service,
+        patch("app.services.auth.send_sms_notification") as send_sms,
+    ):
+        service = MagicMock()
+        get_service.return_value = service
+        send_dev_otp(user=user, purpose="signup", otp="123456")
+        send_dev_otp(user=user, purpose="password reset", otp="654321")
+
+    assert service.send_otp_verification.call_args.kwargs["otp"] == "123456"
+    assert service.send_password_reset.call_args.kwargs["otp"] == "654321"
+    assert send_sms.call_count == 2
+    assert send_sms.call_args_list[0].kwargs["body"] == build_otp_verification_sms(
+        app_name="Example App",
+        otp="123456",
+        expiry_minutes=10,
+    )
+    assert send_sms.call_args_list[1].kwargs["body"] == build_otp_verification_sms(
+        app_name="Example App",
+        otp="654321",
+        expiry_minutes=10,
+    )
+    assert send_sms.call_args_list[0].kwargs["to_phone"] == "+962791199991"
+
+
+def test_send_dev_otp_missing_phone_skips_sms(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "app.services.auth.get_settings",
+        lambda: _settings(app_name="Example App", auth_otp_ttl_seconds=600),
+    )
+    user = MagicMock()
+    user.email = "user@example.com"
+    user.phone_number = "   "
+
+    with (
+        patch("app.services.auth.get_email_service") as get_service,
+        patch("app.services.auth.send_sms_notification") as send_sms,
+    ):
+        service = MagicMock()
+        get_service.return_value = service
+        send_dev_otp(user=user, purpose="signup", otp="123456")
+
+    service.send_otp_verification.assert_called_once()
+    send_sms.assert_not_called()
+
+
+def test_send_dev_otp_sms_failure_does_not_raise_or_resend(caplog, monkeypatch) -> None:
+    monkeypatch.setattr(
+        "app.services.auth.get_settings",
+        lambda: _settings(app_name="Example App", auth_otp_ttl_seconds=600),
+    )
+    user = MagicMock()
+    user.email = "user@example.com"
+    user.phone_number = "+962791199991"
+
+    with (
+        caplog.at_level("WARNING"),
+        patch("app.services.auth.get_email_service") as get_service,
+        patch("app.services.auth.send_sms_notification", side_effect=RuntimeError("sns down 123456")),
+    ):
+        service = MagicMock()
+        get_service.return_value = service
+        send_dev_otp(user=user, purpose="signup", otp="123456")
+
+    service.send_otp_verification.assert_called_once()
+    assert service.send_otp_verification.call_args.kwargs["otp"] == "123456"
+    assert "otp_sms_send_failed" in caplog.text
+    assert "RuntimeError" in caplog.text
+    assert "123456" not in caplog.text
+    assert "sns down" not in caplog.text
 
 
 def test_email_service_generates_html_when_missing(monkeypatch) -> None:

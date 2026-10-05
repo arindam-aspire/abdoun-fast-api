@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class SignInRequest(BaseModel):
@@ -28,12 +28,34 @@ class SignUpRequest(BaseModel):
 
 
 class ConfirmSignUpRequest(BaseModel):
-    email: str
-    code: str
+    email: str | None = None
+    code: str | None = None
+    email_otp: str | None = None
+    phone_number: str | None = None
+    phone_otp: str | None = None
+
+    @model_validator(mode="after")
+    def require_signup_verification(self) -> "ConfirmSignUpRequest":
+        if self.email_otp and not self.code:
+            self.code = self.email_otp
+        has_identity = bool((self.email or "").strip() or (self.phone_number or "").strip())
+        has_code = bool((self.code or "").strip() or (self.phone_otp or "").strip())
+        if not has_identity or not has_code:
+            raise ValueError("Email or mobile verification code is required")
+        return self
 
 
 class ResendConfirmationRequest(BaseModel):
     email: str
+
+
+class SendPhoneOtpRequest(BaseModel):
+    phone_number: str | None = None
+
+
+class VerifyPhoneOtpRequest(BaseModel):
+    phone_number: str
+    phone_otp: str
 
 
 class ForgotPasswordRequest(BaseModel):
