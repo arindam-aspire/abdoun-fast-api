@@ -607,6 +607,8 @@ class UserProfileChangeChallenge(Base):
     expires_at: Mapped[Any] = mapped_column(DateTime, nullable=False)
     created_at: Mapped[Any] = mapped_column(DateTime, nullable=False, server_default=text("now()"))
     cognito_custom_auth_session: Mapped[Any] = mapped_column(Text, nullable=True)
+    attempt_count: Mapped[Any] = mapped_column(Integer, nullable=False, server_default=text("0"), default=0)
+    consumed_at: Mapped[Any] = mapped_column(DateTime, nullable=True)
 
 
 class UserRememberMeSession(Base):

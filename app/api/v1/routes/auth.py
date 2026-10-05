@@ -5,7 +5,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from app.api.deps import DBSessionDep, RequestContext, require_authenticated_user
+from app.api.deps import DBSessionDep, RequestContext, RequestContextDep, require_authenticated_user
 from app.schemas.auth import (
     ChangePasswordRequest,
     ConfirmSignUpRequest,
@@ -16,10 +16,12 @@ from app.schemas.auth import (
     RefreshTokenRequest,
     ResendConfirmationRequest,
     ResetPasswordRequest,
+    SendPhoneOtpRequest,
     SignInRequest,
     SignInWithOtpRequest,
     SignInWithOtpVerifyRequest,
     SignUpRequest,
+    VerifyPhoneOtpRequest,
 )
 from app.services.auth import (
     authenticate_password,
@@ -43,6 +45,14 @@ from app.services.auth import (
     verify_refresh_token,
 )
 from app.core.security import hash_secret, verify_secret
+from app.services.phone_verification import (
+    apply_profile_phone_number,
+    begin_profile_phone_change,
+    complete_profile_phone_verification,
+    confirm_phone_otp,
+    issue_signup_phone_otp,
+    request_phone_otp,
+)
 from app.services.media_urls import local_media_url
 from app.utils.api_response import success_response
 from app.utils.status_codes import STATUS_BAD_REQUEST, STATUS_NOT_FOUND, STATUS_UNAUTHORIZED
@@ -139,10 +149,22 @@ def sign_up(payload: SignUpRequest, db: DBSessionDep) -> dict:
         purpose="signup_confirm",
         new_value=normalize_username(payload.email),
     )
-    send_dev_otp(user=user, purpose="signup", otp=otp, challenge=challenge)
+    has_phone = isinstance(user.phone_number, str) and bool(user.phone_number.strip())
+    send_dev_otp(
+        user=user,
+        purpose="signup",
+        otp=otp,
+        challenge=challenge,
+        skip_sms=has_phone,
+    )
+    if has_phone:
+        issue_signup_phone_otp(db, user=user)
     db.commit()
+    phone_pending = isinstance(user.phone_number, str) and bool(user.phone_number.strip()) and user.is_phone_verified is not True
     return success_response(
-        build_otp_response_data(),
+        build_otp_response_data(
+            **({"phone_verification_required": True} if phone_pending else {}),
+        ),
         otp_delivery_message(
             fallback_dev_message="Account created. Verification code sent.",
             sent_message="Account created. Verification code sent.",
@@ -152,9 +174,60 @@ def sign_up(payload: SignUpRequest, db: DBSessionDep) -> dict:
 
 @router.post("/confirm-signup")
 def confirm_sign_up(payload: ConfirmSignUpRequest, db: DBSessionDep) -> dict:
-    user = confirm_signup_user(db, email=payload.email, code=payload.code)
+    user = confirm_signup_user(
+        db,
+        email=payload.email,
+        code=payload.code,
+        phone_number=payload.phone_number,
+        phone_otp=payload.phone_otp,
+    )
     db.commit()
-    return success_response({"verified": True}, "Account verified successfully")
+    phone_pending = isinstance(user.phone_number, str) and bool(user.phone_number.strip()) and user.is_phone_verified is not True
+    if user.is_active:
+        message = "Account verified successfully"
+    elif user.is_email_verified and phone_pending:
+        message = "Email verified. Mobile verification is still required"
+    elif user.is_phone_verified is True and user.is_email_verified is not True:
+        message = "Mobile number verified. Email verification is still required"
+    else:
+        message = "Verification successful"
+    return success_response(
+        {
+            "verified": user.is_active is True,
+            "email_verified": user.is_email_verified is True,
+            "phone_verified": user.is_phone_verified is True,
+        },
+        message,
+    )
+
+
+@router.post("/send-phone-otp")
+def send_phone_otp(payload: SendPhoneOtpRequest, context: RequestContextDep, db: DBSessionDep) -> dict:
+    data, message = request_phone_otp(db, user_id=context.user_id, phone_number=payload.phone_number)
+    db.commit()
+    return success_response(build_otp_response_data(**data), message)
+
+
+@router.post("/resend-phone-otp")
+def resend_phone_otp(payload: SendPhoneOtpRequest, context: RequestContextDep, db: DBSessionDep) -> dict:
+    data, message = request_phone_otp(db, user_id=context.user_id, phone_number=payload.phone_number)
+    db.commit()
+    return success_response(build_otp_response_data(**data), message)
+
+
+@router.post("/verify-phone-otp")
+def verify_phone_otp(payload: VerifyPhoneOtpRequest, context: RequestContextDep, db: DBSessionDep) -> dict:
+    user = confirm_phone_otp(
+        db,
+        user_id=context.user_id,
+        phone_number=payload.phone_number,
+        phone_otp=payload.phone_otp,
+    )
+    db.commit()
+    return success_response(
+        {"verified": True, "phone_verified": user.is_phone_verified is True},
+        "Mobile number verified successfully",
+    )
 
 
 @router.post("/resend-confirmation")
@@ -183,8 +256,7 @@ def update_me(payload: ProfileUpdateRequest, context: AuthenticatedContext, db: 
         user.email = normalize_username(payload.email)
         user.is_email_verified = False
     if payload.phone_number is not None:
-        user.phone_number = payload.phone_number
-        user.is_phone_verified = False
+        apply_profile_phone_number(db, user=user, phone_number=payload.phone_number)
     db.commit()
     db.refresh(user)
     return success_response(serialize_user(db, user), "Profile updated successfully")
@@ -193,12 +265,8 @@ def update_me(payload: ProfileUpdateRequest, context: AuthenticatedContext, db: 
 @router.patch("/me/profile/request")
 def request_profile_update(payload: ProfileUpdateRequest, context: AuthenticatedContext, db: DBSessionDep) -> dict:
     user = get_user_or_404(db, context.user_id)
-    dev_email_otp = None
-    dev_phone_otp = None
     fields: list[str] = []
 
-    email_challenge = None
-    phone_challenge = None
     if payload.email:
         email_challenge, dev_email_otp = create_otp_challenge(
             db,
@@ -206,23 +274,15 @@ def request_profile_update(payload: ProfileUpdateRequest, context: Authenticated
             purpose="profile_email",
             new_value=normalize_username(payload.email),
         )
-        fields.append("email")
-    if payload.phone_number:
-        phone_challenge, dev_phone_otp = create_otp_challenge(
-            db,
-            user=user,
-            purpose="profile_phone",
-            new_value=payload.phone_number,
-        )
-        fields.append("phone_number")
-
-    if dev_email_otp or dev_phone_otp:
         send_dev_otp(
             user=user,
             purpose="profile",
-            otp=dev_email_otp or dev_phone_otp or "",
-            challenge=email_challenge or phone_challenge,
+            otp=dev_email_otp,
+            challenge=email_challenge,
         )
+        fields.append("email")
+    if payload.phone_number and begin_profile_phone_change(db, user=user, phone_number=payload.phone_number):
+        fields.append("phone_number")
 
     db.commit()
     return success_response(
@@ -252,15 +312,12 @@ def verify_profile_update(payload: ProfileUpdateVerifyRequest, context: Authenti
         user.email = normalize_username(payload.email)
         user.is_email_verified = True
     elif payload.phone_number and payload.phone_otp:
-        verify_otp_challenge(
+        complete_profile_phone_verification(
             db,
-            purpose="profile_phone",
-            code=payload.phone_otp,
             user=user,
-            new_value=payload.phone_number,
+            phone_number=payload.phone_number,
+            phone_otp=payload.phone_otp,
         )
-        user.phone_number = payload.phone_number
-        user.is_phone_verified = True
     else:
         raise HTTPException(status_code=STATUS_BAD_REQUEST, detail="Verification payload is incomplete")
 

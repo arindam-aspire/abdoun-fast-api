@@ -14,7 +14,7 @@ from uuid import UUID, uuid4
 import boto3
 from botocore.exceptions import ClientError
 from fastapi import HTTPException
-from sqlalchemy import exists, or_, select
+from sqlalchemy import exists, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
@@ -33,6 +33,7 @@ from app.models.live_schema import (
 from app.services.media_urls import with_readable_media_urls
 from app.services.notifications import send_sms_notification
 from app.services.notifications.email.service import get_email_service
+from app.services.notifications.email.templates import build_otp_verification_sms
 from app.services.user_agencies import (
     REL_AGENCY_ADMIN,
     REL_AGENT,
@@ -41,27 +42,22 @@ from app.services.user_agencies import (
     ensure_user_agency_mapping,
     primary_agency_id_for_context,
 )
-from app.utils.status_codes import STATUS_BAD_REQUEST, STATUS_CONFLICT, STATUS_FORBIDDEN, STATUS_NOT_FOUND, STATUS_UNAUTHORIZED
+from app.utils.status_codes import (
+    STATUS_BAD_REQUEST,
+    STATUS_CONFLICT,
+    STATUS_FORBIDDEN,
+    STATUS_NOT_FOUND,
+    STATUS_TOO_MANY_REQUESTS,
+    STATUS_UNAUTHORIZED,
+)
 
 logger = logging.getLogger(__name__)
-_E164_PHONE = re.compile(r"^\+[1-9]\d{7,14}$")
 
 
 def _normalize_cognito_phone(phone_number: str | None) -> str | None:
-    if not phone_number:
-        return None
-    compact = re.sub(r"[\s\-()]", "", phone_number.strip())
-    if compact.startswith("00"):
-        compact = f"+{compact[2:]}"
-    elif compact.startswith("0") and compact[1:].isdigit():
-        compact = f"+962{compact[1:]}"
-    elif compact.isdigit() and compact.startswith("962"):
-        compact = f"+{compact}"
-    elif compact.isdigit() and 8 <= len(compact) <= 15:
-        compact = f"+{compact}"
-    if _E164_PHONE.match(compact):
-        return compact
-    return None
+    from app.services.notifications.sms import to_e164_phone
+
+    return to_e164_phone(phone_number)
 
 
 class CognitoUsernameExists(Exception):
@@ -385,13 +381,18 @@ def otp_remaining_minutes(expires_at: datetime) -> int:
     return (remaining_seconds + 59) // 60
 
 
+def _compact_phone(value: str | None) -> str:
+    return re.sub(r"\s+", "", (value or "").strip())
+
+
 def find_user_by_username(db: Session, username: str) -> User | None:
     normalized = normalize_username(username)
+    phone = _compact_phone(username)
     return db.execute(
         select(User).where(
             or_(
                 User.email == normalized,
-                User.phone_number == username.strip(),
+                func.replace(User.phone_number, " ", "") == phone,
             )
         )
     ).scalar_one_or_none()
@@ -637,6 +638,31 @@ def ensure_agent_can_authenticate(db: Session, user: User) -> None:
     )
 
 
+def _channel_verified(user: User) -> bool:
+    return user.is_email_verified is True or user.is_phone_verified is True
+
+
+def _finish_cognito_password_login(db: Session, user: User, password: str, auth_result: dict[str, Any]) -> User:
+    sub = cognito_service.sub_from_auth_result(auth_result) or cognito_service.get_user_sub(email=user.email)
+    if sub:
+        user.cognito_sub = sub
+    user.password_hash = hash_secret(password)
+    # A verified mobile alone is enough to sign in. Do not mark the email verified
+    # unless this login is not relying on that mobile verification.
+    if user.is_phone_verified is not True:
+        user.is_email_verified = True
+    if _channel_verified(user):
+        user.is_active = True
+    consumer_roles = {normalize_role_name(role.name) for role in load_user_roles(db, user.id)}
+    if consumer_roles & {"registered_user", "owner"}:
+        user.is_active = True
+    elif not user.is_active:
+        raise HTTPException(status_code=STATUS_UNAUTHORIZED, detail="Invalid credentials")
+    ensure_agent_can_authenticate(db, user)
+    db.flush()
+    return user
+
+
 def authenticate_password(db: Session, *, username: str, password: str) -> User:
     user = find_user_by_username(db, username)
     if not user:
@@ -645,29 +671,23 @@ def authenticate_password(db: Session, *, username: str, password: str) -> User:
     if cognito_service.enabled:
         try:
             auth_result = cognito_service.login_password(email=user.email, password=password)
-            sub = cognito_service.sub_from_auth_result(auth_result) or cognito_service.get_user_sub(email=user.email)
-            if sub:
-                user.cognito_sub = sub
-            user.password_hash = hash_secret(password)
-            user.is_email_verified = True
-            consumer_roles = {normalize_role_name(role.name) for role in load_user_roles(db, user.id)}
-            if consumer_roles & {"registered_user", "owner"}:
-                user.is_active = True
-            elif not user.is_active:
-                raise HTTPException(status_code=STATUS_UNAUTHORIZED, detail="Invalid credentials")
-            ensure_agent_can_authenticate(db, user)
-            db.flush()
-            return user
+            return _finish_cognito_password_login(db, user, password, auth_result)
         except HTTPException as exc:
+            if exc.status_code == STATUS_BAD_REQUEST and exc.detail == "Account is not confirmed" and _channel_verified(user):
+                cognito_service.admin_confirm_signup(email=user.email)
+                auth_result = cognito_service.login_password(email=user.email, password=password)
+                return _finish_cognito_password_login(db, user, password, auth_result)
             if exc.status_code == STATUS_BAD_REQUEST:
                 raise
             if user.cognito_sub:
                 raise
 
-    if not user.is_active:
+    if not user.is_active and not _channel_verified(user):
         raise HTTPException(status_code=STATUS_UNAUTHORIZED, detail="Invalid credentials")
     if not user.password_hash or not verify_secret(password, user.password_hash):
         raise HTTPException(status_code=STATUS_UNAUTHORIZED, detail="Invalid credentials")
+    if _channel_verified(user):
+        user.is_active = True
     ensure_agent_can_authenticate(db, user)
     return user
 
@@ -682,6 +702,8 @@ def create_otp_challenge(db: Session, *, user: User, purpose: str, new_value: st
         new_value=new_value,
         otp_hash=hash_secret(otp),
         expires_at=utc_now() + timedelta(seconds=settings.auth_otp_ttl_seconds),
+        created_at=utc_now(),
+        attempt_count=0,
     )
     db.add(challenge)
     db.flush()
@@ -708,10 +730,24 @@ def verify_otp_challenge(
     challenge = db.execute(stmt.order_by(UserProfileChangeChallenge.created_at.desc())).scalars().first()
     if not challenge:
         raise HTTPException(status_code=STATUS_BAD_REQUEST, detail="Verification code not found")
+    if challenge.consumed_at is not None:
+        raise HTTPException(status_code=STATUS_BAD_REQUEST, detail="Verification code has already been used")
     if is_expired(challenge.expires_at):
         raise HTTPException(status_code=STATUS_BAD_REQUEST, detail="Verification code has expired")
+
+    max_attempts = max(get_settings().auth_otp_max_attempts, 1)
+    attempts = int(challenge.attempt_count or 0)
+    if attempts >= max_attempts:
+        raise HTTPException(status_code=STATUS_TOO_MANY_REQUESTS, detail="Too many verification attempts")
     if not verify_secret(code, challenge.otp_hash):
+        challenge.attempt_count = attempts + 1
+        db.flush()
+        if challenge.attempt_count >= max_attempts:
+            raise HTTPException(status_code=STATUS_TOO_MANY_REQUESTS, detail="Too many verification attempts")
         raise HTTPException(status_code=STATUS_BAD_REQUEST, detail="Invalid verification code")
+
+    challenge.consumed_at = utc_now()
+    db.flush()
     return challenge
 
 
@@ -822,6 +858,8 @@ def register_signup_user(
     password: str,
     role: str,
 ) -> User:
+    from app.services.phone_verification import prepare_signup_phone
+
     existing = find_user_by_username(db, email)
     if existing and (existing.is_email_verified or existing.cognito_sub):
         raise HTTPException(
@@ -829,10 +867,15 @@ def register_signup_user(
             detail="An account with this email already exists. Please sign in.",
         )
 
+    normalized_phone = prepare_signup_phone(
+        db,
+        phone_number,
+        exclude_user_id=existing.id if existing else None,
+    )
     register_cognito_user(
         email=email,
         full_name=full_name,
-        phone_number=phone_number,
+        phone_number=normalized_phone,
         password=password,
         on_existing="conflict_if_confirmed",
         resolve_sub=False,
@@ -840,7 +883,9 @@ def register_signup_user(
 
     if existing:
         existing.full_name = full_name
-        existing.phone_number = phone_number or existing.phone_number
+        if normalized_phone:
+            existing.phone_number = normalized_phone
+            existing.is_phone_verified = False
         existing.password_hash = hash_secret(password)
         existing.is_active = False
         existing.is_email_verified = False
@@ -852,11 +897,29 @@ def register_signup_user(
         db,
         full_name=full_name,
         email=email,
-        phone_number=phone_number,
+        phone_number=normalized_phone,
         password=password,
         role=role,
         is_active=False,
     )
+
+
+def _phone_verification_pending(user: User) -> bool:
+    phone = user.phone_number if isinstance(user.phone_number, str) else ""
+    return bool(phone.strip()) and user.is_phone_verified is not True
+
+
+def _refresh_signup_active(user: User) -> None:
+    """Allow sign-in once either the email or the mobile number is verified."""
+    if not _channel_verified(user):
+        return
+    if cognito_service.enabled:
+        cognito_service.admin_confirm_signup(email=user.email)
+        if not user.cognito_sub:
+            sub = cognito_service.get_user_sub(email=user.email)
+            if sub:
+                user.cognito_sub = sub
+    user.is_active = True
 
 
 def _activate_confirmed_signup(user: User) -> None:
@@ -867,14 +930,35 @@ def _activate_confirmed_signup(user: User) -> None:
             raise HTTPException(status_code=STATUS_BAD_REQUEST, detail="Cognito user id was not returned")
         user.cognito_sub = sub
     user.is_email_verified = True
-    user.is_active = True
+    _refresh_signup_active(user)
 
 
-def confirm_signup_user(db: Session, *, email: str, code: str) -> User:
-    user = find_user_by_username(db, email)
-    if not user:
-        raise HTTPException(status_code=STATUS_NOT_FOUND, detail="Account not found")
+def _open_challenge_matches(
+    db: Session,
+    *,
+    purpose: str,
+    code: str,
+    user: User,
+    new_value: str | None = None,
+) -> bool:
+    stmt = select(UserProfileChangeChallenge).where(
+        UserProfileChangeChallenge.purpose == purpose,
+        UserProfileChangeChallenge.user_id == user.id,
+        UserProfileChangeChallenge.consumed_at.is_(None),
+    )
+    if new_value:
+        stmt = stmt.where(UserProfileChangeChallenge.new_value == new_value)
+    challenge = db.execute(stmt.order_by(UserProfileChangeChallenge.created_at.desc())).scalars().first()
+    if not isinstance(challenge, UserProfileChangeChallenge) or is_expired(challenge.expires_at):
+        return False
+    if int(challenge.attempt_count or 0) >= max(get_settings().auth_otp_max_attempts, 1):
+        return False
+    if not isinstance(challenge.otp_hash, str):
+        return False
+    return verify_secret(code, challenge.otp_hash)
 
+
+def _confirm_signup_email(db: Session, user: User, code: str) -> None:
     if cognito_service.enabled:
         try:
             cognito_service.confirm_signup(email=user.email, code=code)
@@ -891,16 +975,89 @@ def confirm_signup_user(db: Session, *, email: str, code: str) -> User:
                 )
             except HTTPException:
                 raise exc from None
-    else:
-        verify_otp_challenge(
+        return
+
+    verify_otp_challenge(
+        db,
+        purpose="signup_confirm",
+        code=code,
+        user=user,
+        new_value=normalize_username(user.email),
+    )
+
+
+def confirm_signup_user(
+    db: Session,
+    *,
+    email: str | None = None,
+    code: str | None = None,
+    phone_number: str | None = None,
+    phone_otp: str | None = None,
+) -> User:
+    """Verify signup by email OTP, mobile OTP, or both.
+
+    Either code can be submitted on its own. When the account has both an
+    unverified email and an unverified mobile number, the account stays
+    inactive until both codes succeed. A single `code` that matches the
+    mobile OTP is accepted as the mobile code.
+    """
+    from app.services.notifications.sms import to_e164_phone
+    from app.services.phone_verification import PHONE_VERIFY_PURPOSE, confirm_signup_phone_otp
+
+    email_value = (email or "").strip()
+    phone_value = (phone_number or "").strip()
+    email_code = (code or "").strip()
+    mobile_code = (phone_otp or "").strip()
+    if not email_value and not phone_value:
+        raise HTTPException(status_code=STATUS_BAD_REQUEST, detail="Email or phone number is required")
+    if not email_code and not mobile_code:
+        raise HTTPException(status_code=STATUS_BAD_REQUEST, detail="Email or mobile verification code is required")
+
+    user = find_user_by_username(db, email_value or phone_value)
+    if email_value and phone_value:
+        phone_user = find_user_by_username(db, phone_value)
+        if user and phone_user and user.id != phone_user.id:
+            raise HTTPException(
+                status_code=STATUS_BAD_REQUEST,
+                detail="Email and phone number do not belong to the same account",
+            )
+        user = user or phone_user
+    if not user:
+        raise HTTPException(status_code=STATUS_NOT_FOUND, detail="Account not found")
+
+    registered_phone = to_e164_phone(user.phone_number if isinstance(user.phone_number, str) else None)
+    if email_code and not mobile_code and _phone_verification_pending(user):
+        phone_match = bool(registered_phone) and _open_challenge_matches(
+            db,
+            purpose=PHONE_VERIFY_PURPOSE,
+            code=email_code,
+            user=user,
+            new_value=registered_phone,
+        )
+        email_match = _open_challenge_matches(
             db,
             purpose="signup_confirm",
-            code=code,
+            code=email_code,
             user=user,
             new_value=normalize_username(user.email),
         )
+        if phone_match and not email_match:
+            mobile_code = email_code
+            email_code = ""
 
-    _activate_confirmed_signup(user)
+    if mobile_code:
+        confirm_signup_phone_otp(
+            db,
+            user=user,
+            phone_number=phone_value or None,
+            phone_otp=mobile_code,
+        )
+    if email_code:
+        _confirm_signup_email(db, user, email_code)
+        _activate_confirmed_signup(user)
+    else:
+        _refresh_signup_active(user)
+
     db.flush()
     return user
 
@@ -976,6 +1133,7 @@ def send_dev_otp(
     otp: str,
     challenge: UserProfileChangeChallenge | None = None,
     identifier: str | None = None,
+    skip_sms: bool = False,
 ) -> None:
     settings = get_settings()
     if challenge is not None:
@@ -986,7 +1144,11 @@ def send_dev_otp(
     requested = (identifier or "").strip()
     requested_is_email = "@" in requested
     deliver_email = bool(user.email) and (not requested or requested_is_email)
-    deliver_sms = bool(user.phone_number) and (not requested or not requested_is_email)
+    registered_phone = (user.phone_number or "").strip() if isinstance(user.phone_number, str) else ""
+    phone_login = bool(requested) and not requested_is_email
+    # Email OTP is also sent to the registered mobile. Phone login stays SMS-only.
+    # Signup with a phone skips this copy so the phone receives its own verification code.
+    deliver_sms = bool(registered_phone) and not skip_sms and (deliver_email or phone_login)
 
     if deliver_email:
         email_service = get_email_service()
@@ -1008,10 +1170,21 @@ def send_dev_otp(
                 app_name=settings.app_name,
             )
     if deliver_sms:
-        send_sms_notification(
-            to_phone=user.phone_number,
-            body=f"Your {settings.app_name} verification code is {otp}",
-        )
+        try:
+            send_sms_notification(
+                to_phone=registered_phone,
+                body=build_otp_verification_sms(
+                    app_name=settings.app_name,
+                    otp=otp,
+                    expiry_minutes=expiry_minutes,
+                ),
+            )
+        except Exception as exc:
+            logger.warning(
+                "otp_sms_send_failed purpose=%s error_type=%s",
+                purpose,
+                type(exc).__name__,
+            )
 
 
 def verify_refresh_token(db: Session, token: str, username: str) -> User:

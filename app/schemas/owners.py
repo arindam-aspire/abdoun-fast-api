@@ -39,7 +39,7 @@ class OwnerCreateRequest(BaseModel):
             return None
         normalized = normalize_phone(value)
         if not PHONE_E164_REGEX.match(normalized):
-            raise ValueError("phone_number must include country code in E.164 format (e.g. +9627xxxxxxx)")
+            raise ValueError("phone_number must be in E.164 format, including the country code")
         return normalized
 
 
@@ -70,7 +70,7 @@ class OwnerUpdateRequest(BaseModel):
             return ""
         normalized = normalize_phone(value)
         if not PHONE_E164_REGEX.match(normalized):
-            raise ValueError("phone_number must include country code in E.164 format (e.g. +9627xxxxxxx)")
+            raise ValueError("phone_number must be in E.164 format, including the country code")
         return normalized
 
 

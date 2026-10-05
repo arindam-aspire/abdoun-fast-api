@@ -30,7 +30,7 @@ from app.services.audit import record_activity
 from app.services.dls_locations import DLS_PARENTS, dls_official_name
 from app.services.exchange_rates import assert_supported_currency, convert_amount_to_jod_or_http_error
 from app.services.media_urls import canonicalize_media_url, with_canonical_media_urls, with_readable_media_urls
-from app.services.notifications import EmailPurpose, create_in_app_notification, send_email_notification, send_sms_notification
+from app.services.notifications import EmailPurpose, create_in_app_notification, notify_registered_sms, send_email_notification
 from app.services.property_reference_numbers import (
     assign_reference_number,
     displayed_reference_number,
@@ -303,18 +303,12 @@ def _assigned_agent_summary(db: Session, submission: PropertyListingSubmission) 
 
 
 def _normalize_phone_for_whatsapp(phone: str | None) -> str | None:
-    if not phone:
+    from app.services.notifications.sms import to_e164_phone
+
+    normalized = to_e164_phone(phone)
+    if not normalized:
         return None
-    digits = "".join(character for character in phone if character.isdigit())
-    if not digits:
-        return None
-    if digits.startswith("00"):
-        digits = digits[2:]
-    elif digits.startswith("0"):
-        digits = f"962{digits[1:]}"
-    elif not digits.startswith("962") and len(digits) <= 10:
-        digits = f"962{digits}"
-    return digits
+    return normalized.lstrip("+")
 
 
 def _agent_contact_actions(
@@ -3002,11 +2996,10 @@ def notify_super_admins_for_submission(db: Session, *, submission: PropertyListi
                     body=f"New property submission received for {title}.",
                     purpose=EmailPurpose.GENERAL,
                 )
-                if recipient.phone_number:
-                    send_sms_notification(
-                        to_phone=recipient.phone_number,
-                        body=f"New property submission received for {title}.",
-                    )
+                notify_registered_sms(
+                    user=recipient,
+                    body=f"New property submission received for {title}.",
+                )
         except Exception:
             logger.warning(
                 "property_submission_super_admin_notification_failed submission_id=%s recipient=%s",
@@ -3041,11 +3034,10 @@ def notify_agency_admins_for_submission(db: Session, *, submission: PropertyList
                     body=f"New property submission received for {title}.",
                     purpose=EmailPurpose.GENERAL,
                 )
-                if recipient.phone_number:
-                    send_sms_notification(
-                        to_phone=recipient.phone_number,
-                        body=f"New property submission received for {title}.",
-                    )
+                notify_registered_sms(
+                    user=recipient,
+                    body=f"New property submission received for {title}.",
+                )
         except Exception:
             logger.warning(
                 "property_submission_notification_failed submission_id=%s recipient=%s",
@@ -3081,11 +3073,10 @@ def notify_assigned_agent_for_submission(db: Session, *, submission: PropertyLis
                 body=f"Property submission for {title} is assigned to you for completion.",
                 purpose=EmailPurpose.GENERAL,
             )
-            if recipient.phone_number:
-                send_sms_notification(
-                    to_phone=recipient.phone_number,
-                    body=f"Property submission for {title} is assigned to you for completion.",
-                )
+            notify_registered_sms(
+                user=recipient,
+                body=f"Property submission for {title} is assigned to you for completion.",
+            )
     except Exception:
         logger.warning(
             "property_assignment_notification_failed submission_id=%s agent_id=%s",

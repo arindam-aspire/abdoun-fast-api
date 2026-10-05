@@ -133,6 +133,7 @@ def test_signup_response_omits_email_otp(monkeypatch) -> None:
     )
 
     assert sent["otp"] == OTP_CODE
+    assert sent["purpose"] == "signup"
     assert response["data"] == {}
     assert_no_otp_in_response(response)
 
@@ -168,6 +169,7 @@ def test_profile_update_request_email_response_omits_otp(monkeypatch) -> None:
     )
 
     assert sent["otp"] == OTP_CODE
+    assert sent["purpose"] == "profile"
     assert response["data"]["requires_verification"] is True
     assert response["data"]["verification_fields"] == ["email"]
     assert_no_otp_in_response(response)
@@ -201,9 +203,14 @@ def test_forgot_password_request_response_omits_otp(monkeypatch) -> None:
 def test_agency_register_response_omits_email_otp(monkeypatch) -> None:
     db = MagicMock()
     sent: dict[str, object] = {}
-    legal_document = SimpleNamespace(filename="license.pdf")
+
+    async def _read() -> bytes:
+        return b"%PDF"
+
+    legal_document = SimpleNamespace(filename="license.pdf", content_type="application/pdf", read=_read)
     monkeypatch.setattr(agency_routes, "validate_e164_phone", lambda value, field_name=None: "+962791199991")
     monkeypatch.setattr(agency_routes, "ensure_agency_contact_available", lambda *args, **kwargs: None)
+    monkeypatch.setattr(agency_routes, "upload_object_bytes", lambda *args, **kwargs: "dev://license.pdf")
     monkeypatch.setattr(agency_routes, "create_user", lambda *args, **kwargs: _active_user())
     monkeypatch.setattr(
         agency_routes,
@@ -215,7 +222,11 @@ def test_agency_register_response_omits_email_otp(monkeypatch) -> None:
     monkeypatch.setattr(
         agency_routes,
         "get_settings",
-        lambda: SimpleNamespace(default_currency="JOD", default_measurement_unit="sqm"),
+        lambda: SimpleNamespace(
+            default_currency="JOD",
+            default_measurement_unit="sqm",
+            aws_s3_bucket="",
+        ),
     )
 
     response = asyncio.run(
@@ -230,5 +241,6 @@ def test_agency_register_response_omits_email_otp(monkeypatch) -> None:
     )
 
     assert sent["otp"] == OTP_CODE
+    assert sent["purpose"] == "agency signup"
     assert "agency" in response["data"]
     assert_no_otp_in_response(response)
