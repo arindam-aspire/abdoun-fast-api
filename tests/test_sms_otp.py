@@ -95,6 +95,7 @@ def test_resend_confirmation_sends_the_generated_otp_once(monkeypatch) -> None:
     assert result == "111222"
     assert sent["otp"] == "111222"
     assert sent["purpose"] == "signup"
+    assert sent["skip_sms"] is True
 
 
 def test_log_mode_does_not_write_otp(caplog, monkeypatch) -> None:

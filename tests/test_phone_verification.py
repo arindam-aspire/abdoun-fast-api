@@ -172,7 +172,7 @@ def test_phone_otp_generation_is_hashed_and_not_returned(monkeypatch) -> None:
     )
 
     stored = db.add.call_args.args[0]
-    assert result is None
+    assert result is True
     assert len(OTP) == 6 and OTP.isdigit()
     assert verify_secret(OTP, stored.otp_hash)
     assert stored.otp_hash != OTP
@@ -447,12 +447,15 @@ def test_phone_otp_is_not_logged(caplog, monkeypatch) -> None:
     assert REGISTERED_PHONE not in caplog.text
 
 
-def _patch_signup_confirmation(monkeypatch, user, verify) -> None:
+def _patch_signup_confirmation(monkeypatch, user, verify=None, *, purpose: str = "signup_confirm") -> None:
+    del verify
+
+    def resolve(db, resolved_user, code):
+        return _challenge(otp=code, purpose=purpose, user_id=resolved_user.id)
+
     monkeypatch.setattr("app.services.auth.find_user_by_username", lambda db, username: user)
     monkeypatch.setattr("app.services.auth.CognitoService.enabled", property(lambda self: False))
-    monkeypatch.setattr("app.services.auth.verify_otp_challenge", verify)
-    monkeypatch.setattr("app.services.phone_verification.verify_otp_challenge", verify)
-    monkeypatch.setattr("app.services.auth._open_challenge_matches", lambda *args, **kwargs: False)
+    monkeypatch.setattr("app.services.auth.resolve_signup_otp", resolve)
 
 
 def test_email_confirmation_without_mobile_code_leaves_phone_unverified(monkeypatch) -> None:
@@ -479,13 +482,13 @@ def test_confirm_signup_without_phone_activates_on_email_code(monkeypatch) -> No
 
 def test_confirm_signup_verifies_email_and_mobile_codes(monkeypatch) -> None:
     user = _user(is_email_verified=False, is_phone_verified=False, is_active=False)
-    seen: list[tuple[str, str]] = []
 
-    def verify(db, *, purpose, code, user, new_value=None, **kwargs):
-        seen.append((purpose, code))
-        return _challenge(purpose=purpose)
+    def resolve(db, resolved_user, code):
+        purpose = "signup_confirm" if code == "111111" else PHONE_VERIFY_PURPOSE
+        return _challenge(otp=code, purpose=purpose, user_id=resolved_user.id)
 
-    _patch_signup_confirmation(monkeypatch, user, verify)
+    _patch_signup_confirmation(monkeypatch, user)
+    monkeypatch.setattr("app.services.auth.resolve_signup_otp", resolve)
 
     confirmed = confirm_signup_user(
         MagicMock(),
@@ -494,7 +497,6 @@ def test_confirm_signup_verifies_email_and_mobile_codes(monkeypatch) -> None:
         phone_otp="222222",
     )
 
-    assert seen == [(PHONE_VERIFY_PURPOSE, "222222"), ("signup_confirm", "111111")]
     assert confirmed.is_email_verified is True
     assert confirmed.is_phone_verified is True
     assert confirmed.is_active is True
@@ -502,26 +504,27 @@ def test_confirm_signup_verifies_email_and_mobile_codes(monkeypatch) -> None:
 
 def test_confirm_signup_accepts_either_code_on_its_own(monkeypatch) -> None:
     user = _user(is_email_verified=False, is_phone_verified=False, is_active=False)
-    _patch_signup_confirmation(monkeypatch, user, lambda *args, **kwargs: _challenge())
 
-    confirm_signup_user(MagicMock(), phone_number=REGISTERED_PHONE, phone_otp=OTP)
+    def resolve(db, resolved_user, code):
+        purpose = PHONE_VERIFY_PURPOSE if code == "222222" else "signup_confirm"
+        return _challenge(otp=code, purpose=purpose, user_id=resolved_user.id)
+
+    _patch_signup_confirmation(monkeypatch, user)
+    monkeypatch.setattr("app.services.auth.resolve_signup_otp", resolve)
+
+    confirm_signup_user(MagicMock(), phone_number=REGISTERED_PHONE, phone_otp="222222")
     assert user.is_phone_verified is True
     assert user.is_email_verified is False
     assert user.is_active is True
 
-    confirm_signup_user(MagicMock(), email=user.email, code=OTP)
+    confirm_signup_user(MagicMock(), email=user.email, code="111111")
     assert user.is_email_verified is True
     assert user.is_active is True
 
 
 def test_confirm_signup_accepts_mobile_otp_in_the_code_field(monkeypatch) -> None:
     user = _user(is_email_verified=False, is_phone_verified=False, is_active=False)
-
-    def matches(db, *, purpose, code, user, new_value=None) -> bool:
-        return purpose == PHONE_VERIFY_PURPOSE and code == OTP
-
-    _patch_signup_confirmation(monkeypatch, user, lambda *args, **kwargs: _challenge())
-    monkeypatch.setattr("app.services.auth._open_challenge_matches", matches)
+    _patch_signup_confirmation(monkeypatch, user, purpose=PHONE_VERIFY_PURPOSE)
 
     confirm_signup_user(MagicMock(), email=user.email, code=OTP)
 

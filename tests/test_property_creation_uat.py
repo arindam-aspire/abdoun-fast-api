@@ -244,17 +244,42 @@ def test_media_sync_flushes_existing_primary_before_insert() -> None:
     assert db.flush.call_count >= 2
 
 
-def test_exact_plot_and_hod_match_is_a_duplicate_property() -> None:
+def test_matching_parcel_and_plot_identifiers_are_allowed() -> None:
+    db = MagicMock()
+    db.execute.return_value.scalar_one_or_none.return_value = uuid4()
+    validate_duplicate_property(
+        db,
+        {
+            "location": {
+                "vill_code": "101",
+                "hod_code": "H-9",
+                "parcel_number": "44",
+                "plot_number": "12",
+                "city_id": "1",
+                "area_id": "2",
+            },
+            "property_details": {
+                "plot_number": "12",
+                "hod_code": "B-3",
+                "apartment_number": "4A",
+            },
+        },
+    )
+    db.execute.assert_not_called()
+
+
+def test_duplicate_reference_number_is_rejected() -> None:
     db = MagicMock()
     db.execute.return_value.scalar_one_or_none.return_value = uuid4()
     with pytest.raises(HTTPException) as exc_info:
         validate_duplicate_property(
             db,
-            {"property_details": {"plot_number": "12", "hod_code": "B-3"}},
+            {"property_details": {"reference_number": "RA0001", "parcel_number": "44"}},
         )
 
     assert exc_info.value.status_code == 409
     assert exc_info.value.detail["code"] == "DUPLICATE_PROPERTY"
+    assert exc_info.value.detail["details"][0]["field"] == "property_details.reference_number"
 
 
 def test_retired_dld_number_is_not_returned() -> None:
@@ -300,22 +325,19 @@ def test_dls_parcel_fields_are_persisted_on_location_and_details() -> None:
     assert "government_code" not in details
 
 
-def test_official_dls_parcel_identifiers_are_duplicates() -> None:
+def test_official_dls_parcel_identifiers_are_not_duplicates() -> None:
     db = MagicMock()
-    db.execute.return_value.scalar_one_or_none.return_value = uuid4()
-    with pytest.raises(HTTPException) as exc_info:
-        validate_duplicate_property(
-            db,
-            {
-                "location": {
-                    "vill_code": "101",
-                    "hod_code": "H-9",
-                    "parcel_number": "44",
-                }
-            },
-        )
-    assert exc_info.value.status_code == 409
-    assert exc_info.value.detail["code"] == "DUPLICATE_PROPERTY"
+    validate_duplicate_property(
+        db,
+        {
+            "location": {
+                "vill_code": "101",
+                "hod_code": "H-9",
+                "parcel_number": "44",
+            }
+        },
+    )
+    db.execute.assert_not_called()
 
 
 def test_sale_furnished_keeps_only_furnished_sale_price(monkeypatch) -> None:

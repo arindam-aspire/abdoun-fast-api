@@ -48,6 +48,7 @@ from app.services.auth import (
 from app.core.security import hash_secret, verify_secret
 from app.services.social_auth import authenticate_social, exchange_cognito_authorization_code
 from app.services.phone_verification import (
+    PHONE_VERIFY_PURPOSE,
     apply_profile_phone_number,
     begin_profile_phone_change,
     complete_profile_phone_verification,
@@ -57,7 +58,12 @@ from app.services.phone_verification import (
 )
 from app.services.media_urls import local_media_url
 from app.utils.api_response import success_response
-from app.utils.status_codes import STATUS_BAD_REQUEST, STATUS_NOT_FOUND, STATUS_UNAUTHORIZED
+from app.utils.status_codes import (
+    STATUS_BAD_REQUEST,
+    STATUS_NOT_FOUND,
+    STATUS_SERVICE_UNAVAILABLE,
+    STATUS_UNAUTHORIZED,
+)
 
 router = APIRouter()
 
@@ -169,22 +175,26 @@ def sign_up(payload: SignUpRequest, db: DBSessionDep) -> dict:
         password=payload.password,
         role=payload.role,
     )
+    has_phone = isinstance(user.phone_number, str) and bool(user.phone_number.strip())
     challenge, otp = create_otp_challenge(
         db,
         user=user,
         purpose="signup_confirm",
-        new_value=normalize_username(payload.email),
+        new_value=normalize_username(user.email),
+        supersede=True,
+        avoid_purposes=(PHONE_VERIFY_PURPOSE,),
     )
-    has_phone = isinstance(user.phone_number, str) and bool(user.phone_number.strip())
-    send_dev_otp(
+    delivered = send_dev_otp(
         user=user,
         purpose="signup",
         otp=otp,
         challenge=challenge,
-        skip_sms=has_phone,
+        skip_sms=True,
     )
+    if delivered is False:
+        raise HTTPException(status_code=STATUS_SERVICE_UNAVAILABLE, detail="Unable to send verification code")
     if has_phone:
-        issue_signup_phone_otp(db, user=user)
+        issue_signup_phone_otp(db, user=user, excluded_otps={otp})
     db.commit()
     phone_pending = isinstance(user.phone_number, str) and bool(user.phone_number.strip()) and user.is_phone_verified is not True
     return success_response(
@@ -209,12 +219,16 @@ def confirm_sign_up(payload: ConfirmSignUpRequest, db: DBSessionDep) -> dict:
     )
     db.commit()
     phone_pending = isinstance(user.phone_number, str) and bool(user.phone_number.strip()) and user.is_phone_verified is not True
-    if user.is_active:
+    email_verified = user.is_email_verified is True
+    phone_verified = user.is_phone_verified is True
+    if email_verified and phone_verified:
         message = "Account verified successfully"
-    elif user.is_email_verified and phone_pending:
+    elif email_verified and phone_pending:
         message = "Email verified. Mobile verification is still required"
-    elif user.is_phone_verified is True and user.is_email_verified is not True:
+    elif phone_verified and not email_verified:
         message = "Mobile number verified. Email verification is still required"
+    elif user.is_active:
+        message = "Account verified successfully"
     else:
         message = "Verification successful"
     return success_response(
@@ -258,7 +272,7 @@ def verify_phone_otp(payload: VerifyPhoneOtpRequest, context: RequestContextDep,
 
 @router.post("/resend-confirmation")
 def resend_confirmation(payload: ResendConfirmationRequest, db: DBSessionDep) -> dict:
-    resend_signup_confirmation(db, email=payload.email)
+    resend_signup_confirmation(db, email=payload.email, channel=payload.channel)
     db.commit()
     return success_response(
         build_otp_response_data(),

@@ -140,7 +140,7 @@ def test_signup_response_omits_email_otp(monkeypatch) -> None:
 
 def test_resend_confirmation_response_omits_email_otp(monkeypatch) -> None:
     db = MagicMock()
-    monkeypatch.setattr(auth_routes, "resend_signup_confirmation", lambda db, email: OTP_CODE)
+    monkeypatch.setattr(auth_routes, "resend_signup_confirmation", lambda db, email, channel=None: OTP_CODE)
 
     response = auth_routes.resend_confirmation(
         ResendConfirmationRequest(email="user@example.com"),
