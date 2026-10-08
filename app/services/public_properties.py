@@ -323,12 +323,44 @@ def _owners(payload: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def _furnishing_status(details: dict[str, Any]) -> Any:
-    return (
+    values = _furnishing_status_values(details)
+    return values[0] if values else None
+
+
+def _furnishing_status_values(details: dict[str, Any]) -> list[Any]:
+    for key in ("furnishing_statuses", "furnishingStatuses"):
+        raw = details.get(key)
+        if isinstance(raw, list) and any(item not in (None, "") for item in raw):
+            return [item for item in raw if item not in (None, "")]
+    single = (
         details.get("furnishing")
         or details.get("furnishing_status")
         or details.get("furnishingStatus")
         or details.get("furniture_status")
     )
+    if isinstance(single, (list, tuple, set)):
+        return [item for item in single if item not in (None, "")]
+    if single in (None, ""):
+        return []
+    return [single]
+
+
+def _parking_response_value(details: dict[str, Any]) -> Any:
+    raw = details.get("parking_spaces")
+    if raw in (None, ""):
+        raw = details.get("parking")
+    if isinstance(raw, bool) or raw in (None, ""):
+        return None
+    if isinstance(raw, int):
+        return raw
+    if isinstance(raw, float) and raw.is_integer():
+        return int(raw)
+    text = str(raw).strip()
+    if not text:
+        return None
+    if text.isdigit():
+        return int(text)
+    return text
 
 
 def _listing_price(pricing: dict[str, Any], purpose: str, furnishing: Any) -> Any:
@@ -598,11 +630,7 @@ def serialize_property_detail(
             "maid_rooms": None,
             "driver_rooms": None,
             "store_rooms": None,
-            "parking_spaces": (
-                _int(details["parking_spaces"] if details.get("parking_spaces") not in (None, "") else details.get("parking"))
-                if details.get("parking_spaces") not in (None, "") or details.get("parking") not in (None, "")
-                else None
-            ),
+            "parking_spaces": _parking_response_value(details),
             "apartment_number": details.get("apartment_number") or location.get("apartment_number"),
             "plot_number": details.get("plot_number") or location.get("plot_number"),
             "building_number": details.get("building_number") or location.get("building_number") or details.get("building") or location.get("building"),
@@ -683,6 +711,7 @@ def serialize_property_detail(
             "year_built": _int(details.get("year_built") or details.get("year_of_construction")),
             "furniture_status": _furnishing_status(details),
             "furnishing_status": _furnishing_status(details),
+            "furnishing_statuses": _furnishing_status_values(details),
             "direction": details.get("direction") or details.get("view"),
             "furniture_condition": None,
             "garage_type": None,
@@ -964,15 +993,19 @@ def apply_public_filters(
             continue
         if bathrooms is not None and _int(details.get("bathrooms")) < bathrooms:
             continue
-        if parking is not None and _int(details.get("parking_spaces")) < parking:
-            continue
+        if parking is not None:
+            stored_parking = _parking_response_value(details)
+            if not isinstance(stored_parking, int) or stored_parking < parking:
+                continue
         if propertyAge and _token(
             details.get("year_built") or details.get("year_of_construction") or details.get("property_age")
         ) != _token(propertyAge):
             continue
         if floorLevel and _token(details.get("floor_level") or details.get("floor_number")) != _token(floorLevel):
             continue
-        if furnitureStatus and _token(_furnishing_status(details)) != _token(furnitureStatus):
+        if furnitureStatus and not any(
+            _token(item) == _token(furnitureStatus) for item in _furnishing_status_values(details)
+        ):
             continue
         area_value = _float(details.get("built_up_area")) or 0
         if minArea is not None and area_value < minArea:

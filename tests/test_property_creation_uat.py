@@ -371,29 +371,34 @@ def test_owner_id_or_passport_aliases_are_normalized() -> None:
     assert owner["social_security_id"] == "P-998877"
 
 
-def test_parking_spaces_accepts_manual_numeric_and_legacy_dropdown_values() -> None:
+def test_parking_spaces_accepts_manual_numeric_and_text_values() -> None:
     numeric = prepare_property_payload(
         MagicMock(),
         {"property_details": {"parkingSpace": "2", "built_up_area": 100}},
     )
-    legacy = prepare_property_payload(
+    text = prepare_property_payload(
         MagicMock(),
-        {"property_details": {"parking": {"name": "Available", "id": 44}, "built_up_area": 100}},
+        {"property_details": {"parking": {"name": "Covered basement", "id": 44}, "built_up_area": 100}},
     )
     zero = prepare_property_payload(
         MagicMock(),
         {"property_details": {"parking_spaces": 0, "built_up_area": 100}},
     )
+    free_text = prepare_property_payload(
+        MagicMock(),
+        {"property_details": {"parking_spaces": "underground", "built_up_area": 100}},
+    )
 
     assert numeric["property_details"]["parking_spaces"] == 2
     assert numeric["property_details"]["parking"] == 2
-    assert legacy["property_details"]["parking_spaces"] == 1
+    assert text["property_details"]["parking_spaces"] == "Covered basement"
     assert zero["property_details"]["parking_spaces"] == 0
+    assert free_text["property_details"]["parking_spaces"] == "underground"
 
 
 def test_invalid_parking_spaces_are_rejected() -> None:
     with pytest.raises(HTTPException) as exc_info:
-        prepare_property_payload(MagicMock(), {"property_details": {"parking_spaces": "underground"}})
+        prepare_property_payload(MagicMock(), {"property_details": {"parking_spaces": ["a", "b"]}})
 
     assert exc_info.value.detail["code"] == "VALIDATION_ERROR"
     assert exc_info.value.detail["details"][0]["field"] == "property_details.parking_spaces"
@@ -663,4 +668,81 @@ def test_commercial_dls_fields_match_residential_rules(monkeypatch) -> None:
     assert details["land_type_id"] == 401
     assert details["floor_number"] == "1"
     assert details["plot_number"] == "9"
+
+
+def _furnishing_option(_db, *, group, value, field):
+    slug = str(value).strip().lower().replace("_", "-").replace(" ", "-")
+    if group != "furnishing_status":
+        return SimpleNamespace(id=1, slug=slug, name=str(value), numeric_value=None)
+    ids = {"furnished": 21, "unfurnished": 22, "semi-furnished": 23}
+    if slug not in ids and not str(value).isdigit():
+        from app.utils.api_response import raise_api_error
+        from app.utils.status_codes import STATUS_BAD_REQUEST
+
+        raise_api_error(
+            status_code=STATUS_BAD_REQUEST,
+            code="INVALID_VALUE",
+            message=f"Invalid value for {field}",
+            details=[{"field": field, "code": "invalid_value", "message": "Select an active master-data value"}],
+        )
+    option_id = ids.get(slug, int(value) if str(value).isdigit() else 21)
+    option_slug = slug if slug in ids else {21: "furnished", 22: "unfurnished", 23: "semi-furnished"}.get(option_id, slug)
+    return SimpleNamespace(id=option_id, slug=option_slug, name=option_slug, numeric_value=None)
+
+
+def test_multiple_furnishing_statuses_keep_each_price(monkeypatch) -> None:
+    monkeypatch.setattr("app.services.property_submissions.resolve_property_option", _furnishing_option)
+    payload = prepare_property_payload(
+        MagicMock(),
+        {
+            "basic_information": {"listing_purpose": "sale"},
+            "property_details": {"furnishingStatus": ["furnished", "unfurnished", "furnished"]},
+            "pricing": {
+                "furnished_sale_price": 150000,
+                "unfurnished_sale_price": 140000,
+                "furnished_rent_price": 800,
+                "currency": "JOD",
+            },
+        },
+    )
+    details = payload["property_details"]
+    assert details["furnishing_statuses"] == ["furnished", "unfurnished"]
+    assert details["furnishing_status_ids"] == [21, 22]
+    assert details["furnishing_status"] == "furnished"
+    assert details["furnishing_status_id"] == 21
+    assert payload["pricing"]["furnished_sale_price"] == 150000
+    assert payload["pricing"]["unfurnished_sale_price"] == 140000
+    assert "furnished_rent_price" not in payload["pricing"]
+
+
+def test_multiple_furnishing_statuses_require_each_price_on_submit(monkeypatch) -> None:
+    monkeypatch.setattr("app.services.property_submissions.resolve_property_option", _furnishing_option)
+    payload = prepare_property_payload(
+        MagicMock(),
+        {
+            "basic_information": {"listing_purpose": "sale"},
+            "property_details": {
+                "furnishing_status": [21, 22],
+                "parking_spaces": "two covered spaces",
+                "parcel_number": "44",
+            },
+            "pricing": {"furnished_sale_price": 150000, "currency": "JOD"},
+        },
+    )
+    assert payload["property_details"]["parking_spaces"] == "two covered spaces"
+    assert payload["property_details"]["parcel_number"] == "44"
+    with pytest.raises(HTTPException) as exc_info:
+        validate_pricing(payload, for_submit=True)
+    assert exc_info.value.detail["details"][0]["field"] == "pricing.unfurnished_sale_price"
+    assert exc_info.value.detail["code"] == "VALIDATION_ERROR"
+
+
+def test_unknown_furnishing_status_is_rejected(monkeypatch) -> None:
+    monkeypatch.setattr("app.services.property_submissions.resolve_property_option", _furnishing_option)
+    with pytest.raises(HTTPException) as exc_info:
+        prepare_property_payload(
+            MagicMock(),
+            {"property_details": {"furnishing_status": ["furnished", "not-a-status"]}},
+        )
+    assert exc_info.value.detail["details"][0]["field"] == "property_details.furnishing_status"
 

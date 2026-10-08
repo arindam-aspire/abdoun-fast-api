@@ -207,9 +207,26 @@ class Settings(BaseModel):
     cognito_app_client_id: str = _env_str("COGNITO_APP_CLIENT_ID", "") or ""
     cognito_app_client_secret: str = _env_str("COGNITO_APP_CLIENT_SECRET", "") or ""
     cognito_domain: str = _env_str("COGNITO_DOMAIN", "") or ""
+    cognito_issuer: str = (_env_str("COGNITO_ISSUER", "") or "").rstrip("/")
+    cognito_jwks_url: str = _env_str("COGNITO_JWKS_URL", "") or ""
+    cognito_google_provider_names: str = _env_str("COGNITO_GOOGLE_PROVIDER_NAMES", "Google") or "Google"
+    cognito_facebook_provider_names: str = _env_str("COGNITO_FACEBOOK_PROVIDER_NAMES", "Facebook") or "Facebook"
+    cognito_apple_provider_names: str = (
+        _env_str("COGNITO_APPLE_PROVIDER_NAMES", "SignInWithApple,Apple") or "SignInWithApple,Apple"
+    )
     social_redirect_uri: str | None = _env_str("SOCIAL_REDIRECT_URI")
     facebook_app_id: str | None = _env_str("FACEBOOK_APP_ID")
     facebook_app_secret: str | None = _env_str("FACEBOOK_APP_SECRET")
+    apple_oauth_client_ids: str = (
+        _env_str("APPLE_OAUTH_CLIENT_IDS")
+        or _env_str("APPLE_OAUTH_CLIENT_ID")
+        or ""
+    )
+    apple_oauth_jwks_url: str = _env_str("APPLE_OAUTH_JWKS_URL", "") or ""
+    apple_oauth_issuers: str = _env_str("APPLE_OAUTH_ISSUERS", "") or ""
+    social_jwks_cache_seconds: int = _env_int("SOCIAL_JWKS_CACHE_SECONDS", 3600)
+    social_token_leeway_seconds: int = _env_int("SOCIAL_TOKEN_LEEWAY_SECONDS", 60)
+    social_provider_http_timeout_seconds: int = _env_int("SOCIAL_PROVIDER_HTTP_TIMEOUT_SECONDS", 10)
     media_url_presign_enabled: bool = _env_bool("MEDIA_URL_PRESIGN_ENABLED", True)
     media_url_presign_expires_seconds: int = _env_int("MEDIA_URL_PRESIGN_EXPIRES_SECONDS", 3600)
     media_upload_presign_expires_seconds: int = _env_int("MEDIA_UPLOAD_PRESIGN_EXPIRES_SECONDS", 900)
@@ -267,6 +284,27 @@ class Settings(BaseModel):
         or "https://maps.google.com/maps"
     ).rstrip("/")
     google_maps_embed_zoom: int = _env_int("GOOGLE_MAPS_EMBED_ZOOM", 15)
+
+    def resolved_cognito_issuer(self) -> str:
+        """Cognito ID-token issuer. Explicit `COGNITO_ISSUER` wins; otherwise derive it."""
+        explicit = (self.cognito_issuer or "").strip().rstrip("/")
+        if explicit:
+            return explicit
+        region = (self.cognito_region or "").strip()
+        pool_id = (self.cognito_user_pool_id or "").strip()
+        if not region or not pool_id:
+            return ""
+        return f"https://cognito-idp.{region}.amazonaws.com/{pool_id}"
+
+    def resolved_cognito_jwks_url(self) -> str:
+        """JWKS URL for Cognito ID tokens. Explicit `COGNITO_JWKS_URL` wins."""
+        explicit = (self.cognito_jwks_url or "").strip()
+        if explicit:
+            return explicit
+        issuer = self.resolved_cognito_issuer()
+        if not issuer:
+            return ""
+        return f"{issuer}/.well-known/jwks.json"
 
 
 @lru_cache

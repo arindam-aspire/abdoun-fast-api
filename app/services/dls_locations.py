@@ -73,6 +73,13 @@ def serialize_dls_item(level: str, row: Any, *, parents: dict[str, str]) -> dict
         code, name = getattr(row, "code", None), getattr(row, "name", None)
     item = {"code": code, "name": name, "level": level}
     item.update(parents)
+    # Parcel dropdown (hod) already stores the official code and name. Expose both
+    # labels without removing code/name for existing clients.
+    if level == "hod":
+        item["parcel_name"] = name
+        item["parcel_number"] = code
+        item["hod_name"] = name
+        item["hod_code"] = code
     return item
 
 

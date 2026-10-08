@@ -5,6 +5,7 @@ from sqlalchemy import select
 
 from app.api.deps import DBSessionDep
 from app.models.live_schema import Area, City, Feature, PropertyCategory, PropertyType
+from app.services.catalog_features import filter_features, is_shared_feature, resolve_feature_scope
 from app.services.dls_locations import list_dls_locations
 from app.services.property_taxonomy import (
     GROUP_ORDER,
@@ -55,11 +56,27 @@ def get_property_options(
 
 
 @router.get("/features")
-def list_features(db: DBSessionDep, is_active: bool | None = None) -> dict:
+def list_features(
+    db: DBSessionDep,
+    is_active: bool | None = None,
+    category_id: int | None = None,
+    category: str | None = None,
+    property_type_id: int | None = None,
+    property_type: str | None = None,
+) -> dict:
+    """List features. A property type returns that type's features plus shared category amenities."""
     stmt = select(Feature).order_by(Feature.display_order.asc(), Feature.name.asc())
     if is_active is not None:
         stmt = stmt.where(Feature.is_active.is_(is_active))
-    features = db.execute(stmt).scalars().all()
+    features = list(db.execute(stmt).scalars().all())
+    category_scope, type_scope = resolve_feature_scope(
+        db,
+        category_id=category_id,
+        category=category,
+        property_type_id=property_type_id,
+        property_type=property_type,
+    )
+    features = filter_features(features, category=category_scope, property_type=type_scope)
     category_ids = {feature.category_id for feature in features if feature.category_id}
     property_type_ids = {feature.property_type_id for feature in features if feature.property_type_id}
     categories = (
@@ -82,6 +99,7 @@ def list_features(db: DBSessionDep, is_active: bool | None = None) -> dict:
             "category_id": feature.category_id,
             "property_type_id": feature.property_type_id,
             "feature_group": feature.feature_group,
+            "is_shared": is_shared_feature(feature),
             "display_order": feature.display_order,
             "is_active": bool(feature.is_active),
             "created_at": feature.created_at.isoformat() if feature.created_at else None,
