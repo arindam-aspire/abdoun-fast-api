@@ -27,6 +27,39 @@ class SignUpRequest(BaseModel):
     role: str
 
 
+class SocialLoginRequest(BaseModel):
+    """Provider assertion for User or Owner social sign-in and sign-up.
+
+    The website sends the Cognito authorization `code` from the hosted-UI
+    callback. A Cognito ID token in `id_token` remains accepted. Direct Google
+    and Facebook tokens are not accepted. Profile fields are taken from the
+    validated token. A requested role is accepted only when it is User or
+    Owner. An existing account keeps the role stored in the database.
+    """
+
+    provider: str
+    id_token: str | None = None
+    access_token: str | None = None
+    code: str | None = None
+    code_verifier: str | None = None
+    redirect_uri: str | None = None
+    role: str | None = None
+
+    @model_validator(mode="after")
+    def require_provider_assertion(self) -> "SocialLoginRequest":
+        if not (self.provider or "").strip():
+            raise ValueError("A social provider is required")
+        has_token = bool((self.id_token or "").strip() or (self.access_token or "").strip())
+        has_code = bool(
+            (self.code or "").strip()
+            and (self.code_verifier or "").strip()
+            and (self.redirect_uri or "").strip()
+        )
+        if not has_token and not has_code:
+            raise ValueError("A provider token is required")
+        return self
+
+
 class ConfirmSignUpRequest(BaseModel):
     email: str | None = None
     code: str | None = None

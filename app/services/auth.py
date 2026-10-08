@@ -26,6 +26,7 @@ from app.models.live_schema import (
     Permission,
     Role,
     RolePermission,
+    SocialAccount,
     User,
     UserProfileChangeChallenge,
     UserRole,
@@ -510,11 +511,30 @@ def serialize_agency(agency: AgencyMaster | None) -> dict | None:
     })
 
 
+def _user_has_social_account(db: Session, user_id: UUID) -> bool:
+    return (
+        db.execute(select(SocialAccount.id).where(SocialAccount.user_id == user_id).limit(1)).first()
+        is not None
+    )
+
+
 def requires_password_set(db: Session, user: User, roles: list[Role] | None = None) -> bool:
+    """True when this account still needs a password before normal sign-in.
+
+    User and Owner accounts that authenticate with a social provider do not
+    use the agent invitation password-setup step. Every other account without
+    a password still does.
+    """
+    loaded_roles = roles or load_user_roles(db, user.id)
+    role_names = {normalize_role_name(role.name) for role in loaded_roles}
     if not user.password_hash:
+        consumer_only = bool(role_names & {"registered_user", "owner"}) and not (
+            role_names & {"agent", "admin", "super_admin"}
+        )
+        if consumer_only and _user_has_social_account(db, user.id):
+            return False
         return True
 
-    role_names = {normalize_role_name(role.name) for role in (roles or load_user_roles(db, user.id))}
     if "agent" not in role_names:
         return False
 

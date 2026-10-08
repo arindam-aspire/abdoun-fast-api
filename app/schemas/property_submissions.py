@@ -139,12 +139,12 @@ class PropertyDetailsStepPayload(BaseModel):
     furnishing_status: Any | None = Field(
         default=None,
         validation_alias=AliasChoices("furnishingStatus", "furnishing_status"),
-        description="Master-data furnishing status id, slug, or name from GET /api/v1/property-options?group=furnishing_status.",
+        description="One furnishing status, or a list of them. Each value is a master-data id, slug, or name from GET /api/v1/property-options?group=furnishing_status.",
     )
     furnishing_status_id: Any | None = Field(
         default=None,
         validation_alias=AliasChoices("furnishingStatusId", "furnishing_status_id"),
-        description="Selected furnishing status option id from the Master API.",
+        description="Selected furnishing status option id. When several statuses are selected, this is the first id and furnishing_status_ids holds the full list.",
     )
     floor: Any | None = Field(
         default=None,
@@ -204,7 +204,7 @@ class PropertyDetailsStepPayload(BaseModel):
             "parkingSpace",
             "parking",
         ),
-        description="Manual parking-space count. Accepts a non-negative integer, not a dropdown option id.",
+        description="Free-text parking space, or a non-negative whole number. Not a dropdown option id.",
     )
     guard_name: str | None = Field(default=None, max_length=255)
     guard_phone_number: str | None = Field(
@@ -263,8 +263,8 @@ class PropertySubmissionCreateRequest(BaseModel):
             "DLS hierarchy uses gov_code/gov_name, dept_*, vill_*, hod_*, sect_* "
             "(government_* aliases accepted). "
             "Also accept year_built, direction, floor/floor_id, completion_status, "
-            "parking_spaces as a manual non-negative integer, "
-            "and furnishingStatus/furnishing_status aliases. "
+            "parking_spaces as free text or a non-negative whole number, "
+            "and one or more furnishingStatus/furnishing_status values. "
             "basic_information.listing_purpose accepts sale, rent, or sale_or_rent. "
             "Building area is stored and returned in sqm only. "
             "Property details also accept optional guard_name and guard_phone_number. "
@@ -307,10 +307,10 @@ class PropertySubmissionUpdateRequest(BaseModel):
             "Owner entries may select an existing owner with owner_user_id and may send Owner ID or Passport. DLD number is retired. "
             "Building area is stored and returned in sqm only. "
             "Property details also accept optional guard_name and guard_phone_number. "
-            "Property details persist furnishingStatus/furnishing_status, floor/floor_id, and "
+            "Property details persist one or more furnishingStatus/furnishing_status values, floor/floor_id, and "
             "landType/land_type_id from GET /api/v1/property-options. "
             "Land Type applies to Residential/Commercial only. "
-            "Parking space is a manual property_details.parking_spaces integer. "
+            "Parking space is free text or a whole number in property_details.parking_spaces. "
             "Pricing accepts price, service_charge, and maintenance_fee with currency codes "
             "(JOD, USD, GBP, INR; default JOD). Drafts preserve entered amounts/currencies; "
             "submit converts all pricing amounts to JOD using live exchange rates. "
@@ -342,10 +342,10 @@ class PropertySubmissionDirectSubmitRequest(BaseModel):
             "Owner entries may select an existing owner with owner_user_id and may send Owner ID or Passport. DLD number is retired. "
             "Building area is stored and returned in sqm only. "
             "Property details also accept optional guard_name and guard_phone_number. "
-            "Property details persist furnishingStatus/furnishing_status, floor/floor_id, and "
+            "Property details persist one or more furnishingStatus/furnishing_status values, floor/floor_id, and "
             "landType/land_type_id from GET /api/v1/property-options. "
             "Land Type applies to Residential/Commercial only. "
-            "Parking space is a manual property_details.parking_spaces integer. "
+            "Parking space is free text or a whole number in property_details.parking_spaces. "
             "Pricing accepts price, service_charge, and maintenance_fee with currency codes "
             "(JOD, USD, GBP, INR; default JOD). Drafts preserve entered amounts/currencies; "
             "submit converts all pricing amounts to JOD using live exchange rates. "

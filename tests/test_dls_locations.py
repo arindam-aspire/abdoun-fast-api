@@ -56,6 +56,26 @@ def test_sect_level_requires_full_parent_path() -> None:
     assert exc_info.value.detail["details"][0]["field"] == "hod_code"
 
 
+def test_parcel_dropdown_returns_name_and_dls_number() -> None:
+    db = MagicMock()
+    db.execute.return_value.all.return_value = [("4", "عرجان")]
+    result = list_dls_locations(
+        db,
+        level="parcel_name",
+        gov_code="1",
+        dept_code="1",
+        vill_code="1",
+    )
+    item = result["items"][0]
+    assert result["level"] == "hod"
+    assert item["code"] == "4"
+    assert item["name"] == "عرجان"
+    assert item["parcel_name"] == "عرجان"
+    assert item["parcel_number"] == "4"
+    assert item["hod_code"] == "4"
+    assert item["gov_code"] == "1"
+
+
 def test_serialize_dls_item_includes_parent_codes() -> None:
     item = serialize_dls_item("dept", ("11", "Amman Lands"), parents={"gov_code": "1"})
     assert item == {

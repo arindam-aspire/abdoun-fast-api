@@ -21,6 +21,7 @@ from app.schemas.auth import (
     SignInWithOtpRequest,
     SignInWithOtpVerifyRequest,
     SignUpRequest,
+    SocialLoginRequest,
     VerifyPhoneOtpRequest,
 )
 from app.services.auth import (
@@ -45,6 +46,7 @@ from app.services.auth import (
     verify_refresh_token,
 )
 from app.core.security import hash_secret, verify_secret
+from app.services.social_auth import authenticate_social, exchange_cognito_authorization_code
 from app.services.phone_verification import (
     apply_profile_phone_number,
     begin_profile_phone_change,
@@ -75,6 +77,30 @@ def login_with_password(payload: SignInRequest, db: DBSessionDep) -> dict:
         tokens,
         "Signed in successfully",
     )
+
+
+@router.post("/login/social")
+def login_with_social(payload: SocialLoginRequest, db: DBSessionDep) -> dict:
+    """Sign in, or create, a User or Owner account from a validated Cognito identity."""
+    id_token = payload.id_token
+    access_token = payload.access_token
+    if (payload.code or "").strip():
+        id_token = exchange_cognito_authorization_code(
+            code=payload.code or "",
+            code_verifier=payload.code_verifier or "",
+            redirect_uri=payload.redirect_uri or "",
+        )
+        access_token = None
+    user, role_name = authenticate_social(
+        db,
+        provider=payload.provider,
+        id_token=id_token,
+        access_token=access_token,
+        role=payload.role,
+    )
+    tokens = create_auth_tokens(db, user, role_name=role_name)
+    db.commit()
+    return success_response(tokens, "Signed in successfully")
 
 
 @router.post("/login/otp/request")

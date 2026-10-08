@@ -490,13 +490,24 @@ class PropertyView(Base):
 
 
 class SocialAccount(Base):
+    """External provider identity for an MLS user. Email is not the provider key."""
+
     __tablename__ = "social_accounts"
+    __table_args__ = (
+        UniqueConstraint(
+            "provider",
+            "provider_user_id",
+            name="uq_social_accounts_provider_provider_user_id",
+        ),
+        Index("ix_social_accounts_user_id", "user_id"),
+    )
 
     id: Mapped[Any] = mapped_column(UUID(as_uuid=True), primary_key=True, nullable=False)
     user_id: Mapped[Any] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     provider: Mapped[Any] = mapped_column(String(32), nullable=False)
     provider_user_id: Mapped[Any] = mapped_column(String(255), nullable=False)
     created_at: Mapped[Any] = mapped_column(DateTime, nullable=False, server_default=text("now()"))
+    updated_at: Mapped[Any] = mapped_column(DateTime, nullable=False, server_default=text("now()"))
 
 
 class UserPropertyFavorite(Base):

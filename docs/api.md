@@ -137,6 +137,35 @@ All paths in this section start with `/api/v1/auth`.
 - Errors: `401 Invalid credentials`; `403` when an agent profile is not `ACTIVE`; `422` invalid body.
 - Integration: store the access and refresh tokens client-side. `rememberMe` does not alter backend behavior.
 
+### `POST /api/v1/auth/login/social`
+
+- Purpose: sign in an existing Google, Facebook, or Apple identity, or create a `registered_user` / `owner` account when that provider identity is new.
+- Auth: public. The backend validates the token. Client profile fields and the requested role are not authorization.
+- Body:
+  - `provider` (string, required): `google`, `facebook`, or `apple`.
+  - `code`, `code_verifier`, `redirect_uri` (strings): Cognito hosted-UI authorization code from the website callback. The API exchanges the code at the Cognito token endpoint and then validates the ID token. `redirect_uri` must be `/{locale}/auth/social/callback`.
+  - `id_token` (string): Cognito ID token issued after Google or Facebook federation. Cognito tokens are validated with the Cognito issuer, JWKS, audience, expiration, and `token_use=id`. The provider is taken from the Cognito `identities` claim (or `cognito:username` when that claim is absent) and must match `provider`. A Google or Facebook token that was not issued by Cognito is rejected. Apple may send either a Cognito ID token or an Apple identity token in this field. Omit this when `code` is sent.
+  - `access_token` (string, optional): accepted only when it is a Cognito ID token and `id_token` is omitted. Facebook user access tokens are not accepted.
+  - `role` (string, optional): `registered_user`, `user`, `owner`, or `property_owner`. Required when neither the provider identity nor the Cognito subject is already mapped. An existing account keeps the database role. Requesting the other consumer role does not change it and does not grant that role.
+- Success `200`: same token bundle as password login. Message: `Signed in successfully`. The access token roles are the persisted application roles. Call `GET /auth/me` for the application user.
+- Account rules:
+  - Provider identity is `social_accounts.provider` + `social_accounts.provider_user_id`, not the email address. For Cognito federation, `provider_user_id` is the identity-provider `userId`, and `users.cognito_sub` stores the Cognito subject.
+  - An existing Cognito subject with no social-account row is linked to that application user. A Cognito subject with no application user creates one.
+  - A provider email that already belongs to a different MLS account returns `409` with code `SOCIAL_EMAIL_ALREADY_REGISTERED`. The accounts are not merged.
+  - New accounts are created through the existing user registration path with only `registered_user` or `owner`.
+  - `agent`, `admin` / agency admin, and `super_admin` cannot be created or selected. Accounts that already have those roles cannot use social sign-in.
+  - Google sign-up requires `email_verified` in the Cognito token. Facebook does not assert that claim, so a Facebook email present in the validated Cognito token can create an account. Social sign-in never sets `is_phone_verified`.
+  - Social sign-in does not create a Cognito password user. Session tokens are the existing application JWTs, including refresh tokens used by `POST /auth/refresh`. Authorization dependencies treat those tokens the same way as password-login tokens.
+- Cognito configuration: `COGNITO_USER_POOL_ID`, `COGNITO_APP_CLIENT_ID`, and `COGNITO_REGION` (or `COGNITO_ISSUER` / `COGNITO_JWKS_URL`). Identity-provider names come from `COGNITO_GOOGLE_PROVIDER_NAMES` and `COGNITO_FACEBOOK_PROVIDER_NAMES`. The user pool must federate Google and Facebook and map `email` and `name` into the ID token. Google should also map `email_verified`.
+- Errors:
+  - `400` `SOCIAL_ROLE_REQUIRED`, `SOCIAL_PROFILE_INCOMPLETE`, `SOCIAL_EMAIL_NOT_VERIFIED`, `SOCIAL_PROVIDER_UNSUPPORTED`, `SOCIAL_TOKEN_MISSING`.
+  - `401` `SOCIAL_TOKEN_INVALID`, `SOCIAL_TOKEN_EXPIRED`, `SOCIAL_COGNITO_TOKEN_REQUIRED`, `SOCIAL_ACCOUNT_UNAVAILABLE`.
+  - `403` `SOCIAL_ROLE_NOT_ALLOWED`.
+  - `409` `SOCIAL_EMAIL_ALREADY_REGISTERED`, `SOCIAL_IDENTITY_CONFLICT`.
+  - `503` `SOCIAL_PROVIDER_NOT_CONFIGURED`, `SOCIAL_PROVIDER_UNAVAILABLE`.
+  - `422` when `provider` or both token fields are missing.
+- Configuration: Google and Facebook use the Cognito user pool, app client, issuer, and JWKS settings. They do not use a Google or Facebook client secret on this API. Apple identity tokens use `APPLE_OAUTH_CLIENT_IDS` and the Apple JWKS URL when the token was not issued by Cognito.
+
 ### `POST /api/v1/auth/login/otp/request`
 
 - Purpose: create a passwordless-login OTP challenge.

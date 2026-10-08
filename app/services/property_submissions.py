@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import logging
 import math
-import re
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 from typing import Any, NoReturn
@@ -41,7 +40,7 @@ from app.services.property_reference_numbers import (
 )
 from app.services.property_taxonomy import LAND_IGNORED_IDENTIFICATION_KEYS, RETIRED_IDENTIFICATION_KEYS
 from app.services.property_workflow_config import get_property_workflow_config
-from app.services.property_options import coerce_option_input, resolve_property_option
+from app.services.property_options import resolve_property_option
 from app.services.user_agencies import (
     REL_AGENT,
     REL_PROPERTY_OWNER,
@@ -707,28 +706,7 @@ PARKING_SPACE_KEYS = (
     "parking",
 )
 MAX_PARKING_SPACES = 9999
-LEGACY_PARKING_TOKENS = {
-    "none": 0,
-    "no": 0,
-    "zero": 0,
-    "unavailable": 0,
-    "not-available": 0,
-    "not-applicable": 0,
-    "na": 0,
-    "n-a": 0,
-    "available": 1,
-    "yes": 1,
-    "one": 1,
-    "two": 2,
-    "three": 3,
-    "four": 4,
-    "five": 5,
-    "six": 6,
-    "seven": 7,
-    "eight": 8,
-    "nine": 9,
-    "ten": 10,
-}
+MAX_PARKING_TEXT_LENGTH = 255
 
 PARCEL_IDENTIFIER_FIELDS = (
     "apartment_number",
@@ -851,50 +829,28 @@ def _same_user(left: Any, right: Any) -> bool:
     return str(left) == str(right)
 
 
-def _parking_token(value: Any) -> str:
-    return re.sub(r"[\s_]+", "-", str(value or "").strip().casefold()).strip("-")
-
-
-def _parse_parking_spaces(value: Any) -> int | None:
-    """Coerce dropdown leftovers or manual input into a parking-space count.
-
-    Option-value ``id`` values are never treated as a space count — only explicit
-    numeric fields, legacy labels/slugs, or digit strings are accepted.
-    """
+def _coerce_parking_value(value: Any) -> int | str | None:
+    """Store a whole-number count or free text. Option ids are not parking values."""
     if isinstance(value, dict):
-        for key in ("numeric_value", "numericValue", "value", "name", "slug", "label"):
+        for key in ("value", "name", "label", "slug", "text"):
             if value.get(key) not in (None, ""):
-                parsed = _parse_parking_spaces(value[key])
-                if parsed is not None:
-                    return parsed
-        return None
-    if isinstance(value, (list, tuple, set)):
-        items = [item for item in value if item not in (None, "")]
-        if len(items) == 1:
-            return _parse_parking_spaces(items[0])
+                return _coerce_parking_value(value[key])
         return None
     if isinstance(value, bool) or value in (None, ""):
         return None
     if isinstance(value, int):
         return value
     if isinstance(value, float):
-        if not value.is_integer():
-            return None
-        return int(value)
-    coerced = coerce_option_input(value)
-    if coerced is not value and not isinstance(coerced, int):
-        parsed = _parse_parking_spaces(coerced)
-        if parsed is not None:
-            return parsed
-    token = _parking_token(value)
-    if token in LEGACY_PARKING_TOKENS:
-        return LEGACY_PARKING_TOKENS[token]
-    if token.isdigit():
-        return int(token)
-    match = re.search(r"\d+", str(value))
-    if match:
-        return int(match.group(0))
-    return None
+        if value.is_integer():
+            return int(value)
+        text = str(value).strip()
+        return text or None
+    text = str(value).strip()
+    if not text:
+        return None
+    if text.isdigit() or (text[0] == "-" and text[1:].isdigit()):
+        return int(text)
+    return text
 
 
 def _apply_parking_spaces(details: dict[str, Any], *, strict: bool) -> dict[str, Any]:
@@ -904,23 +860,41 @@ def _apply_parking_spaces(details: dict[str, Any], *, strict: bool) -> dict[str,
             details.pop(key, None)
         return details
     raw_value = details.get(supplied_key)
-    parsed = _parse_parking_spaces(raw_value)
+    if isinstance(raw_value, (list, tuple, set)):
+        if strict:
+            _property_field_error(
+                field="property_details.parking_spaces",
+                code="invalid_type",
+                message="Parking space must be a single text value",
+            )
+        for key in PARKING_SPACE_KEYS:
+            details.pop(key, None)
+        return details
+    parsed = _coerce_parking_value(raw_value)
     if parsed is None:
         if strict:
             _property_field_error(
                 field="property_details.parking_spaces",
                 code="invalid_value",
-                message="Parking space must be a whole number of 0 or more",
+                message="Parking space must be text or a whole number of 0 or more",
             )
         for key in PARKING_SPACE_KEYS:
             details.pop(key, None)
         return details
-    if parsed < 0 or parsed > MAX_PARKING_SPACES:
+    if isinstance(parsed, int) and (parsed < 0 or parsed > MAX_PARKING_SPACES):
         _property_field_error(
             field="property_details.parking_spaces",
             code="invalid_value",
             message=f"Parking space must be between 0 and {MAX_PARKING_SPACES}",
         )
+    if isinstance(parsed, str) and len(parsed) > MAX_PARKING_TEXT_LENGTH:
+        if strict:
+            _property_field_error(
+                field="property_details.parking_spaces",
+                code="max_length",
+                message=f"Parking space must not exceed {MAX_PARKING_TEXT_LENGTH} characters",
+            )
+        parsed = parsed[:MAX_PARKING_TEXT_LENGTH]
     details["parking_spaces"] = parsed
     details["parkingSpaces"] = parsed
     details["parking_space"] = parsed
@@ -1158,6 +1132,67 @@ def property_option_ids_from_payload(
     return furnishing_status_id, floor_id, land_type_id
 
 
+def _supplied_furnishing_values(details: dict[str, Any]) -> list[Any] | None:
+    """Return selected furnishing values, or None when the client did not send the field.
+
+    A list is the multi-select payload. A scalar remains the legacy single selection.
+    When both are present, the list is the source of truth.
+    """
+    supplied = False
+    list_values: list[Any] = []
+    scalar: Any = None
+    for key in (*FURNISHING_OPTION_KEYS, "furnishing_statuses", "furnishingStatuses", "furnishing_status_ids", "furnishingStatusIds"):
+        if key not in details:
+            continue
+        raw = details.get(key)
+        if raw in (None, ""):
+            continue
+        supplied = True
+        if isinstance(raw, (list, tuple, set)):
+            list_values.extend(item for item in raw if item not in (None, ""))
+        elif scalar is None:
+            scalar = raw
+    if not supplied:
+        return None
+    if list_values:
+        return list_values
+    if scalar is None:
+        return []
+    return [scalar]
+
+
+def _resolve_furnishing_statuses(db: Session, values: list[Any]) -> list[Any]:
+    resolved: list[Any] = []
+    seen_ids: set[int] = set()
+    for value in values:
+        option = resolve_property_option(
+            db,
+            group="furnishing_status",
+            value=value,
+            field="property_details.furnishing_status",
+        )
+        if option.id in seen_ids:
+            continue
+        seen_ids.add(option.id)
+        resolved.append(option)
+    return resolved
+
+
+def _write_furnishing_statuses(details: dict[str, Any], options: list[Any]) -> None:
+    slugs = [option.slug for option in options]
+    ids = [option.id for option in options]
+    primary = options[0]
+    details["furnishing_statuses"] = slugs
+    details["furnishingStatuses"] = slugs
+    details["furnishing_status_ids"] = ids
+    details["furnishingStatusIds"] = ids
+    details["furnishing"] = primary.slug
+    details["furnishing_status"] = primary.slug
+    details["furnishingStatus"] = primary.slug
+    details["furnishing_status_id"] = primary.id
+    details["furnishingStatusId"] = primary.id
+
+
 def stored_furnishing_status_id(
     submission: PropertyListingSubmission,
     payload: dict[str, Any] | None = None,
@@ -1169,6 +1204,27 @@ def stored_furnishing_status_id(
         payload if payload is not None else getattr(submission, "payload", None)
     )
     return furnishing_status_id
+
+
+def stored_furnishing_status_ids(
+    submission: PropertyListingSubmission,
+    payload: dict[str, Any] | None = None,
+) -> list[int]:
+    data = payload if payload is not None else getattr(submission, "payload", None)
+    details = _property_details_dict(data)
+    raw = details.get("furnishing_status_ids")
+    if not isinstance(raw, list):
+        raw = details.get("furnishingStatusIds")
+    ids: list[int] = []
+    if isinstance(raw, list):
+        for item in raw:
+            parsed = _optional_int(item)
+            if parsed is not None and parsed not in ids:
+                ids.append(parsed)
+    if ids:
+        return ids
+    single = stored_furnishing_status_id(submission, data)
+    return [single] if single is not None else []
 
 
 def stored_floor_id(
@@ -1533,21 +1589,13 @@ def _normalize_property_details(db: Session, payload: dict[str, Any]) -> dict[st
                     details.pop(alias, None)
             details[storage_key] = option.slug
 
-    furnishing_key = _first_supplied_key(details, FURNISHING_OPTION_KEYS)
-    if furnishing_key:
-        furnishing = resolve_property_option(
-            db,
-            group="furnishing_status",
-            value=details[furnishing_key],
-            field=f"property_details.{furnishing_key}",
-        )
-        for key in FURNISHING_OPTION_KEYS:
+    furnishing_values = _supplied_furnishing_values(details)
+    if furnishing_values is not None:
+        for key in (*FURNISHING_OPTION_KEYS, "furnishing_statuses", "furnishingStatuses", "furnishing_status_ids", "furnishingStatusIds"):
             details.pop(key, None)
-        details["furnishing"] = furnishing.slug
-        details["furnishing_status"] = furnishing.slug
-        details["furnishingStatus"] = furnishing.slug
-        details["furnishing_status_id"] = furnishing.id
-        details["furnishingStatusId"] = furnishing.id
+        resolved_furnishings = _resolve_furnishing_statuses(db, furnishing_values)
+        if resolved_furnishings:
+            _write_furnishing_statuses(details, resolved_furnishings)
 
     floor_key = _first_supplied_key(details, FLOOR_OPTION_KEYS)
     if floor_key:
@@ -1778,8 +1826,7 @@ def prepare_property_payload(
     normalized = _normalize_primary_images(normalized)
     _validate_feature_ids(db, normalized)
     _validate_and_enrich_owners(db, normalized)
-    apply_applicable_pricing(normalized)
-    return normalized
+    return apply_applicable_pricing(normalized)
 
 
 def prepare_property_contact_fields(payload: dict[str, Any] | None) -> dict[str, Any]:
@@ -2006,69 +2053,104 @@ def validate_pricing(payload: dict[str, Any] | None, *, for_submit: bool = False
         return
     basic = (payload or {}).get("basic_information") or {}
     details = (payload or {}).get("property_details") or {}
-    purpose = basic.get("listing_purpose")
-    furnishing = (
-        details.get("furnishing")
-        or details.get("furnishing_status")
-        or details.get("furnishingStatus")
-        or details.get("furniture_status")
-    )
-    if not purpose or not furnishing:
+    purpose = basic.get("listing_purpose") if isinstance(basic, dict) else None
+    furnishing_values = _selected_furnishing_values(details if isinstance(details, dict) else {})
+    if not purpose or not furnishing_values:
+        return
+    if pricing.get("price") is not None:
         return
 
-    legacy_price_present = pricing.get("price") is not None
-    furnishing_key = str(furnishing).replace("-", "_")
-    sale_field = {
-        "furnished": "furnished_sale_price",
-        "unfurnished": "unfurnished_sale_price",
-    }.get(furnishing_key)
-    rent_field = {
-        "furnished": "furnished_rent_price",
-        "unfurnished": "unfurnished_rent_price",
-        "semi_furnished": "semi_furnished_rent_price",
-    }.get(furnishing_key)
-
-    if purpose in {"sale", "sale_or_rent"}:
-        has_sale_price = legacy_price_present or (
-            pricing.get(sale_field) is not None if sale_field else any(pricing.get(field) is not None for field in SALE_PRICE_FIELDS)
+    required_fields: list[str] = []
+    unmapped_sale = False
+    unmapped_rent = False
+    for value in furnishing_values:
+        furnishing_key = _furnishing_price_key(value)
+        if purpose in {"sale", "sale_or_rent"}:
+            sale_field = _SALE_PRICE_BY_FURNISHING.get(furnishing_key)
+            if sale_field:
+                required_fields.append(sale_field)
+            else:
+                unmapped_sale = True
+        if purpose in {"rent", "sale_or_rent"}:
+            rent_field = _RENT_PRICE_BY_FURNISHING.get(furnishing_key)
+            if rent_field:
+                required_fields.append(rent_field)
+            else:
+                unmapped_rent = True
+    for field in dict.fromkeys(required_fields):
+        if pricing.get(field) is None:
+            _property_field_error(
+                field=f"pricing.{field}",
+                code="missing_required_field",
+                message=(
+                    "A rent price matching the furnishing status is required"
+                    if field in RENT_PRICE_FIELDS
+                    else "A sale price matching the furnishing status is required"
+                ),
+            )
+    if unmapped_sale and not any(pricing.get(field) is not None for field in SALE_PRICE_FIELDS):
+        _property_field_error(
+            field="pricing.sale_price",
+            code="missing_required_field",
+            message="A sale price matching the furnishing status is required",
         )
-        if not has_sale_price:
-            _property_field_error(
-                field=f"pricing.{sale_field or 'sale_price'}",
-                code="missing_required_field",
-                message="A sale price matching the furnishing status is required",
-            )
-    if purpose in {"rent", "sale_or_rent"}:
-        has_rent_price = legacy_price_present or (rent_field is not None and pricing.get(rent_field) is not None)
-        if not has_rent_price:
-            _property_field_error(
-                field=f"pricing.{rent_field or 'rent_price'}",
-                code="missing_required_field",
-                message="A rent price matching the furnishing status is required",
-            )
+    if unmapped_rent and not any(pricing.get(field) is not None for field in RENT_PRICE_FIELDS):
+        _property_field_error(
+            field="pricing.rent_price",
+            code="missing_required_field",
+            message="A rent price matching the furnishing status is required",
+        )
 
 
 def _furnishing_price_key(furnishing: Any) -> str:
     return str(furnishing or "").strip().lower().replace("-", "_").replace(" ", "_")
 
 
+def _selected_furnishing_values(details: dict[str, Any]) -> list[Any]:
+    for key in ("furnishing_statuses", "furnishingStatuses"):
+        raw = details.get(key)
+        if isinstance(raw, list) and any(item not in (None, "") for item in raw):
+            return [item for item in raw if item not in (None, "")]
+    raw = (
+        details.get("furnishing")
+        or details.get("furnishing_status")
+        or details.get("furnishingStatus")
+        or details.get("furniture_status")
+    )
+    if isinstance(raw, (list, tuple, set)):
+        return [item for item in raw if item not in (None, "")]
+    if raw in (None, ""):
+        return []
+    return [raw]
+
+
+_SALE_PRICE_BY_FURNISHING = {
+    "furnished": "furnished_sale_price",
+    "unfurnished": "unfurnished_sale_price",
+    "semi_furnished": "unfurnished_sale_price",
+}
+_RENT_PRICE_BY_FURNISHING = {
+    "furnished": "furnished_rent_price",
+    "unfurnished": "unfurnished_rent_price",
+    "semi_furnished": "semi_furnished_rent_price",
+}
+
+
 def applicable_price_fields(purpose: Any, furnishing: Any) -> tuple[str, ...]:
-    furnishing_key = _furnishing_price_key(furnishing)
-    sale_field = {
-        "furnished": "furnished_sale_price",
-        "unfurnished": "unfurnished_sale_price",
-        "semi_furnished": "unfurnished_sale_price",
-    }.get(furnishing_key)
-    rent_field = {
-        "furnished": "furnished_rent_price",
-        "unfurnished": "unfurnished_rent_price",
-        "semi_furnished": "semi_furnished_rent_price",
-    }.get(furnishing_key)
+    values = list(furnishing) if isinstance(furnishing, (list, tuple, set)) else [furnishing]
     fields: list[str] = []
-    if purpose in {"sale", "sale_or_rent"} and sale_field:
-        fields.append(sale_field)
-    if purpose in {"rent", "sale_or_rent"} and rent_field:
-        fields.append(rent_field)
+    for value in values:
+        furnishing_key = _furnishing_price_key(value)
+        if not furnishing_key:
+            continue
+        if purpose in {"sale", "sale_or_rent"}:
+            sale_field = _SALE_PRICE_BY_FURNISHING.get(furnishing_key)
+            if sale_field:
+                fields.append(sale_field)
+        if purpose in {"rent", "sale_or_rent"}:
+            rent_field = _RENT_PRICE_BY_FURNISHING.get(furnishing_key)
+            if rent_field:
+                fields.append(rent_field)
     return tuple(dict.fromkeys(fields))
 
 
@@ -2081,17 +2163,10 @@ def apply_applicable_pricing(payload: dict[str, Any] | None) -> dict[str, Any]:
     basic = normalized.get("basic_information") or {}
     details = normalized.get("property_details") or {}
     purpose = basic.get("listing_purpose") if isinstance(basic, dict) else None
-    furnishing = None
-    if isinstance(details, dict):
-        furnishing = (
-            details.get("furnishing")
-            or details.get("furnishing_status")
-            or details.get("furnishingStatus")
-            or details.get("furniture_status")
-        )
-    if not purpose or not furnishing:
+    furnishing_values = _selected_furnishing_values(details if isinstance(details, dict) else {})
+    if not purpose or not furnishing_values:
         return normalized
-    allowed = set(applicable_price_fields(purpose, furnishing))
+    allowed = set(applicable_price_fields(purpose, furnishing_values))
     pricing = dict(pricing)
     for field in (*SALE_PRICE_FIELDS, *RENT_PRICE_FIELDS):
         if field not in allowed:
@@ -2327,6 +2402,7 @@ def serialize_submission(submission: PropertyListingSubmission) -> dict:
     readable_payload, _ = apply_show_location_to_payload(with_readable_media_urls(payload), show_location)
     readable_payload = write_payload_reference_number(readable_payload, reference_number)
     furnishing_status_id = stored_furnishing_status_id(submission, payload)
+    furnishing_status_ids = stored_furnishing_status_ids(submission, payload)
     floor_id = stored_floor_id(submission, payload)
     land_type_id = stored_land_type_id(submission, payload)
     readable_payload = apply_property_option_ids_to_payload(
@@ -2343,7 +2419,16 @@ def serialize_submission(submission: PropertyListingSubmission) -> dict:
     details = readable_payload.get("property_details")
     if isinstance(details, dict):
         readable_payload = dict(readable_payload)
-        readable_payload["property_details"] = _apply_parking_spaces(dict(details), strict=False)
+        details = _apply_parking_spaces(dict(details), strict=False)
+        if furnishing_status_ids and not details.get("furnishing_status_ids"):
+            details["furnishing_status_ids"] = furnishing_status_ids
+            details["furnishingStatusIds"] = furnishing_status_ids
+        if furnishing_status_ids and not details.get("furnishing_statuses"):
+            primary_slug = details.get("furnishing_status") or details.get("furnishing") or details.get("furnishingStatus")
+            if len(furnishing_status_ids) == 1 and primary_slug not in (None, ""):
+                details["furnishing_statuses"] = [primary_slug]
+                details["furnishingStatuses"] = [primary_slug]
+        readable_payload["property_details"] = details
     return {
         "submission_id": str(submission.id),
         "submitted_by": str(submission.submitted_by),
@@ -2356,6 +2441,7 @@ def serialize_submission(submission: PropertyListingSubmission) -> dict:
         "show_location": show_location,
         "reference_number": reference_number,
         "furnishing_status_id": furnishing_status_id,
+        "furnishing_status_ids": furnishing_status_ids,
         "floor_id": floor_id,
         "land_type_id": land_type_id,
         "payload": readable_payload,
