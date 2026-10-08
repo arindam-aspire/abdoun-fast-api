@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.models.live_schema import User, UserProfileChangeChallenge
 from app.services.auth import (
+    SIGNUP_EMAIL_PURPOSE,
     create_otp_challenge,
     get_user_or_404,
     otp_remaining_minutes,
@@ -274,18 +275,27 @@ def _pending_phone_matches(submitted: str, current: str | None, pending: str) ->
     return submitted.startswith(pending) or pending.startswith(submitted)
 
 
-def issue_signup_phone_otp(db: Session, *, user: User) -> None:
+def issue_signup_phone_otp(
+    db: Session,
+    *,
+    user: User,
+    excluded_otps: set[str] | None = None,
+) -> None:
     phone = user.phone_number if isinstance(user.phone_number, str) else None
     if not phone or not phone.strip() or user.is_phone_verified is True:
         return
-    issue_phone_verification_otp(
+    delivered = issue_phone_verification_otp(
         db,
         user=user,
         phone=require_phone_number(phone),
         purpose=PHONE_VERIFY_PURPOSE,
         enforce_cooldown=True,
         require_delivery=False,
+        excluded_otps=excluded_otps,
+        avoid_purposes=(SIGNUP_EMAIL_PURPOSE,),
     )
+    if delivered:
+        logger.info("Signup phone OTP generated successfully for user %s", user.id)
 
 
 def issue_phone_verification_otp(
@@ -296,7 +306,9 @@ def issue_phone_verification_otp(
     purpose: str,
     enforce_cooldown: bool,
     require_delivery: bool,
-) -> None:
+    excluded_otps: set[str] | None = None,
+    avoid_purposes: tuple[str, ...] = (),
+) -> bool:
     settings = get_settings()
     latest = _latest_otp_challenge(db, user_id=user.id, purpose=purpose)
     if enforce_cooldown and _within_cooldown(latest, settings.auth_otp_resend_cooldown_seconds):
@@ -313,10 +325,17 @@ def issue_phone_verification_otp(
         )
 
     _invalidate_open_challenges(db, user_id=user.id, purposes=(purpose,))
-    challenge, otp = create_otp_challenge(db, user=user, purpose=purpose, new_value=phone)
+    challenge, otp = create_otp_challenge(
+        db,
+        user=user,
+        purpose=purpose,
+        new_value=phone,
+        excluded_otps=excluded_otps,
+        avoid_purposes=avoid_purposes,
+    )
     delivered = _deliver_phone_otp(phone=phone, otp=otp, challenge=challenge)
     if delivered:
-        return
+        return True
     challenge.consumed_at = utc_now()
     db.flush()
     logger.warning("phone_otp_not_delivered to=%s", mask_phone(phone))
@@ -325,6 +344,7 @@ def issue_phone_verification_otp(
             status_code=STATUS_SERVICE_UNAVAILABLE,
             detail="Unable to send verification code",
         )
+    return False
 
 
 def resolve_phone_otp_subject(

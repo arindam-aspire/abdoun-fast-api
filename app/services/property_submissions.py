@@ -1077,16 +1077,6 @@ def _section_text(section: dict[str, Any] | None, *keys: str) -> str:
     return ""
 
 
-def _parcel_lookup_value(payload: dict[str, Any], *keys: str) -> str:
-    details = payload.get("property_details") if isinstance(payload.get("property_details"), dict) else {}
-    location = payload.get("location") if isinstance(payload.get("location"), dict) else {}
-    return _section_text(details, *keys) or _section_text(location, *keys)
-
-
-def _json_text_equals(path: tuple[str, ...], value: str):
-    return PropertyListingSubmission.payload.op("#>>")("{" + ",".join(path) + "}") == value
-
-
 def _normalize_owner_identification(owner: dict[str, Any]) -> dict[str, Any]:
     normalized = dict(owner)
     identification = next(
@@ -2280,101 +2270,21 @@ def validate_duplicate_property(
     *,
     exclude_submission_id: UUID | None = None,
 ) -> None:
-    """Block exact matches on official parcel identifiers or established physical IDs."""
-    data = payload or {}
-    details = data.get("property_details") or {}
-    location = data.get("location") or {}
-    if not isinstance(details, dict) and not isinstance(location, dict):
+    """Reject a listing that reuses another property's reference number.
+
+    Parcel numbers, plot numbers, apartment numbers, and other identification
+    fields may be shared across listings.
+    """
+    reference = stored_reference_number(None, payload)
+    if not reference:
         return
-
-    conditions = []
-    village = _parcel_lookup_value(data, "vill_code", "vill_name")
-    hod = _parcel_lookup_value(data, "hod_code", "hod_name", "basin_number")
-    parcel = _parcel_lookup_value(data, "parcel_number", "plot_number")
-    if village and hod and parcel:
-        village_match = or_(
-            _json_text_equals(("property_details", "vill_code"), village),
-            _json_text_equals(("property_details", "vill_name"), village),
-            _json_text_equals(("location", "vill_code"), village),
-            _json_text_equals(("location", "vill_name"), village),
-        )
-        hod_match = or_(
-            _json_text_equals(("property_details", "hod_code"), hod),
-            _json_text_equals(("property_details", "hod_name"), hod),
-            _json_text_equals(("property_details", "basin_number"), hod),
-            _json_text_equals(("location", "hod_code"), hod),
-            _json_text_equals(("location", "hod_name"), hod),
-            _json_text_equals(("location", "basin_number"), hod),
-        )
-        parcel_match = or_(
-            _json_text_equals(("property_details", "parcel_number"), parcel),
-            _json_text_equals(("property_details", "plot_number"), parcel),
-            _json_text_equals(("location", "parcel_number"), parcel),
-            _json_text_equals(("location", "plot_number"), parcel),
-        )
-        dls_match = village_match & hod_match & parcel_match
-        gov_code = _parcel_lookup_value(data, "gov_code", "government_code")
-        if gov_code:
-            dls_match = dls_match & or_(
-                _json_text_equals(("property_details", "gov_code"), gov_code),
-                _json_text_equals(("property_details", "government_code"), gov_code),
-                _json_text_equals(("location", "gov_code"), gov_code),
-                _json_text_equals(("location", "government_code"), gov_code),
-            )
-        dept_code = _parcel_lookup_value(data, "dept_code")
-        if dept_code:
-            dls_match = dls_match & or_(
-                _json_text_equals(("property_details", "dept_code"), dept_code),
-                _json_text_equals(("location", "dept_code"), dept_code),
-            )
-        sect_code = _parcel_lookup_value(data, "sect_code")
-        if sect_code:
-            dls_match = dls_match & or_(
-                _json_text_equals(("property_details", "sect_code"), sect_code),
-                _json_text_equals(("location", "sect_code"), sect_code),
-            )
-        conditions.append(dls_match)
-
-    plot_number = _parcel_lookup_value(data, "plot_number")
-    hod_or_basin = _parcel_lookup_value(data, "hod_code", "basin_number")
-    if plot_number and hod_or_basin:
-        conditions.append(
-            (
-                or_(
-                    _json_text_equals(("property_details", "plot_number"), plot_number),
-                    _json_text_equals(("location", "plot_number"), plot_number),
-                )
-            )
-            & (
-                or_(
-                    _json_text_equals(("property_details", "hod_code"), hod_or_basin),
-                    _json_text_equals(("property_details", "basin_number"), hod_or_basin),
-                    _json_text_equals(("location", "hod_code"), hod_or_basin),
-                    _json_text_equals(("location", "basin_number"), hod_or_basin),
-                )
-            )
-        )
-
-    apartment_number = _parcel_lookup_value(data, "apartment_number")
-    city_id = str((location if isinstance(location, dict) else {}).get("city_id") or "").strip()
-    area_id = str((location if isinstance(location, dict) else {}).get("area_id") or "").strip()
-    if apartment_number and city_id and area_id:
-        conditions.append(
-            (
-                or_(
-                    _json_text_equals(("property_details", "apartment_number"), apartment_number),
-                    _json_text_equals(("location", "apartment_number"), apartment_number),
-                )
-            )
-            & (_json_text_equals(("location", "city_id"), city_id))
-            & (_json_text_equals(("location", "area_id"), area_id))
-        )
-
-    if not conditions:
-        return
+    payload_ref = PropertyListingSubmission.payload.op("#>>")("{property_details,reference_number}")
     stmt = select(PropertyListingSubmission.id).where(
         PropertyListingSubmission.deleted_at.is_(None),
-        or_(*conditions),
+        or_(
+            PropertyListingSubmission.reference_number == reference,
+            payload_ref == reference,
+        ),
     )
     if exclude_submission_id is not None:
         stmt = stmt.where(PropertyListingSubmission.id != exclude_submission_id)
@@ -2383,12 +2293,12 @@ def validate_duplicate_property(
         raise_api_error(
             status_code=STATUS_CONFLICT,
             code="DUPLICATE_PROPERTY",
-            message="A property with the same identification details already exists",
+            message="A property with the same reference number already exists",
             details=[
                 {
-                    "field": "property_details",
-                    "code": "duplicate_property",
-                    "message": "Official parcel identifiers match an existing property",
+                    "field": "property_details.reference_number",
+                    "code": "duplicate_reference_number",
+                    "message": "Reference number matches an existing property",
                 }
             ],
         )

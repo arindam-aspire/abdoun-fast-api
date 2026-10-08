@@ -80,6 +80,7 @@ class ConfirmSignUpRequest(BaseModel):
 
 class ResendConfirmationRequest(BaseModel):
     email: str
+    channel: str | None = None
 
 
 class SendPhoneOtpRequest(BaseModel):

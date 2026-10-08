@@ -86,24 +86,19 @@ def test_serialize_dls_item_includes_parent_codes() -> None:
     }
 
 
-def test_duplicate_validation_uses_dls_codes_with_parcel() -> None:
-    from uuid import uuid4
-
+def test_duplicate_validation_ignores_dls_codes_and_parcel() -> None:
     db = MagicMock()
-    db.execute.return_value.scalar_one_or_none.return_value = uuid4()
-    with pytest.raises(HTTPException) as exc_info:
-        validate_duplicate_property(
-            db,
-            {
-                "location": {
-                    "gov_code": "1",
-                    "dept_code": "1",
-                    "vill_code": "1",
-                    "hod_code": "2",
-                    "sect_code": "0",
-                    "parcel_number": "44",
-                }
-            },
-        )
-    assert exc_info.value.status_code == 409
-    assert exc_info.value.detail["code"] == "DUPLICATE_PROPERTY"
+    validate_duplicate_property(
+        db,
+        {
+            "location": {
+                "gov_code": "1",
+                "dept_code": "1",
+                "vill_code": "1",
+                "hod_code": "2",
+                "sect_code": "0",
+                "parcel_number": "44",
+            }
+        },
+    )
+    db.execute.assert_not_called()
